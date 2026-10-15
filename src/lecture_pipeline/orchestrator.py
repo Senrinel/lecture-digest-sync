@@ -273,6 +273,30 @@ class LecturePipelineOrchestrator:
         else:
             console.print(f"[dim]⏩ [步驟 5/5] 已完成重點總結，跳過：{notes_md_path.name}[/dim]")
 
+        # 6. Stage: Semi-automatic Google Drive Sync (Optional)
+        drive_cfg = self.config.get("google_drive", {})
+        creds_file = drive_cfg.get("credentials_file", "credentials.json")
+        if Path(creds_file).exists() and not state.is_stage_completed("drive_sync"):
+            console.print("[cyan]☁️ [同步] 正在上傳至 Google Drive 並轉為 Google Docs...[/cyan]")
+            state.mark_stage_start("drive_sync")
+            from lecture_pipeline.publish_drive import GoogleDrivePublisher
+
+            publisher = GoogleDrivePublisher(
+                credentials_file=creds_file,
+                root_folder_name=drive_cfg.get("folder_name", "LectureNotes"),
+            )
+            clean_doc_title = f"{info.course_name}_{info.date_str}_整理全文"
+            notes_doc_title = f"{info.course_name}_{info.date_str}_重點筆記"
+
+            doc1_id = publisher.upload_markdown_as_doc(clean_md_path, clean_doc_title, info.course_name)
+            doc2_id = publisher.upload_markdown_as_doc(notes_md_path, notes_doc_title, info.course_name)
+
+            state.mark_stage_completed("drive_sync", {
+                "clean_doc_id": doc1_id,
+                "notes_doc_id": doc2_id,
+            })
+            console.print(f"  ✅ Drive 同步成功！可在 Gemini Notebook 中從 Google Drive 匯入。")
+
         # 7. Save run variable matrix snapshot
         _save_snapshot("summarize")
 

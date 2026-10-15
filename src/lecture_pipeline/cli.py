@@ -35,6 +35,16 @@ def process(
 
 
 @app.command()
+def watch(
+    config: Path = typer.Option(Path("config.yaml"), "--config", help="設定檔路徑"),
+    stage: str = typer.Option("summarize", "--stage", "-s", help="目標階段 (stt | cleanup | summarize)"),
+):
+    """啟動 inbox/ 目錄自動監看服務 (放進音檔自動觸發整套流程)。"""
+    from lecture_pipeline.watcher import start_watcher
+    start_watcher(config_path=config, target_stage=stage)
+
+
+@app.command()
 def probe():
     """執行 Gemini 模型連線與可用性探測。"""
     import subprocess
