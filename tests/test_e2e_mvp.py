@@ -92,6 +92,7 @@ stt:
     raw_txt_path = orchestrator.process_file(
         audio_path=test_audio,
         channel_id="MOCK",
+        target_stage="stt",
     )
 
     assert raw_txt_path.exists()

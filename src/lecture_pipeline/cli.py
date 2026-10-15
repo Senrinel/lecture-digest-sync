@@ -16,16 +16,22 @@ console = Console()
 def process(
     audio_path: Path = typer.Argument(..., help="欲處理的課堂錄音音檔路徑 (.wav / .mp3)"),
     channel: str = typer.Option("C1", "--channel", "-c", help="使用的 STT 通道 (C1: Gemini Flash, C2: Gemini Transcribe)"),
+    stage: str = typer.Option("summarize", "--stage", "-s", help="執行目標階段 (stt: 僅逐字稿 MVP | cleanup: 逐字稿+整理 | summarize: 全流程含筆記)"),
     hp: str = typer.Option("100Hz", "--hp", help="高通濾波開關 (off | 80Hz | 100Hz | 120Hz)"),
     loud: str = typer.Option("-19LUFS", "--loud", help="響度正規化開關 (off | -16LUFS | -19LUFS | -23LUFS)"),
     dyn: str = typer.Option("off", "--dyn", help="動態音量平衡開關 (off | light | standard)"),
     nr: str = typer.Option("off", "--nr", help="頻譜底噪抑制開關 (off | 6dB | 12dB | 18dB)"),
     config: Path = typer.Option(Path("config.yaml"), "--config", help="設定檔路徑"),
 ):
-    """處理單個課堂錄音音檔 (前處理 -> 切段 -> 轉錄 01_raw.txt)。"""
+    """處理單個課堂錄音音檔。"""
     opts = PreprocessingOptions(hp=hp, loud=loud, dyn=dyn, nr=nr)
     orchestrator = LecturePipelineOrchestrator(config_path=config)
-    orchestrator.process_file(audio_path=audio_path, channel_id=channel, custom_pre_options=opts)
+    orchestrator.process_file(
+        audio_path=audio_path,
+        channel_id=channel,
+        custom_pre_options=opts,
+        target_stage=stage,
+    )
 
 
 @app.command()

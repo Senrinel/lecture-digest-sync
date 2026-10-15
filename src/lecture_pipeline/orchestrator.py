@@ -9,12 +9,17 @@ Executes the pipeline stages:
 """
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import yaml
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
+
+# Ensure .env is loaded
+load_dotenv()
 
 from lecture_pipeline.glossary import load_course_glossary
 from lecture_pipeline.naming import parse_audio_filename
@@ -28,6 +33,7 @@ console = Console()
 
 class LecturePipelineOrchestrator:
     def __init__(self, config_path: str | Path = "config.yaml"):
+        load_dotenv()
         self.config_path = Path(config_path)
         with open(self.config_path, "r", encoding="utf-8") as f:
             self.config = yaml.safe_load(f)
@@ -37,8 +43,9 @@ class LecturePipelineOrchestrator:
         audio_path: str | Path,
         channel_id: Optional[str] = None,
         custom_pre_options: Optional[PreprocessingOptions] = None,
+        target_stage: str = "summarize",  # 'stt' (MVP) | 'cleanup' | 'summarize' (Full)
     ) -> Path:
-        """Processes an audio file through MVP stages (Preprocessing -> Chunking -> STT -> 01_raw.txt)."""
+        """Processes an audio file through specified pipeline stages."""
         input_audio = Path(audio_path).resolve()
         if not input_audio.exists():
             raise FileNotFoundError(f"Input file not found: {input_audio}")
@@ -182,23 +189,92 @@ class LecturePipelineOrchestrator:
             })
 
             console.print(f"  ✅ 語音轉錄完成！共辨識 {len(merged_text)} 字")
-            console.print(f"  📄 逐字稿輸出檔案：[bold yellow]{raw_txt_path}[/bold yellow]")
+            console.print(f"  📄 逐字稿輸出檔案：[bold yellow]{raw_txt_path.name}[/bold yellow]")
         else:
-            console.print(f"[dim]⏩ [步驟 3/3] 已完成語音辨識，跳過：{raw_txt_path.name}[/dim]")
+            console.print(f"[dim]⏩ [步驟 3/5] 已完成語音辨識，跳過：{raw_txt_path.name}[/dim]")
 
-        # 5. Save run variable matrix snapshot
-        run_record = {
-            "run_id": state.run_id,
-            "timestamp": time.time(),
-            "course": info.course_name,
-            "date": info.date_str,
-            "channel": active_channel_id,
-            "preprocessing": pre_opts.to_dict(),
-            "raw_text_path": str(raw_txt_path),
-            "stages": {k: v.duration_sec for k, v in state.stages.items()},
-        }
-        with open(target_work_dir / "run.json", "w", encoding="utf-8") as f:
-            json.dump(run_record, f, indent=2, ensure_ascii=False)
+        # Helper to save run snapshot
+        def _save_snapshot(current_stage: str):
+            record = {
+                "run_id": state.run_id,
+                "timestamp": time.time(),
+                "course": info.course_name,
+                "date": info.date_str,
+                "channel": active_channel_id,
+                "current_stage": current_stage,
+                "preprocessing": pre_opts.to_dict(),
+                "raw_text_path": str(raw_txt_path) if raw_txt_path.exists() else "",
+                "clean_md_path": str(clean_md_path) if clean_md_path.exists() else "",
+                "notes_md_path": str(notes_md_path) if notes_md_path.exists() else "",
+                "stages": {k: v.duration_sec for k, v in state.stages.items()},
+            }
+            with open(target_work_dir / "run.json", "w", encoding="utf-8") as f:
+                json.dump(record, f, indent=2, ensure_ascii=False)
 
-        console.print(f"\n[bold green]🎉 MVP 處理完成！結果已存放至：{target_work_dir}[/bold green]\n")
-        return raw_txt_path
+        clean_md_path = target_work_dir / "02_clean.md"
+        notes_md_path = target_work_dir / "03_notes.md"
+
+        # Check if MVP target stage requested
+        if target_stage.lower() == "stt":
+            _save_snapshot("stt")
+            console.print(f"\n[bold green]🎉 MVP 階段完成！逐字稿：{raw_txt_path}[/bold green]\n")
+            return raw_txt_path
+        cleanup_cfg = self.config.get("cleanup", {})
+
+        if not state.is_stage_completed("cleanup") or not clean_md_path.exists():
+            console.print("[cyan]📝 [步驟 4/5] 執行內文整理 (標點補全、段落劃分、字數守恆安全檢查)...[/cyan]")
+            state.mark_stage_start("cleanup")
+            from lecture_pipeline.cleanup import TranscriptCleaner
+
+            cleaner = TranscriptCleaner(
+                model_name=cleanup_cfg.get("model", "gemini-flash-latest"),
+                prompt_template_path=self.config["paths"]["prompts_dir"] + "/library/" + cleanup_cfg.get("prompt_template", "fabric_clean_text.md"),
+                chunk_chars=int(cleanup_cfg.get("chunk_chars", 8000)),
+                overlap_chars=int(cleanup_cfg.get("overlap_chars", 300)),
+                ratio_min=float(cleanup_cfg.get("length_ratio_min", 0.80)),
+                ratio_max=float(cleanup_cfg.get("length_ratio_max", 1.05)),
+            )
+            cleaner.process_file(raw_txt_path=raw_txt_path, output_md_path=clean_md_path)
+            clean_text = clean_md_path.read_text(encoding="utf-8")
+            state.mark_stage_completed("cleanup", {
+                "clean_md": str(clean_md_path),
+                "total_chars": len(clean_text),
+            })
+            console.print(f"  ✅ 內文整理完成！輸出：[bold yellow]{clean_md_path.name}[/bold yellow] ({len(clean_text)} 字)")
+        else:
+            console.print(f"[dim]⏩ [步驟 4/5] 已完成內文整理，跳過：{clean_md_path.name}[/dim]")
+
+        # 6. Stage: AI Lecture Key-point Summarization (03_notes.md)
+        notes_md_path = target_work_dir / "03_notes.md"
+        sum_cfg = self.config.get("summarize", {})
+
+        if not state.is_stage_completed("summarize") or not notes_md_path.exists():
+            console.print("[cyan]💡 [步驟 5/5] 執行重點總結 (架構化重點筆記、核心定義、考前注意點)...[/cyan]")
+            state.mark_stage_start("summarize")
+            from lecture_pipeline.summarize import LectureSummarizer
+
+            summarizer = LectureSummarizer(
+                model_name=sum_cfg.get("model", "gemini-flash-latest"),
+                template_path=self.config["paths"]["prompts_dir"] + "/library/" + sum_cfg.get("template", "fabric_summarize_lecture.md"),
+                thinking_budget=sum_cfg.get("thinking_budget", 4096),
+            )
+            summarizer.process_file(
+                clean_md_path=clean_md_path,
+                output_notes_path=notes_md_path,
+                course_name=info.course_name,
+                date_str=info.date_str,
+            )
+            notes_text = notes_md_path.read_text(encoding="utf-8")
+            state.mark_stage_completed("summarize", {
+                "notes_md": str(notes_md_path),
+                "total_chars": len(notes_text),
+            })
+            console.print(f"  ✅ 重點總結完成！輸出：[bold yellow]{notes_md_path.name}[/bold yellow]")
+        else:
+            console.print(f"[dim]⏩ [步驟 5/5] 已完成重點總結，跳過：{notes_md_path.name}[/dim]")
+
+        # 7. Save run variable matrix snapshot
+        _save_snapshot("summarize")
+
+        console.print(f"\n[bold green]🎉 全流程處理完成！成果目錄：{target_work_dir}[/bold green]\n")
+        return notes_md_path
