@@ -10,6 +10,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from lecture_pipeline.glossary import load_course_glossary
 from lecture_pipeline.naming import parse_filename
 from lecture_pipeline.preprocess import preprocess_audio
 from lecture_pipeline.state import (
@@ -17,9 +18,12 @@ from lecture_pipeline.state import (
     RunState,
     SegmentationOptions,
     load_config,
+    load_run_state,
     save_run_state,
 )
+from lecture_pipeline.stt import get_stt_channel, save_stt_outputs
 from lecture_pipeline.vad_segment import segment_audio
+
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
@@ -158,7 +162,94 @@ def prep_command(
     console.print(f"[bold green]✨ Phase 1 流程執行成功！總耗時 {round(time.time() - start_total_time, 2)} 秒。[/bold green]\n")
 
 
+@app.command("stt")
+def stt_command(
+    work_dir: Path = typer.Argument(..., help="已執行過 prep 的課堂工作目錄路徑 (包含 run.json 與 chunks/)"),
+    channel: Optional[str] = typer.Option(
+        None,
+        "--channel",
+        "-c",
+        help="指定 STT 語音辨識通道 (C1: Gemini Flash, C2: Gemini 3.5 Transcribe)",
+    ),
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="覆寫 STT 模型 ID (例如 gemini-3.8-flash, gemini-3.5-flash)",
+    ),
+) -> None:
+    """執行 Phase 2：調用 STT 辨識通道進行逐字稿轉錄，並產出 01_raw.txt。"""
+    target_work_dir = Path(work_dir).resolve()
+    state = load_run_state(target_work_dir)
+
+    if not state:
+        console.print(f"[bold red]❌ 找不到有效的 run.json，請先對音檔執行 'prep' 指令：{target_work_dir}[/bold red]")
+        raise typer.Exit(code=1)
+
+    if not state.chunks:
+        console.print(f"[bold red]❌ 工作目錄中沒有音訊切片紀錄，請確認 'chunks/' 是否存在。[/bold red]")
+        raise typer.Exit(code=1)
+
+    cfg = load_config()
+    stt_cfg = cfg.get("stt", {})
+    selected_channel = (channel or stt_cfg.get("default_channel", "C1")).upper()
+
+    console.print(f"\n[bold cyan]🎙️ 啟動 Phase 2 語音辨識 (STT)：{state.course} ({state.date})[/bold cyan]")
+    console.print(f"📌 使用通道：[bold yellow]{selected_channel}[/bold yellow] | 總切片數：[green]{len(state.chunks)}[/green]")
+
+    # Load course glossary if available
+    glossary = load_course_glossary(state.course)
+    if glossary:
+        console.print(f"📚 已載入課程專業詞庫：[dim]{', '.join(glossary[:10])}... (共 {len(glossary)} 詞)[/dim]")
+    else:
+        console.print("[dim]ℹ️ 未載入課程專用詞庫 (可於 courses/{course}/glossary.txt 自訂)[/dim]")
+
+    # Instantiate channel
+    kwargs = {}
+    if model:
+        kwargs["primary_model"] = model
+    try:
+        stt_worker = get_stt_channel(selected_channel, **kwargs)
+    except Exception as e:
+        console.print(f"[bold red]❌ 初始化通道失敗: {e}[/bold red]")
+        raise typer.Exit(code=1)
+
+    # Transcribe chunks sequentially
+    start_time = time.time()
+    console.print(f"\n[bold]⏳ 正在進行語音轉錄 ({stt_worker.name})...[/bold]")
+
+    full_transcription = stt_worker.transcribe_all(
+        chunks=state.chunks,
+        course=state.course,
+        date=state.date,
+        glossary=glossary,
+    )
+
+    # Save outputs
+    output_files = save_stt_outputs(full_transcription, target_work_dir)
+
+    # Update run state
+    state.stage_status["stt"] = "DONE"
+    state.metadata["stt_channel"] = selected_channel
+    state.metadata["stt_total_chars"] = len(full_transcription.full_text)
+    state.metadata["stt_latency_sec"] = full_transcription.total_latency_sec
+    save_run_state(state, target_work_dir)
+
+    total_time = round(time.time() - start_time, 2)
+    console.print(f"[bold green]✔ 辨識完成！總耗時 {total_time} 秒，共辨識出 {len(full_transcription.full_text)} 個字。[/bold green]\n")
+
+    # Output file paths
+    console.print(f"📄 原始文字檔：[bold]{output_files['raw']}[/bold]")
+    console.print(f"⏱️ 帶時間戳文字檔：[bold]{output_files['timestamped']}[/bold]")
+    console.print(f"📊 結構化 JSON：[bold]{output_files['json']}[/bold]\n")
+
+    # Print preview snippet
+    preview = full_transcription.full_text[:300].replace("\n", " ")
+    console.print(f"[dim]逐字稿預覽：\n\"{preview}...\"[/dim]\n")
+
+
 @app.command("info")
+
 def info_command(
     work_dir: Path = typer.Argument(..., help="工作目錄路徑 (包含 run.json)"),
 ) -> None:
