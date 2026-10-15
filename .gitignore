@@ -24,6 +24,8 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.pytest_tmp/
+.pytest_cache/
 
 # Virtual environments
 .venv/
