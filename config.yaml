@@ -62,14 +62,14 @@ stt:
 cleanup:
   # 模式: text (純文字整理) | audio (聽音檔修正) | fusion (雙通道比對融合)
   mode: "text"
-  model: "gemini-3.8-flash"
+  model: "gemini-3.5-flash"
   prompt_template: "fabric_clean_text.md"
-  # 每次送進整理模型的字元數
-  chunk_chars: 8000
+  # 每次送進整理模型的字元數 (分段保證零摘要與低延遲)
+  chunk_chars: 1500
   overlap_chars: 300
   # 字數守恆容許區間 (輸出字數 / 輸入字數)
   length_ratio_min: 0.80
-  length_ratio_max: 1.05
+  length_ratio_max: 1.20
 
 # 重點總結設定
 summarize:

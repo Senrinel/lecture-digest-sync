@@ -10,6 +10,10 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from lecture_pipeline.cleanup import (
+    GeminiTextCleanupEngine,
+    save_cleanup_outputs,
+)
 from lecture_pipeline.glossary import load_course_glossary
 from lecture_pipeline.naming import parse_filename
 from lecture_pipeline.preprocess import preprocess_audio
@@ -246,6 +250,134 @@ def stt_command(
     # Print preview snippet
     preview = full_transcription.full_text[:300].replace("\n", " ")
     console.print(f"[dim]逐字稿預覽：\n\"{preview}...\"[/dim]\n")
+
+
+@app.command("clean")
+def clean_command(
+    work_dir: Path = typer.Argument(..., help="已執行過 stt 的課堂工作目錄路徑 (包含 01_raw.txt 與 run.json)"),
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="指定整理模型 (預設使用 config.yaml 之設定或 gemini-3.5-flash)",
+    ),
+    prompt: Optional[Path] = typer.Option(
+        None,
+        "--prompt",
+        "-p",
+        help="自訂整理提示詞範本路徑 (預設 prompts/library/fabric_clean_text.md)",
+    ),
+    min_ratio: Optional[float] = typer.Option(
+        None,
+        "--min-ratio",
+        help="最小字數保留比率門檻 (低於此值觸發防摘要嚴格重試，預設 0.80)",
+    ),
+    max_ratio: Optional[float] = typer.Option(
+        None,
+        "--max-ratio",
+        help="最大字數保留比率門檻 (預設 1.20)",
+    ),
+    chunk_chars: Optional[int] = typer.Option(
+        None,
+        "--chunk-chars",
+        help="單次整理文本區塊上限字元數 (預設 8000)",
+    ),
+) -> None:
+    """執行 Phase 3：調用 AI 進行內文整理、錯字校正、標點補全與分段 (嚴格守恆字數)。"""
+    target_work_dir = Path(work_dir).resolve()
+    raw_txt_path = target_work_dir / "01_raw.txt"
+
+    if not raw_txt_path.is_file():
+        console.print(f"[bold red]❌ 找不到原始逐字稿檔案：{raw_txt_path}，請先執行 'stt' 指令。[/bold red]")
+        raise typer.Exit(code=1)
+
+    with open(raw_txt_path, "r", encoding="utf-8") as f:
+        raw_text = f.read()
+
+    if not raw_text.strip():
+        console.print(f"[bold red]❌ 原始逐字稿內容為空：{raw_txt_path}[/bold red]")
+        raise typer.Exit(code=1)
+
+    state = load_run_state(target_work_dir)
+    course_name = state.course if state else "Unsorted"
+    date_str = state.date if state else "Unknown"
+
+    cfg = load_config()
+    clean_cfg = cfg.get("cleanup", {})
+
+    selected_model = model or clean_cfg.get("model", "gemini-3.5-flash")
+    prompt_file = prompt or clean_cfg.get("prompt_template", "prompts/library/fabric_clean_text.md")
+    ratio_min = min_ratio if min_ratio is not None else float(clean_cfg.get("length_ratio_min", 0.80))
+    ratio_max = max_ratio if max_ratio is not None else float(clean_cfg.get("length_ratio_max", 1.20))
+    max_chunk = chunk_chars if chunk_chars is not None else int(clean_cfg.get("chunk_chars", 8000))
+
+    console.print(f"\n[bold cyan]📝 啟動 Phase 3 AI 內文整理：{course_name} ({date_str})[/bold cyan]")
+    console.print(
+        f"📌 使用模型：[bold yellow]{selected_model}[/bold yellow] | "
+        f"原始字數：[bold green]{len(raw_text)}[/bold green] | "
+        f"長度守恆目標：[dim]{ratio_min:.0%} ~ {ratio_max:.0%}[/dim]"
+    )
+
+    glossary = load_course_glossary(course_name) if course_name != "Unsorted" else []
+    if glossary:
+        console.print(f"📚 已載入課程專業詞庫：[dim]{', '.join(glossary[:10])}... (共 {len(glossary)} 詞)[/dim]")
+
+    try:
+        engine = GeminiTextCleanupEngine(
+            primary_model=selected_model,
+            prompt_template_path=prompt_file,
+            min_ratio=ratio_min,
+            max_ratio=ratio_max,
+            chunk_chars=max_chunk,
+        )
+    except Exception as e:
+        console.print(f"[bold red]❌ 初始化內文整理引擎失敗：{e}[/bold red]")
+        raise typer.Exit(code=1)
+
+    console.print(f"\n[bold]⏳ 正在進行全文修復、分段與標點重構...[/bold]")
+    result = engine.clean(
+        raw_text=raw_text,
+        course=course_name,
+        date=date_str,
+        glossary=glossary,
+    )
+
+    # Save output files
+    output_files = save_cleanup_outputs(result, target_work_dir)
+
+    # Update state if run.json exists
+    if state:
+        state.stage_status["cleanup"] = "DONE"
+        state.metadata["cleanup_model"] = result.model_used
+        state.metadata["cleanup_raw_chars"] = result.raw_char_count
+        state.metadata["cleanup_cleaned_chars"] = result.cleaned_char_count
+        state.metadata["cleanup_retention_ratio"] = result.retention_ratio
+        state.metadata["cleanup_validation_passed"] = result.validation_passed
+        state.metadata["cleanup_latency_sec"] = result.total_latency_sec
+        save_run_state(state, target_work_dir)
+
+    # Table summary
+    status_style = "bold green" if result.validation_passed else "bold yellow"
+    status_label = "✔ 通過 (未縮減)" if result.validation_passed else "⚠️ 字數低於門檻 (審計警示)"
+
+    table = Table(title="Phase 3 內文整理指標審計報告 (Audit Report)")
+    table.add_column("指標項目", style="cyan")
+    table.add_column("數值 / 狀態", style="bold")
+    table.add_row("使用模型", result.model_used)
+    table.add_row("原始字數 (Raw Chars)", str(result.raw_char_count))
+    table.add_row("整理後字數 (Cleaned Chars)", str(result.cleaned_char_count))
+    table.add_row("字數保留比 (Retention Ratio)", f"[{status_style}]{result.retention_ratio:.2%}[/{status_style}]")
+    table.add_row("內容守恆檢驗 (Guardrail)", f"[{status_style}]{status_label}[/{status_style}]")
+    table.add_row("處理耗時 (Latency)", f"{result.total_latency_sec:.2f} 秒")
+    table.add_row("分塊整理數 (Chunks)", str(len(result.chunks)))
+    console.print(table)
+
+    console.print(f"\n📄 整理後課堂文稿：[bold]{output_files['cleaned_txt']}[/bold]")
+    console.print(f"📊 審計紀錄 JSON：[bold]{output_files['cleaned_json']}[/bold]\n")
+
+    # Preview snippet
+    preview = result.full_cleaned_text[:400].replace("\n\n", "\n")
+    console.print(f"[dim]文稿內容預覽：\n{preview}...\n[/dim]")
 
 
 @app.command("info")
