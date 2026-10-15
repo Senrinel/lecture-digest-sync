@@ -7,6 +7,13 @@ import os
 import sys
 import time
 from pathlib import Path
+
+# Force UTF-8 encoding for Windows console
+if sys.stdout:
+    sys.stdout.reconfigure(encoding="utf-8")
+if sys.stderr:
+    sys.stderr.reconfigure(encoding="utf-8")
+
 from dotenv import load_dotenv
 
 # Load .env from project root
