@@ -77,6 +77,15 @@ summarize:
   template: "fabric_summarize_lecture.md"
   thinking_budget: 1024
 
+# 匯出與 NotebookLM 整合設定
+export:
+  # 匯出目錄 (可設為 Google Drive 本地同步資料夾或本機自訂目錄)
+  export_dir: "exports"
+  # 自動於瀏覽器開啟 NotebookLM
+  auto_open_notebooklm: false
+  # NotebookLM 服務網址
+  notebooklm_url: "https://notebooklm.google.com/"
+
 # 額度用完因應策略
 quota_policy:
   # 可選值:

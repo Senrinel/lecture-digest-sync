@@ -14,6 +14,11 @@ from lecture_pipeline.cleanup import (
     GeminiTextCleanupEngine,
     save_cleanup_outputs,
 )
+from lecture_pipeline.export import (
+    open_notebooklm_in_browser,
+    prepare_notebook_bundle,
+    reveal_in_explorer,
+)
 from lecture_pipeline.summary import (
     GeminiLectureSummarizer,
     save_summary_outputs,
@@ -495,6 +500,131 @@ def summary_command(
     # Preview snippet
     preview = result.full_summary_md[:500]
     console.print(f"[dim]總結筆記預覽：\n{preview}...\n[/dim]")
+
+
+@app.command("notebook")
+@app.command("bundle")
+def notebook_command(
+    work_dir: Path = typer.Argument(..., help="已產出文稿之課堂工作目錄路徑"),
+    export_dir: Optional[Path] = typer.Option(
+        None,
+        "--export-dir",
+        "-e",
+        help="自訂鏡像匯出目錄 (例如 Google Drive 本地同步資料夾)",
+    ),
+    open_browser: bool = typer.Option(
+        False,
+        "--open",
+        "-o",
+        help="是否自動於瀏覽器開啟 Google NotebookLM 網站",
+    ),
+    reveal: bool = typer.Option(
+        False,
+        "--reveal/--no-reveal",
+        help="是否在檔案總管中開啟並選中打包資料夾",
+    ),
+) -> None:
+    """執行 Phase 5：將整理文稿與考前重點筆記打包為 NotebookLM 最佳化檔案組。"""
+    target_work_dir = Path(work_dir).resolve()
+    cfg = load_config()
+    exp_cfg = cfg.get("export", {})
+
+    target_export = export_dir or exp_cfg.get("export_dir")
+    bundle_result = prepare_notebook_bundle(target_work_dir, export_dir=target_export)
+
+    console.print(f"\n[bold cyan]📦 成功建立 Google NotebookLM 專用匯入檔案組！[/bold cyan]")
+    console.print(f"📌 課程名稱：[green]{bundle_result.course}[/green] | 課堂日期：[green]{bundle_result.date}[/green]")
+    console.print(f"📂 打包目錄：[bold]{bundle_result.bundle_dir}[/bold]")
+
+    table = Table(title="NotebookLM 檔案清單")
+    table.add_column("序號", style="cyan", justify="center")
+    table.add_column("檔案名稱", style="bold")
+    table.add_column("用途說明")
+
+    table.add_row("1", Path(bundle_result.summary_file).name, "考前重點筆記（核心觀念、公式推導、考點與生活案例）")
+    table.add_row("2", Path(bundle_result.cleaned_file).name, "完整課堂精修文稿（全文無刪減、標點與分段完整）")
+    if bundle_result.raw_timestamped_file:
+        table.add_row("3", Path(bundle_result.raw_timestamped_file).name, "原始時間戳對照（供快速定位課堂音訊片段）")
+    console.print(table)
+
+    if bundle_result.export_dir:
+        console.print(f"🔄 已同步鏡像至指定匯出目錄：[dim]{bundle_result.export_dir}[/dim]")
+
+    console.print(f"\n[bold green]💡 NotebookLM 半自動匯入操作指南 (3 步驟)：[/bold green]")
+    console.print(f"   1. 開啟 [bold blue]https://notebooklm.google.com/[/bold blue] 並建立新筆記本（例如命名為「{bundle_result.course}」）。")
+    console.print(f"   2. 點選「新增來源 (Add source)」 ➜ 選擇「上傳檔案 (Upload files)」。")
+    console.print(f"   3. 直接將 [bold]{bundle_result.bundle_dir}[/bold] 目錄下的 .md 檔案拖曳進去即可！\n")
+
+    if open_browser or exp_cfg.get("auto_open_notebooklm"):
+        url = exp_cfg.get("notebooklm_url", "https://notebooklm.google.com/")
+        console.print(f"[dim]🌐 正在於預設瀏覽器開啟 NotebookLM...[/dim]")
+        open_notebooklm_in_browser(url)
+
+    if reveal:
+        reveal_in_explorer(bundle_result.bundle_dir)
+
+
+@app.command("run")
+def run_command(
+    audio_file: Path = typer.Argument(..., help="欲處理的課堂錄音檔案路徑 (.wav, .mp3, .m4a 等)"),
+    pre: Optional[str] = typer.Option(
+        None,
+        "--pre",
+        "-p",
+        help="前處理開關組合 (例如 'hp,loud' 或 'hp=100Hz,loud=-19LUFS')",
+    ),
+    target_sec: Optional[int] = typer.Option(
+        None,
+        "--target-sec",
+        "-t",
+        help="目標切段時長 (秒，預設 600 秒)",
+    ),
+    channel: Optional[str] = typer.Option(
+        None,
+        "--channel",
+        "-c",
+        help="STT 語音辨識通道 (預設 C1)",
+    ),
+    open_notebook: bool = typer.Option(
+        False,
+        "--open",
+        "-o",
+        help="管線執行完成後是否自動於瀏覽器開啟 NotebookLM",
+    ),
+) -> None:
+    """【一鍵全流程】自動依序執行 Phase 1 ➜ Phase 2 ➜ Phase 3 ➜ Phase 4 ➜ Phase 5。"""
+    raw_path = Path(audio_file).resolve()
+    if not raw_path.is_file():
+        console.print(f"[bold red]❌ 找不到音檔：{raw_path}[/bold red]")
+        raise typer.Exit(code=1)
+
+    parsed = parse_filename(raw_path)
+    target_work_dir = parsed.work_dir
+
+    console.print(f"\n[bold magenta]🚀 啟動端到端自動化課堂處理管線 (End-to-End Pipeline)[/bold magenta]")
+    console.print(f"📁 輸入檔案：[bold]{raw_path.name}[/bold]")
+    console.print(f"📌 識別課程：[green]{parsed.course}[/green] | 日期：[green]{parsed.date}[/green]\n")
+
+    total_start = time.time()
+
+    # Step 1: Prep
+    prep_command(audio_file=raw_path, pre=pre, target_sec=target_sec, work_dir=target_work_dir)
+
+    # Step 2: STT
+    stt_command(work_dir=target_work_dir, channel=channel, model=None)
+
+    # Step 3: Clean
+    clean_command(work_dir=target_work_dir, model=None, prompt=None, min_ratio=None, max_ratio=None, chunk_chars=None)
+
+    # Step 4: Summary
+    summary_command(work_dir=target_work_dir, model=None, template=None, thinking=None)
+
+    # Step 5: Notebook Bundle
+    notebook_command(work_dir=target_work_dir, export_dir=None, open_browser=open_notebook, reveal=False)
+
+    total_elapsed = round(time.time() - total_start, 2)
+
+    console.print(f"\n[bold green]🎉 端到端課堂管線全數執行完成！總耗時：{total_elapsed} 秒[/bold green]\n")
 
 
 @app.command("info")

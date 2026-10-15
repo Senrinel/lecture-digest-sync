@@ -46,6 +46,8 @@ benchmark/clips/*
 !benchmark/clips/.gitkeep
 logs/*
 !logs/.gitkeep
+exports/*
+!exports/.gitkeep
 
 # IDE & OS
 .vscode/
