@@ -73,9 +73,9 @@ cleanup:
 
 # 重點總結設定
 summarize:
-  model: "gemini-3.8-flash"
+  model: "gemini-3.5-flash"
   template: "fabric_summarize_lecture.md"
-  thinking_budget: 4096
+  thinking_budget: 1024
 
 # 額度用完因應策略
 quota_policy:

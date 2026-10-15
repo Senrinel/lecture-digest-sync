@@ -14,6 +14,10 @@ from lecture_pipeline.cleanup import (
     GeminiTextCleanupEngine,
     save_cleanup_outputs,
 )
+from lecture_pipeline.summary import (
+    GeminiLectureSummarizer,
+    save_summary_outputs,
+)
 from lecture_pipeline.glossary import load_course_glossary
 from lecture_pipeline.naming import parse_filename
 from lecture_pipeline.preprocess import preprocess_audio
@@ -378,6 +382,119 @@ def clean_command(
     # Preview snippet
     preview = result.full_cleaned_text[:400].replace("\n\n", "\n")
     console.print(f"[dim]文稿內容預覽：\n{preview}...\n[/dim]")
+
+
+@app.command("summary")
+@app.command("summarize")
+def summary_command(
+    work_dir: Path = typer.Argument(..., help="已執行過 clean 的課堂工作目錄路徑 (包含 02_cleaned.txt 與 run.json)"),
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="指定總結模型 (預設使用 config.yaml 之設定或 gemini-3.5-flash)",
+    ),
+    template: Optional[Path] = typer.Option(
+        None,
+        "--template",
+        "-t",
+        help="自訂總結提示詞範本路徑 (預設 prompts/library/fabric_summarize_lecture.md)",
+    ),
+    thinking: Optional[int] = typer.Option(
+        None,
+        "--thinking",
+        help="思考 Token 預算 (預設 1024，0 為關閉思考)",
+    ),
+) -> None:
+    """執行 Phase 4：調用 AI 提煉結構化重點筆記與心智脈絡 (產出 03_summary.md)。"""
+    target_work_dir = Path(work_dir).resolve()
+    cleaned_txt_path = target_work_dir / "02_cleaned.txt"
+
+    if not cleaned_txt_path.is_file():
+        # Fallback to 01_raw.txt if 02_cleaned.txt not yet run
+        raw_txt_path = target_work_dir / "01_raw.txt"
+        if raw_txt_path.is_file():
+            console.print(f"[yellow]⚠️ 未找到 02_cleaned.txt，回退使用原始逐字稿 01_raw.txt 進行總結。[/yellow]")
+            cleaned_txt_path = raw_txt_path
+        else:
+            console.print(f"[bold red]❌ 找不到課堂文稿：請先執行 'clean' 或 'stt' 指令產生文字。[/bold red]")
+            raise typer.Exit(code=1)
+
+    with open(cleaned_txt_path, "r", encoding="utf-8") as f:
+        cleaned_text = f.read()
+
+    if not cleaned_text.strip():
+        console.print(f"[bold red]❌ 課堂文稿內容為空：{cleaned_txt_path}[/bold red]")
+        raise typer.Exit(code=1)
+
+    state = load_run_state(target_work_dir)
+    course_name = state.course if state else "Unsorted"
+    date_str = state.date if state else "Unknown"
+
+    cfg = load_config()
+    sum_cfg = cfg.get("summarize", {})
+
+    selected_model = model or sum_cfg.get("model", "gemini-3.5-flash")
+    template_file = template or sum_cfg.get("template", "prompts/library/fabric_summarize_lecture.md")
+    thinking_budget = thinking if thinking is not None else int(sum_cfg.get("thinking_budget", 1024))
+
+    console.print(f"\n[bold cyan]🧠 啟動 Phase 4 AI 重點總結：{course_name} ({date_str})[/bold cyan]")
+    console.print(
+        f"📌 使用模型：[bold yellow]{selected_model}[/bold yellow] | "
+        f"輸入字數：[bold green]{len(cleaned_text)}[/bold green] | "
+        f"思考預算：[dim]{thinking_budget} tokens[/dim]"
+    )
+
+    glossary = load_course_glossary(course_name) if course_name != "Unsorted" else []
+    if glossary:
+        console.print(f"📚 已載入課程專業詞庫：[dim]{', '.join(glossary[:10])}... (共 {len(glossary)} 詞)[/dim]")
+
+    try:
+        summarizer = GeminiLectureSummarizer(
+            primary_model=selected_model,
+            template_path=template_file,
+            thinking_budget=thinking_budget,
+        )
+    except Exception as e:
+        console.print(f"[bold red]❌ 初始化重點總結引擎失敗：{e}[/bold red]")
+        raise typer.Exit(code=1)
+
+    console.print(f"\n[bold]⏳ 正在分析教學主線、提煉定理公式、案例與考點脈絡...[/bold]")
+    result = summarizer.summarize(
+        cleaned_text=cleaned_text,
+        course=course_name,
+        date=date_str,
+        glossary=glossary,
+    )
+
+    # Save output files
+    output_files = save_summary_outputs(result, target_work_dir)
+
+    # Update state if run.json exists
+    if state:
+        state.stage_status["summarize"] = "DONE"
+        state.metadata["summary_model"] = result.model_used
+        state.metadata["summary_chars"] = result.summary_char_count
+        state.metadata["summary_latency_sec"] = result.total_latency_sec
+        save_run_state(state, target_work_dir)
+
+    # Rich table report
+    table = Table(title="Phase 4 重點總結生成報告 (Summary Report)")
+    table.add_column("項目", style="cyan")
+    table.add_column("內容", style="bold")
+    table.add_row("使用模型", result.model_used)
+    table.add_row("輸入文稿長度", f"{result.input_char_count} 字")
+    table.add_row("總結筆記長度", f"[green]{result.summary_char_count} 字[/green]")
+    table.add_row("處理耗時", f"{result.total_latency_sec:.2f} 秒")
+    table.add_row("提示詞範本", Path(result.prompt_template).name)
+    console.print(table)
+
+    console.print(f"\n📄 結構化課堂總結筆記：[bold]{output_files['summary_md']}[/bold]")
+    console.print(f"📊 審計紀錄 JSON：[bold]{output_files['summary_json']}[/bold]\n")
+
+    # Preview snippet
+    preview = result.full_summary_md[:500]
+    console.print(f"[dim]總結筆記預覽：\n{preview}...\n[/dim]")
 
 
 @app.command("info")
