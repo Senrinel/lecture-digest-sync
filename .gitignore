@@ -31,6 +31,7 @@ env/
 venv/
 ENV/
 backends/*/.venv/
+backends/fireredasr/repo/
 .pytest_tmp/
 .pytest_cache/
 
