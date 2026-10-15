@@ -2,8 +2,6 @@
 .env
 *.env
 !.env.example
-credentials.json
-token.json
 
 # Python
 __pycache__/
@@ -26,8 +24,6 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-.pytest_tmp/
-.pytest_cache/
 
 # Virtual environments
 .venv/
@@ -35,6 +31,11 @@ env/
 venv/
 ENV/
 backends/*/.venv/
+
+# Pytest
+.pytest_cache/
+.pytest_tmp/
+
 
 # Audio / Data processing folders
 inbox/*

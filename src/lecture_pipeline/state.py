@@ -1,107 +1,52 @@
-"""Pipeline execution state tracking and checkpointing."""
+"""Run state and pipeline metadata management.
+
+Ensures every run is fully reproducible, tracked, and can be resumed from intermediate stages.
+"""
+
+from __future__ import annotations
 
 import json
-import time
-from dataclasses import asdict, dataclass, field
+import uuid
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, Field
+
+from lecture_pipeline.naming import AudioMetadata
+from lecture_pipeline.preprocess import PreprocessOptions
+from lecture_pipeline.vad_segment import ChunkInfo
 
 
-@dataclass
-class StageStatus:
-    status: str = "pending"  # pending | in_progress | completed | failed | skipped
-    start_time: float = 0.0
-    end_time: float = 0.0
-    duration_sec: float = 0.0
-    error_message: str = ""
-    outputs: Dict[str, Any] = field(default_factory=dict)
+class RunState(BaseModel):
+    """Execution state and metadata for a lecture processing run."""
+    run_id: str = Field(default_factory=lambda: f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}")
+    status: str = Field(default="INIT", description="INIT | PREPROCESSED | SEGMENTED | TRANSCRIBED | CLEANED | SUMMARIZED | DONE | ERROR")
+    created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now().isoformat())
+    audio_meta: AudioMetadata
+    preprocess_options: PreprocessOptions
+    total_duration_sec: float = 0.0
+    preprocessed_wav: str | None = None
+    chunks: list[ChunkInfo] = Field(default_factory=list)
+    error_message: str | None = None
 
 
-@dataclass
-class PipelineRunState:
-    run_id: str
-    audio_file: str
-    course_name: str
-    date_str: str
-    work_dir: str
-    created_at: float = field(default_factory=time.time)
-    stages: Dict[str, StageStatus] = field(default_factory=dict)
-    config_snapshot: Dict[str, Any] = field(default_factory=dict)
+def save_run_state(work_dir: str | Path, state: RunState) -> Path:
+    """Save run state to run.json inside work_dir."""
+    p = Path(work_dir).resolve()
+    p.mkdir(parents=True, exist_ok=True)
+    state.updated_at = datetime.now().isoformat()
+    json_path = p / "run.json"
+    json_path.write_text(state.model_dump_json(indent=2), encoding="utf-8")
+    return json_path
 
-    def get_stage(self, name: str) -> StageStatus:
-        if name not in self.stages:
-            self.stages[name] = StageStatus()
-        return self.stages[name]
 
-    def mark_stage_start(self, name: str):
-        st = self.get_stage(name)
-        st.status = "in_progress"
-        st.start_time = time.time()
-        self.save()
-
-    def mark_stage_completed(self, name: str, outputs: Optional[Dict[str, Any]] = None):
-        st = self.get_stage(name)
-        st.status = "completed"
-        st.end_time = time.time()
-        st.duration_sec = round(st.end_time - st.start_time, 2)
-        if outputs:
-            st.outputs.update(outputs)
-        self.save()
-
-    def mark_stage_failed(self, name: str, error: str):
-        st = self.get_stage(name)
-        st.status = "failed"
-        st.end_time = time.time()
-        st.duration_sec = round(st.end_time - st.start_time, 2)
-        st.error_message = error
-        self.save()
-
-    def is_stage_completed(self, name: str) -> bool:
-        return self.stages.get(name, StageStatus()).status == "completed"
-
-    def save(self):
-        state_file = Path(self.work_dir) / "state.json"
-        state_file.parent.mkdir(parents=True, exist_ok=True)
-        with open(state_file, "w", encoding="utf-8") as f:
-            json.dump(asdict(self), f, indent=2, ensure_ascii=False)
-
-    @classmethod
-    def load_or_create(
-        cls,
-        work_dir: str | Path,
-        audio_file: str | Path,
-        course_name: str,
-        date_str: str,
-        config: Optional[dict] = None,
-    ) -> "PipelineRunState":
-        wdir = Path(work_dir)
-        state_file = wdir / "state.json"
-        if state_file.exists():
-            try:
-                with open(state_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                stages = {k: StageStatus(**v) for k, v in data.get("stages", {}).items()}
-                return cls(
-                    run_id=data.get("run_id", f"{course_name}_{date_str}"),
-                    audio_file=data.get("audio_file", str(audio_file)),
-                    course_name=data.get("course_name", course_name),
-                    date_str=data.get("date_str", date_str),
-                    work_dir=str(wdir),
-                    created_at=data.get("created_at", time.time()),
-                    stages=stages,
-                    config_snapshot=data.get("config_snapshot", {}),
-                )
-            except Exception:
-                pass
-
-        run_id = f"{course_name}_{date_str}_{int(time.time())}"
-        instance = cls(
-            run_id=run_id,
-            audio_file=str(audio_file),
-            course_name=course_name,
-            date_str=date_str,
-            work_dir=str(wdir),
-            config_snapshot=config or {},
-        )
-        instance.save()
-        return instance
+def load_run_state(work_dir: str | Path) -> RunState | None:
+    """Load run state from run.json inside work_dir, or None if not found."""
+    p = Path(work_dir).resolve() / "run.json"
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return RunState.model_validate(data)
+    except Exception:
+        return None

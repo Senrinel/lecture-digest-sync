@@ -1,96 +1,143 @@
-"""Audio file naming parser and course organizer.
+"""Filename parsing and routing module.
 
-Handles naming conventions:
-- Standard: CourseName_YYYYMMDD[_HHMM].ext
-- Recorder raw: e.g., 261015_0930.mp3 -> Date 20261015, Course: Unsorted
-- Fallback: Uses file modification time and filename without ext as course.
+Handles standard course naming conventions and Sony ICD-PX470 recorder raw filename exceptions.
 """
 
+from __future__ import annotations
+
 import re
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from pydantic import BaseModel
 
 
-@dataclass
-class ParsedAudioInfo:
-    file_path: Path
+class AudioMetadata(BaseModel):
+    """Metadata parsed from audio filename."""
+    original_path: str
+    original_filename: str
     course_name: str
-    date_str: str  # YYYYMMDD
-    time_str: str  # HHMM or empty
-    is_standard_name: bool
-    warning: str = ""
-
-    @property
-    def canonical_id(self) -> str:
-        """Returns standard directory identifier: CourseName/YYYYMMDD or CourseName/YYYYMMDD_HHMM."""
-        if self.time_str:
-            return f"{self.course_name}/{self.date_str}_{self.time_str}"
-        return f"{self.course_name}/{self.date_str}"
+    date_str: str          # YYYY-MM-DD normalized
+    time_str: str | None = None  # HHMM or HHMMSS
+    is_standard: bool
+    exception_note: str | None = None
 
 
-def parse_audio_filename(file_path: str | Path) -> ParsedAudioInfo:
-    """Parses an audio file name and extracts course name and date/time."""
-    p = Path(file_path)
-    stem = p.stem.strip()
+# Patterns
+# 1. Standard: CourseName_YYYYMMDD[_HHMM] (e.g., DataMining_20261015, ML-101_20261015_0930)
+PATTERN_STANDARD_1 = re.compile(
+    r"^([A-Za-z0-9\-]+)_(\d{4})(\d{2})(\d{2})(?:_(\d{2,6}))?$"
+)
 
-    # Pattern 1: Standard CourseName_YYYYMMDD or CourseName_YYYYMMDD_HHMM
-    # e.g., MachineLearning_20261015, Algorithms_20261015_0930
-    std_pattern = r"^([a-zA-Z0-9\-]+)_(\d{8})(?:_(\d{4}))?$"
-    m_std = re.match(std_pattern, stem)
-    if m_std:
-        course = m_std.group(1)
-        date_str = m_std.group(2)
-        time_str = m_std.group(3) or ""
-        return ParsedAudioInfo(
-            file_path=p,
+# 2. Standard with dashes: CourseName_YYYY-MM-DD[_HHMM]
+PATTERN_STANDARD_2 = re.compile(
+    r"^([A-Za-z0-9\-]+)_(\d{4})-(\d{2})-(\d{2})(?:_(\d{2,6}))?$"
+)
+
+# 3. Sony ICD-PX470 raw recording name: YYMMDD_HHMM (e.g., 261015_0930)
+PATTERN_SONY_RAW = re.compile(
+    r"^(\d{2})(\d{2})(\d{2})_(\d{4})$"
+)
+
+# 4. Long raw timestamp: YYYYMMDD_HHMMSS (e.g., 20261015_093000)
+PATTERN_RAW_TIMESTAMP = re.compile(
+    r"^(\d{4})(\d{2})(\d{2})_(\d{4,6})$"
+)
+
+
+def parse_audio_filename(file_path: str | Path) -> AudioMetadata:
+    """Parse an audio filename and extract course and date information.
+
+    Args:
+        file_path: Path to the audio file.
+
+    Returns:
+        AudioMetadata object containing extracted info and validity flags.
+    """
+    path = Path(file_path)
+    stem = path.stem
+    orig_path_str = str(path.resolve())
+
+    # Try standard pattern 1 (Course_YYYYMMDD[_HHMM])
+    m = PATTERN_STANDARD_1.match(stem)
+    if m:
+        course, y, mo, d, t = m.groups()
+        return AudioMetadata(
+            original_path=orig_path_str,
+            original_filename=path.name,
             course_name=course,
-            date_str=date_str,
-            time_str=time_str,
-            is_standard_name=True,
+            date_str=f"{y}-{mo}-{d}",
+            time_str=t,
+            is_standard=True,
+            exception_note=None,
         )
 
-    # Pattern 2: Sony ICD-PX470 / generic recorder raw name: YYMMDD_HHMM or YYYYMMDD_HHMM
-    # e.g., 261015_0930 or 20261015_0930
-    rec_pattern = r"^(\d{2}|\d{4})(\d{2})(\d{2})_(\d{4})$"
-    m_rec = re.match(rec_pattern, stem)
-    if m_rec:
-        yr = m_rec.group(1)
-        if len(yr) == 2:
-            full_year = f"20{yr}"
-        else:
-            full_year = yr
-        mm = m_rec.group(2)
-        dd = m_rec.group(3)
-        time_str = m_rec.group(4)
-        date_str = f"{full_year}{mm}{dd}"
-        return ParsedAudioInfo(
-            file_path=p,
+    # Try standard pattern 2 (Course_YYYY-MM-DD[_HHMM])
+    m = PATTERN_STANDARD_2.match(stem)
+    if m:
+        course, y, mo, d, t = m.groups()
+        return AudioMetadata(
+            original_path=orig_path_str,
+            original_filename=path.name,
+            course_name=course,
+            date_str=f"{y}-{mo}-{d}",
+            time_str=t,
+            is_standard=True,
+            exception_note=None,
+        )
+
+    # Try Sony raw format (YYMMDD_HHMM)
+    m = PATTERN_SONY_RAW.match(stem)
+    if m:
+        yy, mo, d, t = m.groups()
+        year = f"20{yy}"
+        return AudioMetadata(
+            original_path=orig_path_str,
+            original_filename=path.name,
             course_name="Unsorted",
-            date_str=date_str,
-            time_str=time_str,
-            is_standard_name=False,
-            warning=f"非標準檔名，已識別錄音日期 {date_str}，暫歸類為 Unsorted 課程。",
+            date_str=f"{year}-{mo}-{d}",
+            time_str=t,
+            is_standard=False,
+            exception_note="Sony recorder raw filename format (YYMMDD_HHMM). Course set to 'Unsorted'.",
         )
 
-    # Pattern 3: Fallback using file modification time
+    # Try full timestamp format (YYYYMMDD_HHMMSS)
+    m = PATTERN_RAW_TIMESTAMP.match(stem)
+    if m:
+        y, mo, d, t = m.groups()
+        return AudioMetadata(
+            original_path=orig_path_str,
+            original_filename=path.name,
+            course_name="Unsorted",
+            date_str=f"{y}-{mo}-{d}",
+            time_str=t,
+            is_standard=False,
+            exception_note="Timestamp filename without course prefix. Course set to 'Unsorted'.",
+        )
+
+    # Fallback: extract date from file modification time
     try:
-        mtime = datetime.fromtimestamp(p.stat().st_mtime)
-        fallback_date = mtime.strftime("%Y%m%d")
+        mtime = datetime.fromtimestamp(path.stat().st_mtime)
+        fallback_date = mtime.strftime("%Y-%m-%d")
         fallback_time = mtime.strftime("%H%M")
     except Exception:
-        now = datetime.now()
-        fallback_date = now.strftime("%Y%m%d")
-        fallback_time = now.strftime("%H%M")
+        fallback_date = datetime.now().strftime("%Y-%m-%d")
+        fallback_time = None
 
-    # Sanitize stem for folder safety
-    safe_course = re.sub(r"[^a-zA-Z0-9_\-]", "_", stem) or "Unsorted"
-
-    return ParsedAudioInfo(
-        file_path=p,
-        course_name=safe_course,
+    return AudioMetadata(
+        original_path=orig_path_str,
+        original_filename=path.name,
+        course_name="Unsorted",
         date_str=fallback_date,
         time_str=fallback_time,
-        is_standard_name=False,
-        warning=f"無法解析檔名格式 '{p.name}'，採用檔案修改時間 {fallback_date} 作為日期標記。",
+        is_standard=False,
+        exception_note="Non-standard filename. Extracted date from filesystem metadata.",
     )
+
+
+def get_work_directory(base_work_dir: str | Path, meta: AudioMetadata) -> Path:
+    """Compute the dedicated working directory for an audio file.
+
+    Format: <base_work_dir>/<Course>/<Date>/
+    """
+    base = Path(base_work_dir)
+    return base / meta.course_name / meta.date_str

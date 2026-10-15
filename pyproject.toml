@@ -15,9 +15,6 @@ dependencies = [
     "jiwer>=3.1.0",
     "watchdog>=6.0.0",
     "requests>=2.32.0",
-    "google-api-python-client>=2.150.0",
-    "google-auth-oauthlib>=1.2.0",
-    "google-auth-httplib2>=0.2.0",
 ]
 
 [dependency-groups]
@@ -34,4 +31,8 @@ build-backend = "hatchling.build"
 packages = ["src/lecture_pipeline"]
 
 [tool.pytest.ini_options]
-addopts = "--basetemp=./.pytest_tmp"
+addopts = "--basetemp=.pytest_tmp"
+tmp_path_retention_policy = "none"
+tmp_path_retention_count = 0
+
+
