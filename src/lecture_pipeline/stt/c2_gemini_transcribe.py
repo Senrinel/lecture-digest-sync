@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import List, Optional
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 from opencc import OpenCC
 from rich.console import Console
 
@@ -34,10 +35,13 @@ class GeminiTranscribeChannel(BaseSTTChannel):
         if not self.api_key:
             raise ValueError("未設定 GEMINI_API_KEY，請於 .env 填入有效的 Gemini API 金鑰。")
 
-        self.client = genai.Client(api_key=self.api_key)
+        # Set 300s timeout (300,000 ms) for long audio
+        http_opts = types.HttpOptions(timeout=300000)
+        self.client = genai.Client(api_key=self.api_key, http_options=http_opts)
         self.model_id = "gemini-3.5-transcribe"
         self.opencc_config = opencc_config
         self.converter = OpenCC(opencc_config)
+
 
     @property
     def channel_id(self) -> str:

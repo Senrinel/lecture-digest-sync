@@ -88,6 +88,6 @@ def test_c1_transcribe_chunk_fallback_on_503(mock_client_cls, tmp_path: Path):
     channel = GeminiFlashChannel(api_key="mock_key", primary_model="gemini-3.8-flash")
     result = channel.transcribe_chunk(test_audio, chunk_info)
 
-    assert result.model_used == "gemini-3.7-flash"
+    assert result.model_used == "gemini-3.5-flash"
     assert result.raw_text == "備援模型成功產出文字。"
     mock_client.files.delete.assert_called_once_with(name="files/test_file_503")

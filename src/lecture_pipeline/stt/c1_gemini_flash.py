@@ -13,7 +13,9 @@ from pathlib import Path
 from typing import List, Optional
 from dotenv import load_dotenv
 from google import genai
+from google.genai import types
 from rich.console import Console
+
 
 from lecture_pipeline.state import ChunkInfo
 from lecture_pipeline.stt.base import BaseSTTChannel, ChunkTranscription
@@ -21,10 +23,10 @@ from lecture_pipeline.stt.base import BaseSTTChannel, ChunkTranscription
 console = Console()
 
 FLASH_MODEL_CANDIDATES = [
-    "gemini-3.8-flash",
-    "gemini-3.7-flash",
-    "gemini-3.6-flash",
     "gemini-3.5-flash",
+    "gemini-3.6-flash",
+    "gemini-3.7-flash",
+    "gemini-3.8-flash",
 ]
 
 
@@ -34,7 +36,7 @@ class GeminiFlashChannel(BaseSTTChannel):
     def __init__(
         self,
         api_key: Optional[str] = None,
-        primary_model: str = "gemini-3.8-flash",
+        primary_model: str = "gemini-3.5-flash",
         temperature: float = 0.0,
     ):
         load_dotenv()
@@ -42,7 +44,9 @@ class GeminiFlashChannel(BaseSTTChannel):
         if not self.api_key:
             raise ValueError("未設定 GEMINI_API_KEY，請於 .env 填入有效的 Gemini API 金鑰。")
 
-        self.client = genai.Client(api_key=self.api_key)
+        # Set 300s timeout (300,000 ms) to comfortably accommodate long audio processing
+        http_opts = types.HttpOptions(timeout=300000)
+        self.client = genai.Client(api_key=self.api_key, http_options=http_opts)
         self.primary_model = primary_model
         self.temperature = temperature
 
@@ -65,7 +69,7 @@ class GeminiFlashChannel(BaseSTTChannel):
             "4. 僅輸出逐字稿內容，不要包含任何開場白、問候語或中繼說明。",
         ]
 
-        if course:
+        if course and course != "Unsorted":
             prompt_lines.append(f"\n【本堂課程主題】：{course}")
 
         if glossary:
@@ -93,6 +97,13 @@ class GeminiFlashChannel(BaseSTTChannel):
         uploaded_file = self.client.files.upload(file=str(path))
         uploaded_file_name = uploaded_file.name
 
+        # Wait until file state is ACTIVE (if processing)
+        poll_count = 0
+        while getattr(uploaded_file.state, "name", "") == "PROCESSING" and poll_count < 30:
+            time.sleep(1.0)
+            uploaded_file = self.client.files.get(name=uploaded_file_name)
+            poll_count += 1
+
         transcribed_text = ""
         model_used = self.primary_model
         last_error = None
@@ -102,12 +113,20 @@ class GeminiFlashChannel(BaseSTTChannel):
             m for m in FLASH_MODEL_CANDIDATES if m != self.primary_model
         ]
 
+        # Explicitly disable thinking tokens for verbatim transcription:
+        # saves quota, prevents timeouts, and avoids rambling internal reasoning
+        gen_config = types.GenerateContentConfig(
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+            temperature=self.temperature,
+        )
+
         try:
             for model_id in models_to_try:
                 try:
                     response = self.client.models.generate_content(
                         model=model_id,
                         contents=[uploaded_file, prompt],
+                        config=gen_config,
                     )
                     transcribed_text = (response.text or "").strip()
                     model_used = model_id
@@ -115,12 +134,23 @@ class GeminiFlashChannel(BaseSTTChannel):
                 except Exception as e:
                     last_error = e
                     err_msg = str(e)
-                    # If 503 (high demand) or 429, try next model candidate
-                    if "503" in err_msg or "UNAVAILABLE" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                    # Broad transient error detection: 503, 429, timeout, server disconnect
+                    transient_keywords = [
+                        "503",
+                        "429",
+                        "UNAVAILABLE",
+                        "RESOURCE_EXHAUSTED",
+                        "RemoteProtocolError",
+                        "Server disconnected",
+                        "timeout",
+                        "timed out",
+                        "ConnectionReset",
+                    ]
+                    if any(kw.lower() in err_msg.lower() for kw in transient_keywords):
                         console.print(
-                            f"[yellow]⚠️ {model_id} 遇尖峰負載 ({err_msg[:40]}...)，正在自動備援至下一代模型...[/yellow]"
+                            f"[yellow]⚠️ 模型 {model_id} 遇到暫時性連線或伺服端尖峰問題，正在自動平滑切換至備用模型...[/yellow]"
                         )
-                        time.sleep(1.0)
+                        time.sleep(2.0)
                         continue
                     else:
                         raise e
@@ -146,3 +176,4 @@ class GeminiFlashChannel(BaseSTTChannel):
             model_used=model_used,
             latency_sec=latency,
         )
+
