@@ -4,10 +4,18 @@ from typing import Dict, Type
 from lecture_pipeline.stt.base import STTChannelBase
 from lecture_pipeline.stt.c1_gemini_flash import GeminiFlashSTTChannel
 from lecture_pipeline.stt.c2_gemini_transcribe import GeminiTranscribeSTTChannel
+from lecture_pipeline.stt.c_faster_whisper import (
+    ChannelC4Breeze,
+    ChannelC6WhisperLargeV3,
+    ChannelC7WhisperTurbo,
+)
 
 _REGISTRY: Dict[str, Type[STTChannelBase]] = {
     "C1": GeminiFlashSTTChannel,
     "C2": GeminiTranscribeSTTChannel,
+    "C4": ChannelC4Breeze,
+    "C6": ChannelC6WhisperLargeV3,
+    "C7": ChannelC7WhisperTurbo,
 }
 
 
