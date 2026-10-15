@@ -116,6 +116,10 @@ class RunState(BaseModel):
     stage_status: Dict[str, str] = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
+    def mark_stage(self, stage: str, status: str = "DONE") -> None:
+        """Mark a pipeline stage status (e.g. 'preprocess', 'stt', 'cleanup', 'summarize', 'export')."""
+        self.stage_status[stage] = status
+
 
 def load_config(config_path: Path | str = "config.yaml") -> Dict[str, Any]:
     """Load configuration from YAML file."""

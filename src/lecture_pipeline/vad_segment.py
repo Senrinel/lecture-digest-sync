@@ -50,7 +50,14 @@ def get_audio_duration(audio_path: Path | str, ffprobe_bin: str = "ffprobe") -> 
     ]
 
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        )
         return float(res.stdout.strip())
     except Exception as e:
         raise RuntimeError(f"無法讀取音訊長度 ({path.name}): {e}") from e
@@ -87,14 +94,22 @@ def detect_silence_intervals(
     ]
 
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        res = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
     except Exception as e:
         raise RuntimeError(f"FFmpeg 靜音偵測失敗: {e}") from e
 
     intervals: List[Tuple[float, float]] = []
     current_start: Optional[float] = None
 
-    for line in res.stderr.splitlines():
+    stderr_text = res.stderr or ""
+    for line in stderr_text.splitlines():
         start_m = SILENCE_START_RE.search(line)
         if start_m:
             current_start = float(start_m.group("start"))

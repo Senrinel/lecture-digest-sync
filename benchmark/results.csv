@@ -1,0 +1,3 @@
+﻿channel_id,channel_name,char_count,duration_sec,rtf,cer,accuracy,term_recall
+C7,Whisper Large-v3-Turbo (C7),3054,23.95,0.0399,,,
+C4,Breeze-ASR-25 (C4),3081,83.49,0.1392,0.1265,0.8735,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -52,7 +52,7 @@ console = Console(legacy_windows=False)
 
 @app.command("prep")
 def prep_command(
-    audio_file: Path = typer.Argument(..., help="欲處理的錄音檔案路徑 (.wav, .mp3, .m4a 等)"),
+    audio_files: List[Path] = typer.Argument(..., help="欲處理的錄音檔案路徑 (.wav, .mp3, .m4a 等，可傳入多個分段檔案)"),
     pre: Optional[str] = typer.Option(
         None,
         "--pre",
@@ -74,16 +74,18 @@ def prep_command(
 ) -> None:
     """執行 Phase 1：檔名解析、音訊前處理開關濾波、與智慧 VAD 靜音切段。"""
     start_total_time = time.time()
-    raw_path = Path(audio_file).resolve()
+    raw_paths = [Path(f).resolve() for f in audio_files]
 
-    if not raw_path.is_file():
-        console.print(f"[bold red]❌ 找不到音檔：{raw_path}[/bold red]")
-        raise typer.Exit(code=1)
+    for p in raw_paths:
+        if not p.is_file():
+            console.print(f"[bold red]❌ 找不到音檔：{p}[/bold red]")
+            raise typer.Exit(code=1)
 
-    console.print(f"\n[bold cyan]🎙️ 啟動 Phase 1 音訊前處理與切段管線：{raw_path.name}[/bold cyan]")
+    file_display = ", ".join(p.name for p in raw_paths)
+    console.print(f"\n[bold cyan]🎙️ 啟動 Phase 1 音訊前處理與切段管線：{file_display}[/bold cyan]")
 
-    # 1. Filename Parsing
-    parsed = parse_filename(raw_path)
+    # 1. Filename Parsing (based on primary/first segment)
+    parsed = parse_filename(raw_paths[0])
     if parsed.warning:
         console.print(f"[yellow]⚠️ {parsed.warning}[/yellow]")
     console.print(f"📌 課程名稱：[green]{parsed.course}[/green] | 課堂日期：[green]{parsed.date}[/green]")
@@ -117,7 +119,7 @@ def prep_command(
 
     t0 = time.time()
     try:
-        preprocess_audio(raw_path, norm_audio_path, opts=pre_opts)
+        preprocess_audio(raw_paths, norm_audio_path, opts=pre_opts)
     except Exception as e:
         console.print(f"[bold red]❌ 前處理失敗：{e}[/bold red]")
         raise typer.Exit(code=1)
@@ -138,8 +140,8 @@ def prep_command(
 
     # 5. Save Run State (run.json)
     state = RunState(
-        source_filename=raw_path.name,
-        source_path=str(raw_path),
+        source_filename=file_display,
+        source_path=";".join(str(p) for p in raw_paths),
         course=parsed.course,
         date=parsed.date,
         pre_options=pre_opts,
@@ -291,8 +293,34 @@ def clean_command(
         "--chunk-chars",
         help="單次整理文本區塊上限字元數 (預設 8000)",
     ),
+    mode: str = typer.Option(
+        "text",
+        "--mode",
+        help="整理模式: text (純文字整理), audio (邊聽邊修), fusion (雙通道融合)",
+    ),
+    fusion_file: Optional[Path] = typer.Option(
+        None,
+        "--fusion-file",
+        help="融合模式下通道 B 的逐字稿檔案路徑",
+    ),
 ) -> None:
     """執行 Phase 3：調用 AI 進行內文整理、錯字校正、標點補全與分段 (嚴格守恆字數)。"""
+    # Unwrap Typer OptionInfo if called programmatically
+    if not isinstance(model, str) and model is not None:
+        model = getattr(model, "default", None)
+    if not isinstance(mode, str):
+        mode = getattr(mode, "default", "text")
+    if not isinstance(min_ratio, (int, float)) and min_ratio is not None:
+        min_ratio = getattr(min_ratio, "default", None)
+    if not isinstance(max_ratio, (int, float)) and max_ratio is not None:
+        max_ratio = getattr(max_ratio, "default", None)
+    if not isinstance(chunk_chars, int) and chunk_chars is not None:
+        chunk_chars = getattr(chunk_chars, "default", None)
+    if not isinstance(prompt, (str, Path)) and prompt is not None:
+        prompt = getattr(prompt, "default", None)
+    if not isinstance(fusion_file, (str, Path)) and fusion_file is not None:
+        fusion_file = getattr(fusion_file, "default", None)
+
     target_work_dir = Path(work_dir).resolve()
     raw_txt_path = target_work_dir / "01_raw.txt"
 
@@ -335,6 +363,7 @@ def clean_command(
         engine = GeminiTextCleanupEngine(
             primary_model=selected_model,
             prompt_template_path=prompt_file,
+            mode=mode,
             min_ratio=ratio_min,
             max_ratio=ratio_max,
             chunk_chars=max_chunk,
@@ -343,9 +372,22 @@ def clean_command(
         console.print(f"[bold red]❌ 初始化內文整理引擎失敗：{e}[/bold red]")
         raise typer.Exit(code=1)
 
-    console.print(f"\n[bold]⏳ 正在進行全文修復、分段與標點重構...[/bold]")
+    secondary_text = None
+    if fusion_file and Path(fusion_file).is_file():
+        secondary_text = Path(fusion_file).read_text(encoding="utf-8").strip()
+
+    audio_chunks = None
+    if mode == "audio":
+        if state and state.chunks:
+            audio_chunks = [Path(c.filepath) for c in state.chunks]
+        elif (target_work_dir / "chunks").is_dir():
+            audio_chunks = sorted((target_work_dir / "chunks").glob("*.wav"))
+
+    console.print(f"\n[bold]⏳ 正在進行全文修復、分段與標點重構 (模式: [yellow]{mode}[/yellow])...[/bold]")
     result = engine.clean(
         raw_text=raw_text,
+        secondary_text=secondary_text,
+        audio_chunks=audio_chunks,
         course=course_name,
         date=date_str,
         glossary=glossary,
@@ -412,6 +454,14 @@ def summary_command(
     ),
 ) -> None:
     """執行 Phase 4：調用 AI 提煉結構化重點筆記與心智脈絡 (產出 03_summary.md)。"""
+    # Unwrap Typer OptionInfo if called programmatically
+    if not isinstance(model, str) and model is not None:
+        model = getattr(model, "default", None)
+    if not isinstance(template, (str, Path)) and template is not None:
+        template = getattr(template, "default", None)
+    if not isinstance(thinking, int) and thinking is not None:
+        thinking = getattr(thinking, "default", None)
+
     target_work_dir = Path(work_dir).resolve()
     cleaned_txt_path = target_work_dir / "02_cleaned.txt"
 
@@ -525,6 +575,14 @@ def notebook_command(
     ),
 ) -> None:
     """執行 Phase 5：將整理文稿與考前重點筆記打包為 NotebookLM 最佳化檔案組。"""
+    # Unwrap Typer OptionInfo if called programmatically
+    if not isinstance(export_dir, (str, Path)) and export_dir is not None:
+        export_dir = getattr(export_dir, "default", None)
+    if not isinstance(open_browser, bool):
+        open_browser = getattr(open_browser, "default", False)
+    if not isinstance(reveal, bool):
+        reveal = getattr(reveal, "default", False)
+
     target_work_dir = Path(work_dir).resolve()
     cfg = load_config()
     exp_cfg = cfg.get("export", {})
@@ -566,7 +624,7 @@ def notebook_command(
 
 @app.command("run")
 def run_command(
-    audio_file: Path = typer.Argument(..., help="欲處理的課堂錄音檔案路徑 (.wav, .mp3, .m4a 等)"),
+    audio_files: List[Path] = typer.Argument(..., help="欲處理的課堂錄音檔案路徑 (.wav, .mp3, .m4a 等，可傳入多個分段檔案)"),
     pre: Optional[str] = typer.Option(
         None,
         "--pre",
@@ -593,28 +651,30 @@ def run_command(
     ),
 ) -> None:
     """【一鍵全流程】自動依序執行 Phase 1 ➜ Phase 2 ➜ Phase 3 ➜ Phase 4 ➜ Phase 5。"""
-    raw_path = Path(audio_file).resolve()
-    if not raw_path.is_file():
-        console.print(f"[bold red]❌ 找不到音檔：{raw_path}[/bold red]")
-        raise typer.Exit(code=1)
+    raw_paths = [Path(f).resolve() for f in audio_files]
+    for p in raw_paths:
+        if not p.is_file():
+            console.print(f"[bold red]❌ 找不到音檔：{p}[/bold red]")
+            raise typer.Exit(code=1)
 
-    parsed = parse_filename(raw_path)
+    parsed = parse_filename(raw_paths[0])
     target_work_dir = parsed.work_dir
 
+    file_display = ", ".join(p.name for p in raw_paths)
     console.print(f"\n[bold magenta]🚀 啟動端到端自動化課堂處理管線 (End-to-End Pipeline)[/bold magenta]")
-    console.print(f"📁 輸入檔案：[bold]{raw_path.name}[/bold]")
+    console.print(f"📁 輸入檔案：[bold]{file_display}[/bold]")
     console.print(f"📌 識別課程：[green]{parsed.course}[/green] | 日期：[green]{parsed.date}[/green]\n")
 
     total_start = time.time()
 
     # Step 1: Prep
-    prep_command(audio_file=raw_path, pre=pre, target_sec=target_sec, work_dir=target_work_dir)
+    prep_command(audio_files=raw_paths, pre=pre, target_sec=target_sec, work_dir=target_work_dir)
 
     # Step 2: STT
     stt_command(work_dir=target_work_dir, channel=channel, model=None)
 
     # Step 3: Clean
-    clean_command(work_dir=target_work_dir, model=None, prompt=None, min_ratio=None, max_ratio=None, chunk_chars=None)
+    clean_command(work_dir=target_work_dir, model=None, prompt=None, min_ratio=None, max_ratio=None, chunk_chars=None, mode="text", fusion_file=None)
 
     # Step 4: Summary
     summary_command(work_dir=target_work_dir, model=None, template=None, thinking=None)
@@ -625,6 +685,93 @@ def run_command(
     total_elapsed = round(time.time() - total_start, 2)
 
     console.print(f"\n[bold green]🎉 端到端課堂管線全數執行完成！總耗時：{total_elapsed} 秒[/bold green]\n")
+
+
+@app.command("bench")
+def bench_command(
+    work_dir: Path = typer.Argument(
+        ...,
+        help="待評測的工作目錄 (例如 work/Discrete Mathematics/20261015)",
+    ),
+    channels: str = typer.Option(
+        "C7,C4",
+        "--channels",
+        "-c",
+        help="以逗號分隔欲比較的 STT 通道列表 (例如 C1,C2,C4,C6,C7)",
+    ),
+    ref: Optional[str] = typer.Option(
+        None,
+        "--ref",
+        "-r",
+        help="作為基準 (Ground Truth) 的通道代碼 (例如 C8 或 C1)",
+    ),
+    ref_text: Optional[Path] = typer.Option(
+        None,
+        "--ref-text",
+        help="外部黃金標準逐字稿文字檔路徑",
+    ),
+    output_dir: Path = typer.Option(
+        Path("benchmark"),
+        "--output-dir",
+        "-o",
+        help="評測報告輸出目錄 (預設 benchmark/)",
+    ),
+) -> None:
+    """執行 Phase 4：多通道 STT 評測，計算 CER、術語召回率並產出互動式 HTML 報表。"""
+    from lecture_pipeline.bench import run_benchmark
+
+    ch_list = [c.strip().upper() for c in channels.split(",") if c.strip()]
+    console.print(f"\n[bold cyan]📊 啟動 ASR 多通道評測：{work_dir}[/bold cyan]")
+    console.print(f"📌 評測通道：{', '.join(ch_list)} | 基準通道：{ref or '無'}")
+
+    run_benchmark(
+        work_dir=work_dir,
+        channel_ids=ch_list,
+        reference_channel_id=ref,
+        reference_text_path=ref_text,
+        output_dir=output_dir,
+    )
+
+
+@app.command("watch")
+def watch_command(
+    inbox: Path = typer.Argument(
+        Path("inbox"),
+        help="欲監看的資料夾路徑 (預設 inbox/)",
+    ),
+    channel: str = typer.Option(
+        "C7",
+        "--channel",
+        "-c",
+        help="預設使用的 STT 通道代碼 (預設 C7 Whisper Turbo)",
+    ),
+    pre: Optional[str] = typer.Option(
+        "hp,loud",
+        "--pre",
+        "-p",
+        help="前處理開關組合",
+    ),
+    once: bool = typer.Option(
+        False,
+        "--once",
+        help="單次掃描並批次處理所有待辦錄音後退出",
+    ),
+    interval: int = typer.Option(
+        5,
+        "--interval",
+        help="持續監看輪詢間隔秒數 (預設 5s)",
+    ),
+) -> None:
+    """執行 Phase 8：資料夾無人值守監看與多段錄音自動合併端對端管線。"""
+    from lecture_pipeline.automation import watch_inbox
+
+    watch_inbox(
+        inbox_dir=inbox,
+        channel_id=channel,
+        pre_flags=pre,
+        once=once,
+        poll_interval=interval,
+    )
 
 
 @app.command("info")

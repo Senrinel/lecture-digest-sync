@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ASR 多通道實測與評估報告 - Unsorted (20261015)</title>
+    <style>
+        :root {
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text: #0f172a;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --primary: #2563eb;
+            --green: #10b981;
+            --orange: #f59e0b;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 24px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        header {
+            background: var(--card-bg);
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            margin-bottom: 24px;
+            border: 1px solid var(--border);
+        }
+        h1 { margin: 0 0 8px 0; font-size: 24px; }
+        .meta { color: var(--text-muted); font-size: 14px; }
+        .card {
+            background: var(--card-bg);
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            margin-bottom: 24px;
+            border: 1px solid var(--border);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            margin-top: 12px;
+        }
+        th, td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+        }
+        th { background: #f1f5f9; font-weight: 600; }
+        .badge {
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 12px;
+        }
+        .badge.green { background: #d1fae5; color: #065f46; }
+        .badge.orange { background: #fef3c7; color: #92400e; }
+        .badge.blue { background: #dbeafe; color: #1e40af; }
+        .tab-buttons {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .tab-btn {
+            padding: 8px 16px;
+            border: 1px solid var(--border);
+            background: #f1f5f9;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .tab-btn.active {
+            background: var(--primary);
+            color: #ffffff;
+            border-color: var(--primary);
+        }
+        .tab-pane { display: none; }
+        .tab-pane.active { display: block; }
+        .transcript-box {
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            max-height: 500px;
+            overflow-y: auto;
+            line-height: 1.7;
+            font-size: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎙️ ASR 多通道評測對照報告</h1>
+            <div class="meta">課程：<strong>Unsorted</strong> | 日期：<strong>20261015</strong> | 評測通道數：2</div>
+        </header>
+
+        <div class="card">
+            <h3>📊 客觀指標排行榜 (Objective Metrics Ranking)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>通道代碼</th>
+                        <th>通道名稱</th>
+                        <th>字數</th>
+                        <th>耗時</th>
+                        <th>RTF (速度比)</th>
+                        <th>字錯誤率 (CER)</th>
+                        <th>準確率 (1-CER)</th>
+                        <th>術語召回率</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><strong>C4</strong></td><td>Breeze-ASR-25 (C4)</td><td>3,081</td><td>83.49s</td><td>0.1392</td><td><span class='badge green'>12.65%</span></td><td><span class='badge green'>87.35%</span></td><td>N/A</td></tr><tr><td><strong>C7</strong> (Reference)</td><td>Whisper Large-v3-Turbo (C7)</td><td>3,054</td><td>23.95s</td><td>0.0399</td><td><span class='badge green'>N/A (基準)</span></td><td><span class='badge blue'>基準</span></td><td>N/A</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h3>🔍 逐字稿全文並排/切換檢視 (Transcript Viewer)</h3>
+            <div class="tab-buttons">
+                <button class='tab-btn active' onclick='switchTab(0)'>C7: Whisper Large-v3-Turbo (C7)</button><button class='tab-btn ' onclick='switchTab(1)'>C4: Breeze-ASR-25 (C4)</button>
+            </div>
+            <div id='tab-pane-0' class='tab-pane active'><h4>Whisper Large-v3-Turbo (C7) (3,054 字)</h4><div class='transcript-box'><p>新的一個題目。第一個是Defined Conquer。然後呢,基本上排序的速度平均來講是大概是升級最快的排序,平均啦。當然以Wall&#x27;s case來講,他並不是最快。但是呢,這個Average Case呢,老師,你看,雙科都一直不太敢講,講太多。原因,各位一看就知道,你看光要去算Average Case,數學就要用那麼多。所以我很快的時間給各位開啟,講一下。你們就大概記一下有點概念其實我還是蠻那個有一句話老狗學不是心法系所以什麼叫老狗呢應該跟各位講過就是25歲其實一個蠻重要的班所以如果各位在25歲以前25歲以前其實很多東西就算你沒有任何的基礎其實你學起來都這樣都還OK就你有辦法從無到有去學習可是到了二十五歲以後呢其實真的覺得在學習上就會有點比較吃力會比較吃力所以在人生的旅程中二十五歲是一個很大的關卡所以我會蠻鼓勵同學在二十五歲前怎樣多學一點東西至於說學的好或不好其實我個人認為也不見得說一定那麼重要為什麼呢至少你都知道這些東西了等到以後萬一,因為說這個數學有什麼時候會用到這麼說好了,可能你一生都不會用到可是萬一哪一天你遇到類似的問題的時候你有一個概念,其實你就很容易從那個地方開始發芽生根這個就是其實,簡單講就是多學一個東西即使你沒有學得很厲害,你還是有一個線索這樣都瞭解嗎?就好像老師一樣我從小我運動我也不見得會是選手但是我每種運動我會有很多接觸可是等到我真的出社會以後25歲以後其實說真的我不知道我會遇到什麼運動例如說像我進了第一個工作中華電信奇怪那個那個單位啊全部都就是包括那個主管都是打網球結果我在學校雖然有修網球課我是也沒有說常常在打結果你去果然就很快就上手了所以大概打不到半年其實某種程度我大概就進入了算是比較會打的那一個群啊雖然不敢講說是第一名可是至少是在算會打的群然後後來又換了另外一份工作結果這些人說要要要要要要要打雨到了那個玄奏大學就是我到了大學回學校教書的時候對不對那時候我算是籃球,以前是籃球的可能是系隊網球可能也是系隊甚至中華天競可能也是代表隊結果到了玄奘大學以後哇,整個學校空蕩蕩,沒有人打這種球啊所以最後怎麼樣一看球員都躲在體育館裡面打羽毛球我也沒打過羽毛球啊但是我就被迫跟著這些人去打那一樣的道理,我大概也是花不到半年了就已經打到算是比較會打的族群甚至打了一年以後,講老實話在學校裡面應該也沒有一兩個人贏得了我了就是因為那個族群也大概差不多就是會打的那一拳人大概也差不多二十幾個人其實我一年後大概每個人都被我幹掉了其實我要跟各位講的意思只是告訴各位你要利用二十五歲前做我學一點東西即使各位學的不好,你至少有點概念等到整種需要的時候,你才發現說哦,原來這個東西可以比較,真的比較容易一點你這個,像例如說,現在這麼說好了,我也不騙各位如果今天老師,突然有個機會說啊,老師,你快退休了,你要不要學個音樂啊,對不對從小有個夢想,想要學好音樂那問題就沒任何基礎,你知道嗎你現在叫我去學鋼琴,學小滴琴,你真的要我的命或者說畫圖,也是一樣到你以前也都不會畫所以你說很多人退出後,畫畫圖然後彈彈琴,聽起來很愜意其實常常說,對老師來講可能就是很大的障礙可是如果說今天讓我去學一個新的球例如說最近很流行一種球,你們知道嗎比克球,有沒有聽過?比克,就是那個網球變形的啦那個叫比克球聽說很熱啊,我從來沒摸過,連看都沒看過對,但是這麼說,如果今天我退休有人找我說,哎呀,那個王老師我們去打比克球我真的無憑各位,我相信,就算我65歲我再來去打,我相信也沒幾個人打的一波我說那些打人家然後跟你年輕人是不能不理他好吧,那我大概講一下,你們想聽了就大概聽一下好不好,來各位看一下,第一個是Crystal的這個演算版是大家還記得就是每一個元素跟基本點,基準點基準點我們就講是第一個元素每一個人都跟他比,小的往左邊丟,大的往右邊丟所以這個圖我相信同學應該看得懂所以我們可以分成兩大塊所以當時老師在教通識的時候Crystal的通識其實就是這個式子因為原來有 n 個元素經過 n 減 1 次比較以後經過 n 減 1 次比較以後它就可以拆成兩個小數列一邊假設有 s 的數列另外一邊就是 n 減 1 減 s所以當時老師就匯出了這個通識Crystal 的通識所以當時我們就講說你通識已經匯出來了這時候你就分析三種狀況第一個 best case, worst case 跟 average case所以 worst case 很簡單嘛就是運氣很不好嘛因為你目的是要猜兩個數列嘛結果怎樣還運氣很不好啊每次都猜不到啊就只猜到一個啊所以換句話說你的基準點永遠是最小或者最大這時候你的兩個數列就是一個是 0 一個是 N 解尼嘛這個就是 worst case所以各位這個數學一看就知道這跟 bubble source 的複雜度一模一樣因為你每次只幹掉一個元素嘛所以 Worst case 還是 O 的 N 平方Best case 呢因為 Crisot 的精神就是要Define and Conquer 各個擊破所以運氣好的時候就是剛好一刀切過去剛好猜成一半這時候你降速的速度就是把大 N 變到小N 變到 2 分之 N 是速度最快的一個減少的速度所以這時候你就把它想成我一樣花了 N 減 1 的時間然後這 SG S 跟 N 減 1 減 S 剛好一半所以它就變成N-1加上兩倍的t二分之N這個數學我們也都證明過答案是order N-N這個是best case所以今天最重要的比較麻煩的就是那average case呢因為我們猜成兩個數列那這兩個數列你不曉得這兩個數列的長度是多少有可能是0一邊是0,一邊是N-1那有可能一邊是1,一邊是N-2那有可能一邊是3,另外一邊就是N-4所以這時候我們就匯出 every case 的通勢所以 Tn 等於 n 點 1 加上 Ts 加上 Tn 減 SS 可能 0 到 n 減 1這所有情況我們就把它平均通通把所有的情況都加起來因為你挑的基準點有可能是第 0 大有可能第 1 大 有可能第 2 大第 3 大 第 4 大 到 dn 減 1所以在這種情況下,我把每一種情況通通加起來,然後除以N因為每一種出現的機遇是一樣的因為數列是隨機亂拍的所以就會得到這個通識得了這個通識以後呢,那我們就來所以我們上課基本上只上到這邊後面的就是計算,所以大家給各位欣賞一下因為我們要算的是複雜度,所以各位一定要記得複雜度的計算其實不需要那麼精確因為它只要算order所以這個式子我們為了要計算所以稍微給它簡化所以第一個各位有沒有看到什麼簡化這邊有一個n-1-s因為從1跟n比起來差一個order所以我們為了簡化起見所以這個式子才會變成ts跟tn-s這個是第一個猜成這兩半猜成這兩半我們現在就來計算這個式子這個就是我們今天也會做參考的地方就是去算 every case這個就稍微整理一下因為 summation 三個東西是要累加 summation所以拆開所以就會得到這個式子稍微整理以後都會得到這個式子tn 等於 cn 加上 mz 乘上 summationds 加上 tn-s好,所以再來的數學就是要去算這個東西好,那這個數學怎麼算呢?其實說真的,也沒什麼難啦所以第一個部分呢,怎麼做?來,各位看一下所以這個部分呢,我們來看因為這個看起來最難是這一塊所以我們這一塊先把它算一下所以那個很沒選的部分所以來看一下這個其實各位,這邊就是各位今天要讓各位學習可以去體會的東西就是當你看到這種數列兩個數列出來的時候我考一下</p></div></div><div id='tab-pane-1' class='tab-pane '><h4>Breeze-ASR-25 (C4) (3,081 字)</h4><div class='transcript-box'><p>新的一個題目第一個是 divide conquer然後呢基本上排序的速度平均來講是大概是設定最快的排序方平均啦當然以 worst case 來講它並不是最快但是這個 average case 呢老師你看上次都一直不太敢講太多原因各位一看就知道你看光要去算 average case 數學就要用那麼多所以我很快的時間給各位大概講一下你們就大概記下有一點概念其實我還是蠻那個有一句話老狗學不出新法系所以什麼叫老狗呢應該跟各位講過嘛就是 25 歲其實是一個蠻重要的關卡所以如果各位在 25 歲以前其實很多東西就算你沒有任何的基礎其實你學起來都還 OK你有辦法從 5 到 6 去學習可是到了 25 歲以後其實真的圓滿就會在學習上就會有點比較吃力所以在人生的旅程中 25 歲是一個很大的關卡所以我會滿鼓勵同學在 25 歲前怎樣多學點東西至於說學得好或不好其實我個人認為也不見得說一定那麼重要至少你都知道這些東西了等到以後萬一因為說真的這個數學你都什麼時候會用到這麼說好了可能你一生都不會用到可是萬一哪一天你遇到類似的問題的時候你有一個概念其實你就很容易從那個地方開始發芽生根這個就是其實簡單講就是多學一個東西即使你沒有學的很厲害你還是有一個線索這樣都瞭解嗎就好像老師一樣我從小我運動我也不見得會是選手但是我每種運動我都有可能都接觸了可是等到我真的出社會以後25 歲以後其實說真的我不知道我會遇到什麼運動例如說像我進了第一個工作中華電信欸奇怪那個單位全部人都就是包括那個主管都是打網球結果我在學校雖然有修網球課可是也沒有說常常在打結果一去果然就很快就上手了所以大概打不到半年其實某種程度我大概就進入了算是比較會打的那一個群雖然不敢講說是第一名可是至少是在算會打的群然後後來又換了另外一份工作結果這些人說要打羽到了那個玄奘大學就是我到了大學回學校教書的時候那時候我算是籃球以前是籃球的可能是戲隊那網球可能也是戲隊甚至中華電信可能也是代表隊那結果到了那個玄奘大學以後呢哇整個學校空蕩蕩沒有人打這種球啊所以最後怎麼辦一看全部人都躲在那個體育館裡面打羽毛球我也沒打過羽毛球啊對然後但是我就只好被迫只好去跟著這些人去打那一樣道理我大概也知道大概花不到半年就已經打到算是比較會打的族群甚至打了一年以後講老實話在學校裡面也沒應該也沒有一兩個人贏得了我了就是因為那個族群也大概差不多就是會打的那群人大概也差不多二十幾個人其實我一年後大概每個人都被我幹掉了其實我要跟各位講的意思只是告訴各位你要利用 25 歲前多學一點東西即使各位學得不好你至少有點概念等到成為你需要的時候你才發現說原來這個東西可以比較真的比較容易一點你真的像例如說先這麼說好了我也不騙各位瞭如果今天老師突然有個機會說老師你快退休了你要不要學個音樂啊對不對從小有個夢想想要學好音樂問題就沒任何基礎你知道嗎你現在叫我去學鋼琴學小提琴你真的要我的命對不對或者說畫圖也是一樣道理以前也是也都不會畫所以你說很多人退休後畫畫圖然後彈彈琴聽起來很愜意其實講老實話對老師來講可能就是很大的障礙可是如果說今天讓我去學一個新的球例如說最近很流行一種球你們知道嗎皮克球有沒有聽過皮克就是網球變形的那個叫皮克球聽說很熱我從來沒摸過連看都沒看過但是這麼說好了如果今天我退休後有人找我說那個王老師我們去打米克球我真的不騙各位我相信就算我 65 歲我再來去打我相信也沒幾個人打得贏我我說那你也打不贏家然後也跟你們年輕人是不能比的好吧那我大概講一下你們想聽的就大概聽一下好不好來各位看一下這個第一個是 crystal那這個演演算法應該大家還記得嗎就是每一個元素跟基準點那基準點我們就假設是第一個元素每一個人都跟它比小的往左邊丟那個大的往右邊丟所以這個圖我相信同學應該看得懂所以就不可以分成兩大塊所以當時老師在教那個通識的時候crystal 的通識其實就是這個式子因為原來有 n 個元素嘛經過 n-1 次比較以後它就可以拆成兩個小數列一邊假設有 x 的數列那另外一邊就是 n-1-x所以當時老師就匯出了這個通識Crystal 的通識那所以當時我們就講說你通識一旦匯出來了這時候你就分析三種狀況嘛第一個 best case worst case 跟 average case所以 worst case 很簡單嘛就是運氣很不好嘛因為你目的是要猜兩個數列嘛結果怎樣運氣很不好啊每次都猜不到啊就只猜到一個啊所以換句話說你的基準點永遠是最小或者最大這時候你的兩個數列就是一個是 mean 一個是 n-1這個就是 worst case所以各位這個數學一看就知道這跟 bubble sort 的複雜度一模一樣因為你每次只幹掉一個元素所以 worst case 還是 order 平方那 best case 呢因為 quick sort 的精神就是要 divide and conquer 各個解脫所以運氣好的時候就是剛好一刀切過去剛好拆成一半這時候你降速的速度就是把 n 變到小n 變到 2 分之 n 是速度最快的一個減少的速度所以這時候你就把它想成欸我一樣花了 n-1 的時間然後這個 s對 gs 跟 n-1-s 剛好一半所以它就變成 n-1 加上 2 倍的 t 2 分之 n那這個數學我們也都證明過答案是 ordern log n那這個是 best case好那所以今天最重要的比較麻煩的就是那 average case 呢因為我們拆成兩個數列嘛那這兩個數列你不曉得這兩個數列的長度是多少啊有可能 0 嘛一邊是 0 一邊 n-1那有可能一邊是 1 一邊是 n-2那有可能一邊是 3 到另外一邊就是 n-4對不對所以呢欸這時候呢我們就匯出那個 average case 的那個通識所以 tn 等於對不對有沒有n-1 加上 ts 加上 tn-s那 s 可能 0 到 n-1這個所有情況我們就把它平均統統把所有的情況統統加起來因為你挑的基準點有可能是第 0 大有可能第 1 大有可能第 2 大第 3 大第 4 大到第 n 減 1所以在這種情況下我把每一種情況統統加起來然後除以 n因為每一種出現的機率是一樣的因為數列是隨機亂拍的所以就會得到這個通識得了這個通識以後那我們就來所以我們上課基本上只上到這邊嘛然後後面的就是計算所以大家各位欣賞一下那因為我們要算的是複雜度所以各位一定要記得複雜度的計算其實不需要那麼精確因為它只要算 order所以這個式子呢我們為了要計算所以稍微給它簡化所以第一個各位有沒有看到什麼簡化這邊有一個 n 減 1 減 s那因為從 1 跟 n 比起來差一個 order所以我們為了簡化起見所以這個式子才會變成 ts 跟 tn-s這個是第一個拆成這兩半好拆成這兩半以後呢來我們就得到我們現在就來計算這個式子這個就是我們今天也都會做參考的地方就是去算 every case好那這個就稍微整理一下對不對因為 summation 嘛三個東西是要累加嘛 summation 所以拆開所以就會得到這個式子所以稍微整理以後呢都會得到這個式子 tn 等於 cn 加上 mz 乘上 summation 的 ds 加上 tn 減 s好所以再來的數學就是要去算這個東西好那這個數學怎麼算呢其實說真的還沒什麼難啦所以第一個部分呢怎麼做來各位看一下所以這個部分呢我們來看因為這個看起來最難是這一塊嘛所以我們這一塊先把它算一下所以那個 summation 的部分所以來看一下這個其實各位這邊就是各位今天要讓各位學習可以去體會的東西就是當你看到這種數列兩個的數列出來的時候我考了一下</p></div></div>
+        </div>
+    </div>
+
+    <script>
+        function switchTab(targetIndex) {
+            const buttons = document.querySelectorAll('.tab-btn');
+            const panes = document.querySelectorAll('.tab-pane');
+            buttons.forEach((btn, idx) => {
+                btn.classList.toggle('active', idx === targetIndex);
+            });
+            panes.forEach((pane, idx) => {
+                pane.classList.toggle('active', idx === targetIndex);
+            });
+        }
+    </script>
+</body>
+</html>

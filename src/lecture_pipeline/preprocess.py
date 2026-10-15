@@ -66,7 +66,7 @@ def build_ffmpeg_audio_filters(opts: PreprocessOptions) -> List[str]:
 
 
 def preprocess_audio(
-    input_path: Path | str,
+    input_path: Path | str | list[Path | str],
     output_path: Path | str,
     opts: Optional[PreprocessOptions] = None,
     ffmpeg_bin: str = "ffmpeg",
@@ -74,9 +74,10 @@ def preprocess_audio(
     """Preprocess audio using FFmpeg with the requested filter chain.
 
     Standardizes audio to 16,000 Hz, mono channel, 16-bit PCM WAV.
+    Supports single audio files or multiple parts (auto-concatenated).
 
     Args:
-        input_path: Input audio file.
+        input_path: Single audio path or list of paths (e.g. multi-part recordings).
         output_path: Target preprocessed WAV file.
         opts: Preprocessing options. If None, default settings are used.
         ffmpeg_bin: Name or path of the ffmpeg binary.
@@ -88,42 +89,61 @@ def preprocess_audio(
         FileNotFoundError: If input file or ffmpeg binary not found.
         RuntimeError: If FFmpeg execution fails.
     """
-    in_file = Path(input_path).resolve()
+    if isinstance(input_path, (list, tuple)):
+        in_files = [Path(p).resolve() for p in input_path]
+    else:
+        in_files = [Path(input_path).resolve()]
+
+    for f in in_files:
+        if not f.is_file():
+            raise FileNotFoundError(f"找不到輸入音檔：{f}")
+
     out_file = Path(output_path).resolve()
-
-    if not in_file.is_file():
-        raise FileNotFoundError(f"找不到輸入音檔：{in_file}")
-
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
     if opts is None:
         opts = PreprocessOptions()
 
     filters = build_ffmpeg_audio_filters(opts)
+    filter_str = ",".join(filters) if filters else None
+
     cmd = [
         ffmpeg_bin,
         "-y",  # Overwrite output
         "-hide_banner",
         "-loglevel",
         "error",
-        "-i",
-        str(in_file),
-        "-ar",
-        "16000",  # Standard 16kHz
-        "-ac",
-        "1",  # Mono
-        "-c:a",
-        "pcm_s16le",  # 16-bit PCM
     ]
+    for f in in_files:
+        cmd.extend(["-i", str(f)])
 
-    if filters:
-        filter_str = ",".join(filters)
-        cmd.extend(["-af", filter_str])
+    if len(in_files) > 1:
+        concat_inputs = "".join(f"[{i}:a]" for i in range(len(in_files)))
+        if filter_str:
+            complex_filter = f"{concat_inputs}concat=n={len(in_files)}:v=0:a=1[cat];[cat]{filter_str}[out]"
+        else:
+            complex_filter = f"{concat_inputs}concat=n={len(in_files)}:v=0:a=1[out]"
+        cmd.extend(["-filter_complex", complex_filter, "-map", "[out]"])
+    else:
+        if filter_str:
+            cmd.extend(["-af", filter_str])
 
-    cmd.append(str(out_file))
+    cmd.extend([
+        "-ar", "16000",  # Standard 16kHz
+        "-ac", "1",  # Mono
+        "-c:a", "pcm_s16le",  # 16-bit PCM
+        str(out_file),
+    ])
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        )
     except subprocess.CalledProcessError as e:
         err_msg = e.stderr.strip() if e.stderr else str(e)
         raise RuntimeError(f"FFmpeg 前處理執行失敗: {err_msg}") from e

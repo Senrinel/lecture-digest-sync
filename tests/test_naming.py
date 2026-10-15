@@ -27,6 +27,51 @@ def test_parse_standard_filename_with_time():
     assert info.display_tag == "[Machine-Learning | 20260920_0930]"
 
 
+def test_parse_university_course_with_lecture_number(tmp_path: Path):
+    """Verify parsing of 'Discrete Mathematics 02.wav' pattern."""
+    test_file = tmp_path / "Discrete Mathematics 02.wav"
+    test_file.touch()
+
+    info = parse_filename(test_file, base_work_dir="work")
+    assert info.is_standard is True
+    assert info.course == "Discrete Mathematics"
+    assert info.lecture_num == "02"
+    assert info.part is None
+    assert "L02" in info.work_dir.name
+    assert info.work_dir.parent.name == "Discrete Mathematics"
+
+
+def test_parse_course_with_multiple_spaces_and_chinese(tmp_path: Path):
+    """Verify parsing of 'Creative Invention  02.wav' and '通識 音樂 01.wav'."""
+    f1 = tmp_path / "Creative Invention  02.wav"
+    f1.touch()
+    info1 = parse_filename(f1, base_work_dir="work")
+    assert info1.course == "Creative Invention"
+    assert info1.lecture_num == "02"
+
+    f2 = tmp_path / "通識 音樂 01.wav"
+    f2.touch()
+    info2 = parse_filename(f2, base_work_dir="work")
+    assert info2.course == "通識 音樂"
+    assert info2.lecture_num == "01"
+
+
+def test_parse_course_with_part_and_trailing_space(tmp_path: Path):
+    """Verify parsing of '通識 音樂 04 (2).wav' and '通識 音樂 07 .wav'."""
+    f1 = tmp_path / "通識 音樂 04 (2).wav"
+    f1.touch()
+    info1 = parse_filename(f1, base_work_dir="work")
+    assert info1.course == "通識 音樂"
+    assert info1.lecture_num == "04"
+    assert info1.part == "2"
+
+    f2 = tmp_path / "通識 音樂 07 .wav"
+    f2.touch()
+    info2 = parse_filename(f2, base_work_dir="work")
+    assert info2.course == "通識 音樂"
+    assert info2.lecture_num == "07"
+
+
 def test_parse_sony_recorder_native_filename():
     """Verify parsing of SONY ICD-PX470 native format (YYMMDD_HHMM)."""
     info = parse_filename("261015_0930.mp3", base_work_dir="work")

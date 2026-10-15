@@ -62,3 +62,23 @@ def test_preprocess_audio_execution(tmp_path: Path):
         assert w.getnchannels() == 1  # Mono
         assert w.getframerate() == 16000  # 16kHz
         assert w.getsampwidth() == 2  # 16-bit
+
+
+def test_preprocess_audio_multi_part_concat(tmp_path: Path):
+    """Verify concatenation of multiple audio parts into a single normalized WAV."""
+    part1 = tmp_path / "lecture_part1.wav"
+    part2 = tmp_path / "lecture_part2.wav"
+    out_wav = tmp_path / "concatenated_out.wav"
+
+    create_synthetic_wav(part1, duration_sec=1.0, sample_rate=44100)
+    create_synthetic_wav(part2, duration_sec=1.5, sample_rate=44100)
+
+    processed = preprocess_audio([part1, part2], out_wav)
+    assert processed.is_file()
+
+    with wave.open(str(processed), "rb") as w:
+        assert w.getnchannels() == 1
+        assert w.getframerate() == 16000
+        duration = w.getnframes() / w.getframerate()
+        assert 2.3 <= duration <= 2.7
+
