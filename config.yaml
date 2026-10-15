@@ -1,0 +1,88 @@
+# ==============================================================================
+# 課堂錄音自動化處理管線設定 (Lecture Pipeline Configuration)
+# ==============================================================================
+
+# 系統路徑設定
+paths:
+  inbox_dir: "inbox"
+  work_dir: "work"
+  archive_dir: "archive"
+  logs_dir: "logs"
+  benchmark_dir: "benchmark"
+  prompts_dir: "prompts"
+  courses_dir: "courses"
+
+# 預設前處理開關 (针对 SONY ICD-PX470 桌面錄製最佳化)
+preprocessing:
+  # 可選值:
+  # hp: off | 80Hz | 100Hz | 120Hz (消除桌面振動與冷氣低頻)
+  # loud: off | -16LUFS | -19LUFS | -23LUFS (EBU R128 音量正規化)
+  # dyn: off | light | standard (動態音量平衡，拉近走動音量差)
+  # nr: off | 6dB | 12dB | 18dB (頻譜降噪)
+  # dfn: off | on (DeepFilterNet3 深度降噪)
+  # se: off | on (MossFormer2 語音增強)
+  # wpe: off | on (去殘響)
+  # vadtrim: off | on (修剪前端長靜音)
+  hp: "100Hz"
+  loud: "-19LUFS"
+  dyn: "off"
+  nr: "off"
+  dfn: "off"
+  se: "off"
+  wpe: "off"
+  vadtrim: "off"
+
+# VAD 與切段設定 (保守穩定策略，絕不切滿單次上限)
+segmentation:
+  # 目標切段時長 (秒): 600s = 10分鐘 (Gemini 3.8 Flash 最穩且快)
+  target_chunk_sec: 600
+  # 靜音搜尋搜尋半徑 (秒): 在目標時間點 ±30s 內尋找停頓
+  search_window_sec: 30
+  # 靜音判定閾值 (dB)
+  silence_thresh_db: -40
+  # 最短靜音長度 (秒)
+  min_silence_sec: 0.5
+  # 片段重疊 (秒): 0 代表精確在靜音處切割
+  overlap_sec: 0
+
+# STT 語音辨識設定
+stt:
+  # 預設通道: C1 (Gemini 3.8 Flash) 或 C2 (Gemini 3.5 Transcribe)
+  default_channel: "C1"
+  # 備援通道 (額度用完時切換的本地模型): C4 (Breeze-ASR-25) 或 C3 (Qwen3-ASR)
+  fallback_local_channel: "C4"
+  # 辨識 Prompt 策略: verbatim (字字逐字) | polite_clean (去贅字)
+  prompt_style: "verbatim"
+  # 溫度
+  temperature: 0.0
+  # 簡轉繁策略: s2twp (台灣慣用詞繁體) | s2tw (標準繁體)
+  opencc_config: "s2twp"
+
+# 內文整理設定
+cleanup:
+  # 模式: text (純文字整理) | audio (聽音檔修正) | fusion (雙通道比對融合)
+  mode: "text"
+  model: "gemini-3.8-flash"
+  prompt_template: "fabric_clean_text.md"
+  # 每次送進整理模型的字元數
+  chunk_chars: 8000
+  overlap_chars: 300
+  # 字數守恆容許區間 (輸出字數 / 輸入字數)
+  length_ratio_min: 0.80
+  length_ratio_max: 1.05
+
+# 重點總結設定
+summarize:
+  model: "gemini-3.8-flash"
+  template: "fabric_summarize_lecture.md"
+  thinking_budget: 4096
+
+# 額度用完因應策略
+quota_policy:
+  # 可選值:
+  # local_then_defer: 本地跑 STT 產出 raw.txt，整理與總結排入佇列等隔天重置補跑 (預設 c 方案)
+  # wait: 暫停並等待額度重置
+  # local_all: 全部轉由本地完成
+  on_quota_exhausted: "local_then_defer"
+  # 每天免費額度重置時間 (估計為 UTC 08:00 / 台灣時間 16:00)
+  daily_reset_hour_utc: 8

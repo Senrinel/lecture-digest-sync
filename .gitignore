@@ -1,0 +1,51 @@
+# Environment variables & secrets
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+env/
+venv/
+ENV/
+backends/*/.venv/
+
+# Audio / Data processing folders
+inbox/*
+!inbox/.gitkeep
+work/*
+!work/.gitkeep
+archive/*
+!archive/.gitkeep
+benchmark/clips/*
+!benchmark/clips/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
