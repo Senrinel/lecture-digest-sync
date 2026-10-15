@@ -1,168 +1,136 @@
-"""Audio preprocessing module.
+"""Audio preprocessing module with modular toggle switches.
 
-Implements independently toggleable audio filters tailored for SONY ICD-PX470 desk recordings:
-- hp: High-pass filter (80Hz, 100Hz, 120Hz) to remove table vibrations & AC rumble
-- loud: EBU R128 loudness normalization (-16, -19, -23 LUFS)
-- dyn: Dynamic range compression (dynaudnorm) for speaker movement
-- nr: Spectral noise reduction (afftdn)
-- vadtrim: Leading/trailing silence trimming
-Standardizes output to 16kHz 16-bit mono WAV.
+Executes FFmpeg filter chains tailored for SONY ICD-PX470 desk recordings.
+Converts any incoming audio format to standard 16kHz mono 16-bit PCM WAV.
 """
 
 from __future__ import annotations
 
 import subprocess
-import time
 from pathlib import Path
-from pydantic import BaseModel, Field
+from typing import List, Optional
+from rich.console import Console
+
+from lecture_pipeline.state import PreprocessOptions
+
+console = Console()
 
 
-class PreprocessOptions(BaseModel):
-    """Configuration options for audio preprocessing switches."""
-    hp: str = Field(default="100Hz", description="off | 80Hz | 100Hz | 120Hz")
-    loud: str = Field(default="-19LUFS", description="off | -16LUFS | -19LUFS | -23LUFS")
-    dyn: str = Field(default="off", description="off | light | standard")
-    nr: str = Field(default="off", description="off | 6dB | 12dB | 18dB")
-    dfn: str = Field(default="off", description="off | on (DeepFilterNet)")
-    se: str = Field(default="off", description="off | on (MossFormer2)")
-    wpe: str = Field(default="off", description="off | on (Nara-WPE)")
-    vadtrim: str = Field(default="off", description="off | on")
+def build_ffmpeg_audio_filters(opts: PreprocessOptions) -> List[str]:
+    """Construct a list of FFmpeg audio filters based on enabled options.
 
-    @classmethod
-    def from_string(cls, opt_str: str) -> PreprocessOptions:
-        """Parse comma-separated flags, e.g., 'hp:100Hz,loud:-19LUFS' or 'hp,loud'.
-
-        Flags without values default to their standard on-values.
-        """
-        opts = {k: "off" for k in cls.model_fields.keys()}
-        if not opt_str or opt_str.strip() == "off" or opt_str.strip() == "none":
-            return cls(**opts)
-
-        for part in opt_str.split(","):
-            part = part.strip()
-            if not part:
-                continue
-            if ":" in part:
-                k, v = part.split(":", 1)
-                k, v = k.strip().lower(), v.strip()
-                if k in opts:
-                    opts[k] = v
-            else:
-                k = part.lower()
-                if k == "hp":
-                    opts["hp"] = "100Hz"
-                elif k == "loud":
-                    opts["loud"] = "-19LUFS"
-                elif k == "dyn":
-                    opts["dyn"] = "standard"
-                elif k == "nr":
-                    opts["nr"] = "12dB"
-                elif k in opts:
-                    opts[k] = "on"
-
-        return cls(**opts)
-
-
-def build_ffmpeg_filter_chain(options: PreprocessOptions) -> list[str]:
-    """Build the FFmpeg audio filter list (-af) from enabled options.
-
-    Filters are ordered acoustically:
-    1. High-pass filter (remove infrasound/rumble before processing)
-    2. Spectral noise reduction (afftdn)
-    3. Dynamic audio normalizer (smooth volume)
-    4. EBU R128 loudness normalization (final leveling)
-    5. Silence trim (silenceremove)
+    Filters are ordered in an optimal DSP sequence:
+    1. Highpass filter (remove sub-bass / desk rumble)
+    2. Dynamic range leveling (if enabled)
+    3. Spectral noise reduction (if enabled)
+    4. Loudness normalization (EBU R128)
+    5. VAD trim (leading silence removal, if enabled)
     """
-    filters: list[str] = []
+    filters: List[str] = []
 
-    # 1. High-pass filter
-    if options.hp and options.hp.lower() != "off":
-        freq_str = options.hp.lower().replace("hz", "")
-        try:
-            freq = int(freq_str)
-        except ValueError:
-            freq = 100
-        filters.append(f"highpass=f={freq}:poles=2")
+    # 1. High-pass filter (Desk rumble, AC hum)
+    if opts.hp == "80Hz":
+        filters.append("highpass=f=80")
+    elif opts.hp == "100Hz":
+        filters.append("highpass=f=100")
+    elif opts.hp == "120Hz":
+        filters.append("highpass=f=120")
 
-    # 2. Spectral Noise Reduction
-    if options.nr and options.nr.lower() != "off":
-        nr_val = options.nr.lower().replace("db", "")
-        # Map dB to noise floor: 6dB -> -30, 12dB -> -25, 18dB -> -20
-        noise_floor_map = {"6": "-30", "12": "-25", "18": "-20"}
-        floor_val = noise_floor_map.get(nr_val, "-25")
-        filters.append(f"afftdn=nf={floor_val}:tn=1")
+    # 2. Dynamic Audio Normalizer (Lecturer distance compensation)
+    if opts.dyn == "light":
+        filters.append("dynaudnorm=f=500:g=15:p=0.95")
+    elif opts.dyn == "standard":
+        filters.append("dynaudnorm=f=1000:g=31:p=0.95")
 
-    # 3. Dynamic Normalizer
-    if options.dyn and options.dyn.lower() != "off":
-        if options.dyn.lower() == "light":
-            filters.append("dynaudnorm=f=500:g=15:p=0.95")
-        else:  # standard
-            filters.append("dynaudnorm=f=1000:g=31:p=0.95")
+    # 3. Spectral Noise Reduction (FFmpeg afftdn)
+    if opts.nr == "6dB":
+        filters.append("afftdn=nr=6:nf=-25")
+    elif opts.nr == "12dB":
+        filters.append("afftdn=nr=12:nf=-25")
+    elif opts.nr == "18dB":
+        filters.append("afftdn=nr=18:nf=-25")
 
     # 4. Loudness Normalization (EBU R128)
-    if options.loud and options.loud.lower() != "off":
-        loud_val = options.loud.lower().replace("lufs", "")
-        try:
-            lufs = float(loud_val)
-        except ValueError:
-            lufs = -19.0
-        filters.append(f"loudnorm=I={lufs}:TP=-1.5:LRA=11")
+    if opts.loud == "-16LUFS":
+        filters.append("loudnorm=I=-16:TP=-1.5:LRA=11")
+    elif opts.loud == "-19LUFS":
+        filters.append("loudnorm=I=-19:TP=-1.5:LRA=11")
+    elif opts.loud == "-23LUFS":
+        filters.append("loudnorm=I=-23:TP=-1.5:LRA=11")
 
-    # 5. VAD trim (silence remove from front & back)
-    if options.vadtrim and options.vadtrim.lower() != "off":
-        # Remove silence longer than 2.0s at beginning (threshold -45dB)
-        filters.append("silenceremove=start_periods=1:start_duration=2:start_threshold=-45dB")
+    # 5. Trim leading silence (vadtrim)
+    if opts.vadtrim == "on":
+        filters.append("silenceremove=start_periods=1:start_duration=1:start_threshold=-45dB")
 
     return filters
 
 
 def preprocess_audio(
-    input_path: str | Path,
-    output_path: str | Path,
-    options: PreprocessOptions | None = None,
-) -> tuple[Path, float]:
-    """Preprocess audio file using FFmpeg with given filter options.
+    input_path: Path | str,
+    output_path: Path | str,
+    opts: Optional[PreprocessOptions] = None,
+    ffmpeg_bin: str = "ffmpeg",
+) -> Path:
+    """Preprocess audio using FFmpeg with the requested filter chain.
 
-    Standardizes to:
-    - 16,000 Hz sample rate
-    - 1 channel mono
-    - 16-bit PCM WAV
+    Standardizes audio to 16,000 Hz, mono channel, 16-bit PCM WAV.
+
+    Args:
+        input_path: Input audio file.
+        output_path: Target preprocessed WAV file.
+        opts: Preprocessing options. If None, default settings are used.
+        ffmpeg_bin: Name or path of the ffmpeg binary.
 
     Returns:
-        (output_path, elapsed_seconds)
+        Path to output file.
+
+    Raises:
+        FileNotFoundError: If input file or ffmpeg binary not found.
+        RuntimeError: If FFmpeg execution fails.
     """
-    if options is None:
-        options = PreprocessOptions()
+    in_file = Path(input_path).resolve()
+    out_file = Path(output_path).resolve()
 
-    inp = Path(input_path).resolve()
-    out = Path(output_path).resolve()
-    out.parent.mkdir(parents=True, exist_ok=True)
+    if not in_file.is_file():
+        raise FileNotFoundError(f"找不到輸入音檔：{in_file}")
 
-    if not inp.exists():
-        raise FileNotFoundError(f"Input audio file not found: {inp}")
+    out_file.parent.mkdir(parents=True, exist_ok=True)
 
-    filter_chain = build_ffmpeg_filter_chain(options)
+    if opts is None:
+        opts = PreprocessOptions()
 
+    filters = build_ffmpeg_audio_filters(opts)
     cmd = [
-        "ffmpeg",
-        "-y",
-        "-i", str(inp),
-        "-vn",                   # Disable video
-        "-ar", "16000",          # 16kHz
-        "-ac", "1",              # Mono
-        "-c:a", "pcm_s16le",     # 16-bit PCM
+        ffmpeg_bin,
+        "-y",  # Overwrite output
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(in_file),
+        "-ar",
+        "16000",  # Standard 16kHz
+        "-ac",
+        "1",  # Mono
+        "-c:a",
+        "pcm_s16le",  # 16-bit PCM
     ]
 
-    if filter_chain:
-        cmd.extend(["-af", ",".join(filter_chain)])
+    if filters:
+        filter_str = ",".join(filters)
+        cmd.extend(["-af", filter_str])
 
-    cmd.append(str(out))
+    cmd.append(str(out_file))
 
-    start_time = time.time()
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    elapsed = time.time() - start_time
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        err_msg = e.stderr.strip() if e.stderr else str(e)
+        raise RuntimeError(f"FFmpeg 前處理執行失敗: {err_msg}") from e
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"找不到 FFmpeg 執行檔 '{ffmpeg_bin}'，請確認是否安裝於系統 PATH 中。") from e
 
-    if result.returncode != 0:
-        raise RuntimeError(f"FFmpeg preprocessing failed (code {result.returncode}):\n{result.stderr}")
+    if not out_file.is_file() or out_file.stat().st_size == 0:
+        raise RuntimeError(f"FFmpeg 輸出檔案為空或未生成: {out_file}")
 
-    return out, round(elapsed, 2)
+    return out_file

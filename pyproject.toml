@@ -32,7 +32,4 @@ packages = ["src/lecture_pipeline"]
 
 [tool.pytest.ini_options]
 addopts = "--basetemp=.pytest_tmp"
-tmp_path_retention_policy = "none"
-tmp_path_retention_count = 0
-
 

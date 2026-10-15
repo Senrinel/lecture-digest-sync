@@ -31,10 +31,8 @@ env/
 venv/
 ENV/
 backends/*/.venv/
-
-# Pytest
-.pytest_cache/
 .pytest_tmp/
+.pytest_cache/
 
 
 # Audio / Data processing folders

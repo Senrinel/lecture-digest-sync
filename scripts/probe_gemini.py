@@ -7,20 +7,18 @@ import os
 import sys
 import time
 from pathlib import Path
-
-# Force UTF-8 encoding for Windows console
-if sys.stdout:
-    sys.stdout.reconfigure(encoding="utf-8")
-if sys.stderr:
-    sys.stderr.reconfigure(encoding="utf-8")
-
 from dotenv import load_dotenv
+
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
 
 # Load .env from project root
 project_root = Path(__file__).resolve().parent.parent
 load_dotenv(project_root / ".env")
 
 api_key = os.getenv("GEMINI_API_KEY", "").strip()
+
 
 if not api_key or api_key == "請在此填入你的_GEMINI_API_KEY":
     print("❌ 尚未設定有效的 GEMINI_API_KEY！")
@@ -32,8 +30,9 @@ from google import genai
 from rich.console import Console
 from rich.table import Table
 
-console = Console()
+console = Console(legacy_windows=False)
 client = genai.Client(api_key=api_key)
+
 
 candidate_models = [
     ("gemini-3.8-flash", "主力文本 / 音訊理解 (1M context)"),

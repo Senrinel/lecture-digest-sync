@@ -1,87 +1,114 @@
-"""Unit tests for vad_segment.py."""
+"""Unit tests for the VAD and silence-based audio segmentation module."""
 
-import subprocess
-import pytest
+import math
+import struct
+import wave
 from pathlib import Path
+from lecture_pipeline.state import SegmentationOptions
 from lecture_pipeline.vad_segment import (
-    SilenceInterval,
     calculate_cut_points,
-    detect_silences,
-    segment_audio,
+    detect_silence_intervals,
     get_audio_duration,
+    segment_audio,
 )
 
 
-def test_calculate_cut_points_picks_best_silence():
-    # Audio of 1200 seconds (20 mins), target 600s
-    silences = [
-        SilenceInterval(start=100.0, end=102.0),
-        # Good silence near target 600s (at 598s~602s)
-        SilenceInterval(start=598.0, end=602.0),
-        SilenceInterval(start=900.0, end=901.0),
-    ]
+def create_speech_with_silence_wav(filepath: Path, sample_rate: int = 16000):
+    """Generate audio with alternating tone (speech proxy) and absolute silence:
+
+    0s ~ 4s: Tone
+    4s ~ 6s: Silence (2s)
+    6s ~ 10s: Tone
+    10s ~ 12s: Silence (2s)
+    12s ~ 16s: Tone
+    Total = 16s
+    """
+    total_sec = 16.0
+    n_samples = int(total_sec * sample_rate)
+
+    with wave.open(str(filepath), "w") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        frames = bytearray()
+
+        for i in range(n_samples):
+            t = i / sample_rate
+            # Silence intervals: 4.0 <= t < 6.0 and 10.0 <= t < 12.0
+            if (4.0 <= t < 6.0) or (10.0 <= t < 12.0):
+                val = 0
+            else:
+                val = int(8000 * math.sin(2 * math.pi * 300 * t))
+            frames.extend(struct.pack("<h", val))
+
+        wav_file.writeframes(frames)
+
+
+def test_calculate_cut_points_basic():
+    """Verify cut point calculation places boundaries inside silence intervals."""
+    silence = [(4.0, 6.0), (10.0, 12.0)]
+    # Target cut at 5s (search window +-2s)
     cuts = calculate_cut_points(
-        total_duration=1200.0,
-        silences=silences,
-        target_chunk_sec=600.0,
-        search_window_sec=30.0,
+        total_duration=16.0,
+        silence_intervals=silence,
+        target_chunk_sec=5,
+        search_window_sec=2,
     )
-    assert len(cuts) == 1
-    # Should cut at the midpoint of the silence at 600.0s
-    assert cuts[0] == 600.0
+    # 0.0, midpoint of (4,6) = 5.0, midpoint of (10,12) = 11.0, and 16.0
+    assert cuts[0] == 0.0
+    assert 4.0 <= cuts[1] <= 6.0
+    assert 10.0 <= cuts[2] <= 12.0
+    assert cuts[-1] == 16.0
 
 
-def test_segment_short_audio_no_cuts():
-    # 300s audio with target 600s: should produce 0 cuts
-    cuts = calculate_cut_points(
-        total_duration=300.0,
-        silences=[],
-        target_chunk_sec=600.0,
+def test_detect_silence_intervals(tmp_path: Path):
+    """Verify FFmpeg silencedetect detects the simulated silence intervals."""
+    test_wav = tmp_path / "tone_silence.wav"
+    create_speech_with_silence_wav(test_wav)
+
+    dur = get_audio_duration(test_wav)
+    assert abs(dur - 16.0) < 0.2
+
+    intervals = detect_silence_intervals(
+        test_wav,
+        silence_thresh_db=-30,
+        min_silence_sec=0.5,
     )
-    assert cuts == []
+    # Should detect at least the two 2-second silence intervals
+    assert len(intervals) >= 2
+    # Verify first silence around 4~6s
+    assert any(3.8 <= start <= 4.2 for start, end in intervals)
 
 
-def test_actual_vad_segmentation_with_silence_gap(tmp_path):
-    # Generate 12-second audio: 5s tone + 2s silence + 5s tone
-    synth_wav = tmp_path / "tone_with_silence.wav"
-    subprocess.run(
-        [
-            "ffmpeg", "-y",
-            "-f", "lavfi",
-            "-i", "sine=frequency=440:duration=5",
-            "-f", "lavfi",
-            "-i", "anullsrc=r=16000:cl=mono:d=2",
-            "-f", "lavfi",
-            "-i", "sine=frequency=440:duration=5",
-            "-filter_complex", "[0:a][1:a][2:a]concat=n=3:v=0:a=1[out]",
-            "-map", "[out]",
-            "-c:a", "pcm_s16le",
-            str(synth_wav),
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=True,
-    )
+def test_segment_audio_execution(tmp_path: Path):
+    """Verify complete segmentation process generating chunk files and manifest."""
+    test_wav = tmp_path / "speech_to_chunk.wav"
+    chunks_dir = tmp_path / "chunks"
+    create_speech_with_silence_wav(test_wav)
 
-    total_dur = get_audio_duration(synth_wav)
-    assert 11.5 <= total_dur <= 12.5
-
-    # Detect silences: should find the silence around 5.0s ~ 7.0s
-    silences = detect_silences(synth_wav, noise_thresh_db=-40.0, min_silence_sec=0.5)
-    assert len(silences) >= 1
-    assert any(4.5 <= s.start <= 5.5 and 6.5 <= s.end <= 7.5 for s in silences)
-
-    # Segment with target_chunk_sec = 6.0s (target lands right in the 2s silence gap)
-    chunks = segment_audio(
-        synth_wav,
-        tmp_path,
-        target_chunk_sec=6.0,
-        search_window_sec=2.0,
-        noise_thresh_db=-40.0,
+    # Set target chunk to 5s with 2s window so it cuts at the two pauses
+    opts = SegmentationOptions(
+        target_chunk_sec=5,
+        search_window_sec=2,
+        silence_thresh_db=-30,
         min_silence_sec=0.5,
     )
 
-    assert len(chunks) == 2
+    chunks = segment_audio(test_wav, chunks_dir, opts=opts)
+    assert len(chunks) == 3
+
     assert chunks[0].filename == "chunk_001.wav"
     assert chunks[1].filename == "chunk_002.wav"
-    assert (tmp_path / "chunks" / "manifest.json").exists()
+    assert chunks[2].filename == "chunk_003.wav"
+
+    # Verify each chunk exists on disk and is a valid WAV
+    for c in chunks:
+        p = Path(c.filepath)
+        assert p.is_file()
+        assert p.stat().st_size > 0
+        chunk_dur = get_audio_duration(p)
+        assert abs(chunk_dur - c.duration_sec) < 0.1
+
+    # Verify manifest.json exists
+    manifest_file = chunks_dir / "manifest.json"
+    assert manifest_file.is_file()

@@ -1,8 +1,7 @@
-"""Intelligent VAD & Silence-based segmentation module.
+"""Smart VAD silence detection and audio segmentation module.
 
-Divides long audio recordings (2~3 hours) into stable chunks (default: 10~12 minutes)
-by locating natural speech pauses/silences (>= 0.5s) near target intervals,
-ensuring speech words and sentences are NEVER cut in the middle.
+Segments long lectures (2~3 hours) at natural speech pauses (≥0.5s silence)
+near target intervals (e.g. 10~15 minutes) without cutting mid-word or mid-sentence.
 """
 
 from __future__ import annotations
@@ -11,229 +10,271 @@ import json
 import re
 import subprocess
 from pathlib import Path
-from pydantic import BaseModel
+from typing import List, Optional, Tuple
+from rich.console import Console
+
+from lecture_pipeline.state import ChunkInfo, SegmentationOptions
+
+console = Console()
+
+# Regex patterns for FFmpeg silencedetect output
+SILENCE_START_RE = re.compile(r"silence_start:\s*(?P<start>[-+]?\d*\.?\d+)")
+SILENCE_END_RE = re.compile(
+    r"silence_end:\s*(?P<end>[-+]?\d*\.?\d+)\s*\|\s*silence_duration:\s*(?P<dur>[-+]?\d*\.?\d+)"
+)
 
 
-class SilenceInterval(BaseModel):
-    start: float
-    end: float
-
-    @property
-    def duration(self) -> float:
-        return max(0.0, self.end - self.start)
-
-    @property
-    def midpoint(self) -> float:
-        return (self.start + self.end) / 2.0
-
-
-class ChunkInfo(BaseModel):
-    index: int
-    filename: str
-    file_path: str
-    start_sec: float
-    end_sec: float
-    duration_sec: float
-
-
-def get_audio_duration(file_path: str | Path) -> float:
-    """Get exact audio duration in seconds using ffprobe."""
-    path = Path(file_path).resolve()
-    cmd = [
-        "ffprobe",
-        "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        str(path),
-    ]
-    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if res.returncode != 0:
-        raise RuntimeError(f"ffprobe failed for {path}:\n{res.stderr}")
-    return float(res.stdout.strip())
-
-
-def detect_silences(
-    wav_path: str | Path,
-    noise_thresh_db: float = -40.0,
-    min_silence_sec: float = 0.5,
-) -> list[SilenceInterval]:
-    """Detect natural silence/pause intervals in audio using FFmpeg silencedetect.
+def get_audio_duration(audio_path: Path | str, ffprobe_bin: str = "ffprobe") -> float:
+    """Retrieve precise audio duration in seconds using ffprobe.
 
     Args:
-        wav_path: Path to audio file.
-        noise_thresh_db: Silence threshold in dB (e.g. -40dB).
-        min_silence_sec: Minimum pause duration to qualify as silence.
+        audio_path: Path to audio file.
+        ffprobe_bin: Name or path of ffprobe binary.
 
     Returns:
-        List of SilenceInterval objects sorted by start time.
+        Duration in seconds as a float.
     """
-    path = Path(wav_path).resolve()
+    path = Path(audio_path).resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"找不到音訊檔案：{path}")
+
     cmd = [
-        "ffmpeg",
-        "-i", str(path),
-        "-af", f"silencedetect=noise={noise_thresh_db}dB:d={min_silence_sec}",
-        "-f", "null",
+        ffprobe_bin,
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
+        str(path),
+    ]
+
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return float(res.stdout.strip())
+    except Exception as e:
+        raise RuntimeError(f"無法讀取音訊長度 ({path.name}): {e}") from e
+
+
+def detect_silence_intervals(
+    audio_path: Path | str,
+    silence_thresh_db: int = -40,
+    min_silence_sec: float = 0.5,
+    ffmpeg_bin: str = "ffmpeg",
+) -> List[Tuple[float, float]]:
+    """Detect intervals of silence in an audio file using FFmpeg's silencedetect filter.
+
+    Args:
+        audio_path: Path to audio file.
+        silence_thresh_db: Noise threshold in dB (e.g. -40dB).
+        min_silence_sec: Minimum duration of silence to detect (seconds).
+        ffmpeg_bin: Name or path of ffmpeg binary.
+
+    Returns:
+        List of (silence_start, silence_end) in seconds.
+    """
+    path = Path(audio_path).resolve()
+    cmd = [
+        ffmpeg_bin,
+        "-hide_banner",
+        "-i",
+        str(path),
+        "-af",
+        f"silencedetect=noise={silence_thresh_db}dB:d={min_silence_sec}",
+        "-f",
+        "null",
         "-",
     ]
-    res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    # ffmpeg silencedetect outputs to stderr
-    stderr = res.stderr
 
-    silence_starts: list[float] = []
-    intervals: list[SilenceInterval] = []
+    try:
+        res = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    except Exception as e:
+        raise RuntimeError(f"FFmpeg 靜音偵測失敗: {e}") from e
 
-    # Regex patterns
-    re_start = re.compile(r"silence_start:\s*([0-9.]+)")
-    re_end = re.compile(r"silence_end:\s*([0-9.]+)")
+    intervals: List[Tuple[float, float]] = []
+    current_start: Optional[float] = None
 
-    for line in stderr.splitlines():
-        m_start = re_start.search(line)
-        if m_start:
-            silence_starts.append(float(m_start.group(1)))
+    for line in res.stderr.splitlines():
+        start_m = SILENCE_START_RE.search(line)
+        if start_m:
+            current_start = float(start_m.group("start"))
             continue
 
-        m_end = re_end.search(line)
-        if m_end:
-            end_t = float(m_end.group(1))
-            start_t = silence_starts.pop(0) if silence_starts else 0.0
-            intervals.append(SilenceInterval(start=start_t, end=end_t))
+        end_m = SILENCE_END_RE.search(line)
+        if end_m and current_start is not None:
+            end_sec = float(end_m.group("end"))
+            intervals.append((current_start, end_sec))
+            current_start = None
 
     return intervals
 
 
 def calculate_cut_points(
     total_duration: float,
-    silences: list[SilenceInterval],
-    target_chunk_sec: float = 600.0,
-    search_window_sec: float = 30.0,
-) -> list[float]:
-    """Calculate natural cut points by finding the best silence pause near target intervals.
+    silence_intervals: List[Tuple[float, float]],
+    target_chunk_sec: int = 600,
+    search_window_sec: int = 30,
+) -> List[float]:
+    """Calculate optimal cut points at natural speech pauses.
 
     Args:
         total_duration: Total audio length in seconds.
-        silences: List of detected silence intervals.
-        target_chunk_sec: Preferred chunk duration (default: 600s = 10 minutes).
-        search_window_sec: Search window around target point (default: ±30s).
+        silence_intervals: List of (silence_start, silence_end) pairs.
+        target_chunk_sec: Desired chunk length (default: 600s = 10m).
+        search_window_sec: Window radius around target time to search for silence.
 
     Returns:
-        List of cut timestamps [t1, t2, ..., tn].
+        Sorted list of cut boundaries in seconds, starting with 0.0 and ending with total_duration.
     """
-    min_remainder = min(60.0, target_chunk_sec * 0.15)
-    # If audio is already short enough, no cut needed
-    if total_duration <= target_chunk_sec + min_remainder:
-        return []
+    min_tail_sec = min(30.0, target_chunk_sec * 0.3)
 
-    cut_points: list[float] = []
+    # If audio is shorter than target plus minimum tail, no cut needed
+    if total_duration <= (target_chunk_sec + min_tail_sec):
+        return [0.0, round(total_duration, 3)]
+
+    cut_points: List[float] = [0.0]
     current_time = 0.0
 
-    while current_time + target_chunk_sec < total_duration:
+    while current_time + target_chunk_sec + min_tail_sec <= total_duration:
         target_cut = current_time + target_chunk_sec
+        window_start = max(0.0, target_cut - search_window_sec)
+        window_end = min(total_duration, target_cut + search_window_sec)
 
-        # If remaining time after cut would be too short, absorb into current chunk
-        if total_duration - target_cut < min_remainder:
-            break
-
-
-        window_start = target_cut - search_window_sec
-        window_end = target_cut + search_window_sec
-
-        # Find silences overlapping the search window
+        # Find candidates intersecting the search window
         candidates = [
-            s for s in silences
-            if s.end >= window_start and s.start <= window_end
+            (s, e, e - s)
+            for s, e in silence_intervals
+            if (s <= window_end and e >= window_start)
         ]
 
         if candidates:
-            # Score candidates: prioritize longer silence, then closest to target
-            best_silence = max(
+            # Score candidates: prioritize longer silence duration and proximity to target_cut
+            best_candidate = max(
                 candidates,
-                key=lambda s: (s.duration, -abs(s.midpoint - target_cut)),
+                key=lambda c: (c[2], -abs(((c[0] + c[1]) / 2.0) - target_cut)),
             )
-            cut_t = round(best_silence.midpoint, 2)
+            # Cut at the midpoint of the best silence interval
+            cut_point = round((best_candidate[0] + best_candidate[1]) / 2.0, 3)
         else:
-            # Try expanded search window (±60s)
-            expanded_candidates = [
-                s for s in silences
-                if s.end >= (target_cut - search_window_sec * 2)
-                and s.start <= (target_cut + search_window_sec * 2)
+            # If no silence in immediate window, search broader window or fallback to target_cut
+            broader_candidates = [
+                (s, e, e - s)
+                for s, e in silence_intervals
+                if (s <= window_end + search_window_sec and e >= window_start - search_window_sec)
             ]
-            if expanded_candidates:
-                best_silence = max(
-                    expanded_candidates,
-                    key=lambda s: (s.duration, -abs(s.midpoint - target_cut)),
+            if broader_candidates:
+                best_candidate = min(
+                    broader_candidates,
+                    key=lambda c: abs(((c[0] + c[1]) / 2.0) - target_cut),
                 )
-                cut_t = round(best_silence.midpoint, 2)
+                cut_point = round((best_candidate[0] + best_candidate[1]) / 2.0, 3)
             else:
-                # Fallback to exact target cut if no silence detected
-                cut_t = round(target_cut, 2)
+                cut_point = round(target_cut, 3)
 
-        cut_points.append(cut_t)
-        current_time = cut_t
+        # Guard: ensure progress is made
+        if cut_point <= cut_points[-1] + 1.0:
+            cut_point = round(cut_points[-1] + target_chunk_sec, 3)
 
+        if cut_point >= total_duration - min_tail_sec:
+            break
+
+        cut_points.append(cut_point)
+        current_time = cut_point
+
+    cut_points.append(round(total_duration, 3))
     return cut_points
 
 
+
 def segment_audio(
-    wav_path: str | Path,
-    output_dir: str | Path,
-    target_chunk_sec: float = 600.0,
-    search_window_sec: float = 30.0,
-    noise_thresh_db: float = -40.0,
-    min_silence_sec: float = 0.5,
-) -> list[ChunkInfo]:
-    """Segment audio into natural chunks and write them to output_dir/chunks/.
+    input_path: Path | str,
+    output_dir: Path | str,
+    opts: Optional[SegmentationOptions] = None,
+    ffmpeg_bin: str = "ffmpeg",
+    ffprobe_bin: str = "ffprobe",
+) -> List[ChunkInfo]:
+    """Segment an audio file into manageable chunks at natural silence points.
+
+    Args:
+        input_path: Preprocessed WAV file.
+        output_dir: Output folder for audio chunks (e.g. work/<course>/<date>/chunks).
+        opts: Segmentation options.
+        ffmpeg_bin: Path to ffmpeg binary.
+        ffprobe_bin: Path to ffprobe binary.
 
     Returns:
-        List of ChunkInfo objects representing each created chunk.
+        List of ChunkInfo objects representing generated chunk files.
     """
-    inp = Path(wav_path).resolve()
-    out_dir = Path(output_dir).resolve() / "chunks"
+    in_file = Path(input_path).resolve()
+    out_dir = Path(output_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    total_dur = get_audio_duration(inp)
-    silences = detect_silences(inp, noise_thresh_db=noise_thresh_db, min_silence_sec=min_silence_sec)
-    cuts = calculate_cut_points(total_dur, silences, target_chunk_sec, search_window_sec)
+    if opts is None:
+        opts = SegmentationOptions()
 
-    # Boundaries: [0.0, cut1, cut2, ..., total_dur]
-    boundaries = [0.0] + cuts + [total_dur]
-    chunks: list[ChunkInfo] = []
+    total_duration = get_audio_duration(in_file, ffprobe_bin=ffprobe_bin)
+    silence_intervals = detect_silence_intervals(
+        in_file,
+        silence_thresh_db=opts.silence_thresh_db,
+        min_silence_sec=opts.min_silence_sec,
+        ffmpeg_bin=ffmpeg_bin,
+    )
 
-    for i in range(len(boundaries) - 1):
-        start_t = boundaries[i]
-        end_t = boundaries[i + 1]
-        chunk_dur = round(end_t - start_t, 2)
+    cut_points = calculate_cut_points(
+        total_duration,
+        silence_intervals,
+        target_chunk_sec=opts.target_chunk_sec,
+        search_window_sec=opts.search_window_sec,
+    )
 
-        chunk_name = f"chunk_{i+1:03d}.wav"
-        chunk_path = out_dir / chunk_name
+    chunks: List[ChunkInfo] = []
 
-        # Slice using FFmpeg
-        # -ss before -i for fast seek, -to for precise end
+    for idx in range(len(cut_points) - 1):
+        start_sec = cut_points[idx]
+        end_sec = cut_points[idx + 1]
+        chunk_duration = round(end_sec - start_sec, 3)
+
+        chunk_filename = f"chunk_{idx + 1:03d}.wav"
+        chunk_path = out_dir / chunk_filename
+
+        # Extract chunk using stream copy (lossless, instant)
         cmd = [
-            "ffmpeg",
+            ffmpeg_bin,
             "-y",
-            "-ss", str(start_t),
-            "-to", str(end_t),
-            "-i", str(inp),
-            "-c:a", "pcm_s16le",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            f"{start_sec:.3f}",
+            "-to",
+            f"{end_sec:.3f}",
+            "-i",
+            str(in_file),
+            "-c",
+            "copy",
             str(chunk_path),
         ]
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        if res.returncode != 0:
-            raise RuntimeError(f"FFmpeg slicing failed for chunk {i+1}:\n{res.stderr}")
 
-        chunk_info = ChunkInfo(
-            index=i + 1,
-            filename=chunk_name,
-            file_path=str(chunk_path),
-            start_sec=round(start_t, 2),
-            end_sec=round(end_t, 2),
-            duration_sec=chunk_dur,
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+        except subprocess.CalledProcessError as e:
+            err = e.stderr.decode("utf-8", errors="ignore") if e.stderr else str(e)
+            raise RuntimeError(f"切割片段 {chunk_filename} 失敗: {err}") from e
+
+        chunks.append(
+            ChunkInfo(
+                index=idx + 1,
+                filename=chunk_filename,
+                filepath=str(chunk_path),
+                start_sec=start_sec,
+                end_sec=end_sec,
+                duration_sec=chunk_duration,
+            )
         )
-        chunks.append(chunk_info)
 
-    # Save manifest
-    manifest_path = out_dir / "manifest.json"
-    manifest_data = [c.model_dump() for c in chunks]
-    manifest_path.write_text(json.dumps(manifest_data, indent=2, ensure_ascii=False), encoding="utf-8")
+    # Save manifest.json in chunks folder
+    manifest_file = out_dir / "manifest.json"
+    with open(manifest_file, "w", encoding="utf-8") as f:
+        json.dump([c.model_dump() for c in chunks], f, ensure_ascii=False, indent=2)
 
     return chunks
