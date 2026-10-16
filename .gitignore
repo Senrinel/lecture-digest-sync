@@ -1,9 +1,18 @@
-# Environment variables & secrets
+# ==============================================================================
+# Environment variables, credentials & API secrets (STRICT SECURITY)
+# ==============================================================================
 .env
 *.env
 !.env.example
+credentials*.json
+token*.json
+*.pem
+*.key
+google_auth_url.txt
 
-# Python
+# ==============================================================================
+# Python & Bytecode
+# ==============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -25,33 +34,70 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual environments
+# ==============================================================================
+# Testing & Caches
+# ==============================================================================
+.pytest_tmp/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ==============================================================================
+# Virtual Environments
+# ==============================================================================
 .venv/
 env/
 venv/
 ENV/
 backends/*/.venv/
-backends/fireredasr/repo/
-.pytest_tmp/
-.pytest_cache/
 
+# ==============================================================================
+# Audio & Large Media Files (Never commit recording audio to git)
+# ==============================================================================
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.opus
+*.aac
+*.ogg
+*.wma
+*.mp4
+*.mkv
+*.avi
+*.mov
 
-# Audio / Data processing folders
+# ==============================================================================
+# Runtime Working & Dynamic Data Folders (Preserve folder structure via .gitkeep)
+# ==============================================================================
 inbox/*
 !inbox/.gitkeep
 work/*
 !work/.gitkeep
 archive/*
 !archive/.gitkeep
-benchmark/clips/*
-!benchmark/clips/.gitkeep
-logs/*
-!logs/.gitkeep
 exports/*
 !exports/.gitkeep
+pending_uploads/*
+!pending_uploads/.gitkeep
+logs/*
+!logs/.gitkeep
+*.log
 
-# IDE & OS
+# ==============================================================================
+# Benchmark Data & Audio
+# ==============================================================================
+benchmark/clips/*
+!benchmark/clips/.gitkeep
+benchmark/matrix/*
+!benchmark/matrix/.gitkeep
+
+# ==============================================================================
+# IDE & OS Artifacts
+# ==============================================================================
 .vscode/
 .idea/
 .DS_Store
 Thumbs.db
+desktop.ini

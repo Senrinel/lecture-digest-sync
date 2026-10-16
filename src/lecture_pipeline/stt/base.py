@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -85,7 +85,9 @@ class BaseSTTChannel(ABC):
         transcriptions: List[ChunkTranscription] = []
         total_latency = 0.0
 
-        for chunk in chunks:
+        for idx, chunk in enumerate(chunks):
+            if idx > 0:
+                time.sleep(3.0)  # Conservative pause between API calls to prevent rate limits
             chunk_path = Path(chunk.filepath)
             result = self.transcribe_chunk(
                 audio_chunk_path=chunk_path,

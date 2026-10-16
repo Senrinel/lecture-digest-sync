@@ -1,0 +1,22 @@
+﻿experiment_id,dimension,factor_name,factor_value,duration_sec,rtf,char_count,cer,accuracy,term_recall,compression_ratio,notes
+PRE_RAW,Preprocess,前處理開關組合,raw (off),13.85,0.0462,1251,0.1426,0.8574,0.0,,"hp=off,loud=off,dyn=off,nr=off,wpe=off,dfn=off,se=off,vadtrim=off"
+PRE_HP,Preprocess,前處理開關組合,高通濾波 (hp=100Hz),13.05,0.0435,1259,0.169,0.831,0.0,,"hp=100Hz,loud=off,dyn=off,nr=off,wpe=off,dfn=off,se=off,vadtrim=off"
+PRE_LOUD,Preprocess,前處理開關組合,響度正規化 (loud=-19LUFS),15.21,0.0507,1214,0.1146,0.8854,0.0,,"hp=off,loud=-19LUFS,dyn=off,nr=off,wpe=off,dfn=off,se=off,vadtrim=off"
+PRE_DSP_BASE,Preprocess,前處理開關組合,標準 DSP (hp+loud),15.25,0.0508,1219,0.0,1.0,0.0,,"hp=100Hz,loud=-19LUFS,dyn=off,nr=off,wpe=off,dfn=off,se=off,vadtrim=off"
+PRE_DYN,Preprocess,前處理開關組合,動態平衡 (hp+loud+dyn),15.27,0.0509,1225,0.1369,0.8631,0.0,,"hp=100Hz,loud=-19LUFS,dyn=standard,nr=off,wpe=off,dfn=off,se=off,vadtrim=off"
+PRE_NR,Preprocess,前處理開關組合,頻譜降噪 (hp+loud+nr),13.92,0.0464,1168,0.2308,0.7692,0.0,,"hp=100Hz,loud=-19LUFS,dyn=off,nr=12dB,wpe=off,dfn=off,se=off,vadtrim=off"
+PRE_WPE,Preprocess,前處理開關組合,去殘響 (hp+loud+wpe),23.85,0.0795,1224,0.1055,0.8945,0.0,,"hp=100Hz,loud=-19LUFS,dyn=off,nr=off,wpe=on,dfn=off,se=off,vadtrim=off"
+PRE_DFN,Preprocess,前處理開關組合,深度降噪 (hp+loud+dfn),20.14,0.0671,1210,0.2465,0.7535,0.0,,"hp=100Hz,loud=-19LUFS,dyn=off,nr=off,wpe=off,dfn=on,se=off,vadtrim=off"
+PRE_VADTRIM,Preprocess,前處理開關組合,VAD靜音修剪 (hp+loud+vadtrim),18.99,0.0633,1212,0.1245,0.8755,0.0,,"hp=100Hz,loud=-19LUFS,dyn=off,nr=off,wpe=off,dfn=off,se=off,vadtrim=on"
+PRE_ALL,Preprocess,前處理開關組合,全開增強 (DSP+WPE+DFN+SE+VAD),34.41,0.1147,1172,0.3298,0.6702,0.0,,"hp=100Hz,loud=-19LUFS,dyn=standard,nr=12dB,wpe=on,dfn=on,se=on,vadtrim=on"
+CH_C7,Channel,STT 辨識通道,C7 (Whisper Large-v3-Turbo (C7)),13.2,0.044,1219,0.0,1.0,0.0,,執行環境: 本地 GPU
+CH_C4,Channel,STT 辨識通道,C4 (Breeze-ASR-25 (C4)),37.74,0.1258,1307,0.2251,0.7749,0.0,,執行環境: 本地 GPU
+CH_C6,Channel,STT 辨識通道,C6 (Whisper Large-v3 (C6)),36.22,0.1207,1167,0.2374,0.7626,0.0333,,執行環境: 本地 GPU
+CH_C1,Channel,STT 辨識通道,C1 (Gemini Flash Audio Verbatim (C1)),13.73,0.0458,1468,0.0,1.0,0.0,,執行環境: 雲端
+CH_C2,Channel,STT 辨識通道,C2 (Gemini 3.5 Transcribe (C2)),12.56,0.0419,1280,0.2589,0.7411,0.0,,執行環境: 雲端
+CL_FABRIC,Cleanup,整理提示詞與模式,fabric_clean_text (標準),5.83,,1382,,,0.0,1.1337,輸入: 1219字 ➜ 輸出: 1382字 | 守恆比率: 113.4%
+CL_STRICT,Cleanup,整理提示詞與模式,strict_verbatim (嚴格逐字補標點),5.86,,1367,,,0.0,1.1214,輸入: 1219字 ➜ 輸出: 1367字 | 守恆比率: 112.1%
+CL_VIDEOLINGO,Cleanup,整理提示詞與模式,videolingo_punct (字幕高精斷句),5.12,,1393,,,0.0333,1.1427,輸入: 1219字 ➜ 輸出: 1393字 | 守恆比率: 114.3%
+SM_FABRIC,Summary,重點總結模板,fabric_summarize_lecture (結構化講座總結),67.08,,1916,,,0.2333,1.3864,總結段落長度: 1916字 | 濃縮比: 138.6%
+SM_WISDOM,Summary,重點總結模板,extract_wisdom (核心洞見與金句提煉),5.68,,1310,,,0.1667,0.9479,總結段落長度: 1310字 | 濃縮比: 94.8%
+SM_CORNELL,Summary,重點總結模板,cornell_notes (康乃爾筆記結構),5.45,,1156,,,0.2,0.8365,總結段落長度: 1156字 | 濃縮比: 83.7%

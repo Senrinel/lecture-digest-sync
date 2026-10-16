@@ -15,22 +15,19 @@ from __future__ import annotations
 
 import csv
 import html
-import json
-import os
 import subprocess
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 from rich.console import Console
-from rich.table import Table
 
-from lecture_pipeline.bench.cer import compute_cer, compute_term_recall, normalize_text_for_cer
+from lecture_pipeline.bench.cer import compute_cer, compute_term_recall
 from lecture_pipeline.cleanup.text_cleanup import GeminiTextCleanupEngine
 from lecture_pipeline.glossary import load_course_glossary
 from lecture_pipeline.naming import parse_filename
 from lecture_pipeline.preprocess import preprocess_audio
-from lecture_pipeline.state import PreprocessOptions, RunState, ChunkInfo
+from lecture_pipeline.state import ChunkInfo, PreprocessOptions, SegmentationOptions
 from lecture_pipeline.stt import get_stt_channel
 from lecture_pipeline.summary.summarizer import GeminiLectureSummarizer
 from lecture_pipeline.vad_segment import segment_audio
@@ -157,18 +154,30 @@ class MatrixBenchmarkRunner:
         console.print("\n[bold green]🎉 多維測試矩陣實驗全數完成！[/bold green]")
         return self.results
 
-    def _prepare_reference(self, reference_channel: str = "C1", skip_cloud: bool = False) -> None:
+    def _prepare_reference(self, reference_channel: str = "C7", skip_cloud: bool = False) -> None:
         """Establish high-quality reference text for CER comparison."""
         ref_ch_id = reference_channel if not skip_cloud else "C7"
         ref_norm = self.base_dir / "ref_normalized.wav"
         # Standard DSP for reference
         preprocess_audio([self.raw_clip], ref_norm, opts=PreprocessOptions(hp="100Hz", loud="-19LUFS"))
-        chunks = segment_audio(ref_norm, self.base_dir / "ref_chunks", target_chunk_sec=self.clip_sec + 30)
+        chunks = segment_audio(
+            ref_norm,
+            self.base_dir / "ref_chunks",
+            opts=SegmentationOptions(target_chunk_sec=int(self.clip_sec + 30)),
+        )
 
-        ch = get_stt_channel(ref_ch_id)
-        trans = ch.transcribe_all(chunks, course=self.course, date=self.date, glossary=self.glossary)
-        self.reference_transcript = trans.full_text
-        self.baseline_transcript = trans.full_text
+        try:
+            ch = get_stt_channel(ref_ch_id)
+            trans = ch.transcribe_all(chunks, course=self.course, date=self.date, glossary=self.glossary)
+            self.reference_transcript = trans.full_text
+            self.baseline_transcript = trans.full_text
+        except Exception as e:
+            console.print(f"[yellow][!] 基準通道 {ref_ch_id} 暫時無法連線 ({e})，自動平滑切換至本地基準 C7 (Whisper Turbo)...[/yellow]")
+            ref_ch_id = "C7"
+            ch = get_stt_channel("C7")
+            trans = ch.transcribe_all(chunks, course=self.course, date=self.date, glossary=self.glossary)
+            self.reference_transcript = trans.full_text
+            self.baseline_transcript = trans.full_text
 
         # Term recall on reference
         ref_term = compute_term_recall(self.reference_transcript, self.glossary)
@@ -247,7 +256,11 @@ class MatrixBenchmarkRunner:
         if not base_norm.is_file():
             preprocess_audio([self.raw_clip], base_norm, opts=PreprocessOptions(hp="100Hz", loud="-19LUFS"))
 
-        chunks = segment_audio(base_norm, self.base_dir / "channel_chunks", target_chunk_sec=self.clip_sec + 30)
+        chunks = segment_audio(
+            base_norm,
+            self.base_dir / "channel_chunks",
+            opts=SegmentationOptions(target_chunk_sec=int(self.clip_sec + 30)),
+        )
 
         channels = ["C7", "C4", "C6"]
         if not skip_cloud:
@@ -319,7 +332,7 @@ class MatrixBenchmarkRunner:
             t0 = time.time()
             try:
                 cleaner = GeminiTextCleanupEngine(
-                    primary_model="gemini-3.5-flash",
+                    primary_model="gemini-3.5-flash-lite",
                     prompt_template_path=tpl_path,
                     mode=mode,
                 )
@@ -329,7 +342,7 @@ class MatrixBenchmarkRunner:
                     course=self.course,
                     date=self.date,
                     glossary=self.glossary,
-                    audio_path=audio_for_clean,
+                    audio_chunks=[audio_for_clean] if audio_for_clean else None,
                 )
                 elapsed = round(time.time() - t0, 2)
                 out_text = clean_res.full_cleaned_text
@@ -380,7 +393,7 @@ class MatrixBenchmarkRunner:
             t0 = time.time()
             try:
                 summarizer = GeminiLectureSummarizer(
-                    primary_model="gemini-3.5-flash",
+                    primary_model="gemini-3.5-flash-lite",
                     template_path=tpl_path,
                 )
                 sum_res = summarizer.summarize(
@@ -390,7 +403,7 @@ class MatrixBenchmarkRunner:
                     glossary=self.glossary,
                 )
                 elapsed = round(time.time() - t0, 2)
-                out_text = sum_res.markdown_notes
+                out_text = sum_res.full_summary_md
                 out_chars = len(out_text)
                 ratio = round(out_chars / max(1, in_chars), 4)
 

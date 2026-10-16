@@ -15,7 +15,7 @@ from lecture_pipeline.bench.report_html import (
     generate_benchmark_html,
 )
 from lecture_pipeline.glossary import load_course_glossary
-from lecture_pipeline.state import ChunkInfo, RunState, load_run_state
+from lecture_pipeline.state import ChunkInfo, load_run_state
 from lecture_pipeline.stt import get_stt_channel
 
 console = Console()

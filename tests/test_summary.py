@@ -67,8 +67,9 @@ def test_summarizer_success(mock_client_cls):
     assert "Quick Sort" in result.full_summary_md
 
 
+@patch("time.sleep", return_value=None)
 @patch("lecture_pipeline.summary.summarizer.genai.Client")
-def test_summarizer_model_fallback_on_error(mock_client_cls):
+def test_summarizer_model_fallback_on_error(mock_client_cls, mock_sleep):
     """Verify fallback to secondary model on 503 error."""
     mock_client = MagicMock()
     mock_client_cls.return_value = mock_client
@@ -76,8 +77,10 @@ def test_summarizer_model_fallback_on_error(mock_client_cls):
     mock_success = MagicMock()
     mock_success.text = "# 【課程主旨】\n成功由備援模型產出重點筆記。"
 
-    # First model raises 503, second model succeeds
+    # First model raises 503 across 3 attempts, then falls back to secondary model which succeeds
     mock_client.models.generate_content.side_effect = [
+        Exception("503 UNAVAILABLE: High demand"),
+        Exception("503 UNAVAILABLE: High demand"),
         Exception("503 UNAVAILABLE: High demand"),
         mock_success,
     ]
@@ -88,7 +91,7 @@ def test_summarizer_model_fallback_on_error(mock_client_cls):
     )
 
     result = summarizer.summarize(cleaned_text="課堂測試文字。")
-    assert result.model_used == "gemini-3.1-flash-lite"
+    assert result.model_used == "gemini-3.5-flash-lite"
     assert "備援模型" in result.full_summary_md
 
 
@@ -117,3 +120,20 @@ def test_save_summary_outputs(tmp_path: Path):
         data = json.load(f)
     assert data["model_used"] == "gemini-3.5-flash"
     assert data["thinking_budget"] == 1024
+
+
+def test_summarizer_meeting_auto_detection():
+    """Verify that when course/topic is a meeting, summarizer auto-selects meeting template."""
+    summarizer = GeminiLectureSummarizer(
+        api_key="mock_key",
+        template_path="prompts/library/fabric_summarize_lecture.md",
+    )
+
+    # 1. Academic course uses lecture template
+    lec_prompt = summarizer.build_prompt("課堂內文", course="電磁學")
+    assert "大學課程助教" in lec_prompt or "課程主旨" in lec_prompt
+
+    # 2. Meeting uses meeting template
+    meeting_prompt = summarizer.build_prompt("討論事項全文", course="實驗室組會")
+    assert "會議主旨與目標" in meeting_prompt or "待辦事項與行動清單" in meeting_prompt
+

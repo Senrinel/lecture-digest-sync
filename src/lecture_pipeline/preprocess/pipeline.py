@@ -13,12 +13,11 @@ from __future__ import annotations
 import shutil
 import tempfile
 from pathlib import Path
-from typing import List, Optional, Sequence, Union
+from typing import Optional, Sequence, Union
 from rich.console import Console
 
 from lecture_pipeline.state import PreprocessOptions
 from lecture_pipeline.preprocess.dsp import (
-    build_ffmpeg_audio_filters,
     convert_wav_to_flac,
     run_ffmpeg_dsp,
 )

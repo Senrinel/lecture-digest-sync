@@ -119,6 +119,8 @@ class FasterWhisperChannelBase(BaseSTTChannel):
         start_time = time.time()
         cmd = [
             str(self.backend_python),
+            "-X",
+            "utf8",
             str(self.runner_script),
             "--audio",
             str(path),
@@ -138,6 +140,11 @@ class FasterWhisperChannelBase(BaseSTTChannel):
             str(temp_json_path),
         ]
 
+        # Enforce UTF-8 in child Python environment on Windows (bypasses default CP950/ANSI limit)
+        sub_env = os.environ.copy()
+        sub_env["PYTHONUTF8"] = "1"
+        sub_env["PYTHONIOENCODING"] = "utf-8"
+
         try:
             result = subprocess.run(
                 cmd,
@@ -145,6 +152,7 @@ class FasterWhisperChannelBase(BaseSTTChannel):
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                env=sub_env,
                 check=False,
             )
             if result.returncode != 0:

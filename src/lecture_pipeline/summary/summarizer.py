@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -17,14 +17,11 @@ from rich.console import Console
 
 from lecture_pipeline.summary.base import BaseSummarizer, SummaryResult
 
-console = Console()
+console = Console(legacy_windows=False)
 
 SUMMARIZE_MODEL_CANDIDATES = [
-    "gemini-3.1-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
+    "gemini-3.5-flash-lite",
     "gemini-3.5-flash",
-    "gemini-3.6-flash",
 ]
 
 
@@ -34,7 +31,7 @@ class GeminiLectureSummarizer(BaseSummarizer):
     def __init__(
         self,
         api_key: Optional[str] = None,
-        primary_model: str = "gemini-3.5-flash",
+        primary_model: str = "gemini-3.5-flash-lite",
         template_path: str | Path = "prompts/library/fabric_summarize_lecture.md",
         thinking_budget: int = 1024,
         temperature: float = 0.2,
@@ -47,9 +44,14 @@ class GeminiLectureSummarizer(BaseSummarizer):
         # Set 300s timeout for robust processing
         http_opts = types.HttpOptions(timeout=300000)
         self.client = genai.Client(api_key=self.api_key, http_options=http_opts)
-
         self.primary_model = primary_model
-        self.template_path = Path(template_path)
+        p = Path(template_path)
+        if not p.is_file() and not p.is_absolute():
+            if (Path("prompts/library") / template_path).is_file():
+                p = Path("prompts/library") / template_path
+            elif (Path("prompts") / template_path).is_file():
+                p = Path("prompts") / template_path
+        self.template_path = p
         self.thinking_budget = thinking_budget
         self.temperature = temperature
 
@@ -57,14 +59,25 @@ class GeminiLectureSummarizer(BaseSummarizer):
     def summarizer_id(self) -> str:
         return "gemini_lecture_summarizer"
 
-    def load_template(self) -> str:
-        """Load prompt template from file or return standard fallback template."""
-        if self.template_path.is_file():
+    def load_template(self, course: Optional[str] = None) -> str:
+        """Load prompt template from file or auto-select based on course/meeting type."""
+        actual_template = self.template_path
+        if course:
+            is_meeting = any(
+                k in course.lower()
+                for k in ["會議", "meeting", "組會", "座談", "討論會", "研討會", "工作會", "訪談", "口試"]
+            )
+            if is_meeting and self.template_path.name == "fabric_summarize_lecture.md":
+                meeting_t = Path("prompts/library/meeting_summary.md")
+                if meeting_t.is_file():
+                    actual_template = meeting_t
+
+        if actual_template.is_file():
             try:
-                with open(self.template_path, "r", encoding="utf-8") as f:
+                with open(actual_template, "r", encoding="utf-8") as f:
                     return f.read()
             except Exception as e:
-                console.print(f"[yellow]⚠️ 無法讀取總結範本 {self.template_path}: {e}，使用內建標準範本。[/yellow]")
+                console.print(f"[yellow]⚠️ 無法讀取總結範本 {actual_template}: {e}，使用內建標準範本。[/yellow]")
 
         return (
             "# 角色與目標\n"
@@ -88,7 +101,7 @@ class GeminiLectureSummarizer(BaseSummarizer):
         glossary: Optional[List[str]] = None,
     ) -> str:
         """Build instruction prompt for Gemini summarizer."""
-        base_template = self.load_template()
+        base_template = self.load_template(course=course)
 
         context_lines = []
         if course and course != "Unsorted":
@@ -149,46 +162,51 @@ class GeminiLectureSummarizer(BaseSummarizer):
         last_error = None
 
         for model_id in models_to_try:
-            # Lite models don't support high thinking budgets
-            budget = 0 if "lite" in model_id.lower() else self.thinking_budget
-
-            gen_config = types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=budget),
-                temperature=self.temperature,
-            )
-
-            try:
-                response = self.client.models.generate_content(
-                    model=model_id,
-                    contents=[prompt],
-                    config=gen_config,
+            # Lite models don't support thinking budgets; omit thinking_config entirely
+            if "lite" in model_id.lower() or not self.thinking_budget:
+                gen_config = types.GenerateContentConfig(temperature=self.temperature)
+            else:
+                gen_config = types.GenerateContentConfig(
+                    thinking_config=types.ThinkingConfig(thinking_budget=self.thinking_budget),
+                    temperature=self.temperature,
                 )
-                summary_md = (response.text or "").strip()
-                model_used = model_id
-                break
-            except Exception as e:
-                last_error = e
-                err_msg = str(e)
-                transient_keywords = [
-                    "503",
-                    "429",
-                    "UNAVAILABLE",
-                    "RESOURCE_EXHAUSTED",
-                    "RemoteProtocolError",
-                    "Server disconnected",
-                    "timeout",
-                    "timed out",
-                    "ConnectionReset",
-                    "INVALID_ARGUMENT",
-                ]
-                if any(kw.lower() in err_msg.lower() for kw in transient_keywords):
-                    console.print(
-                        f"[yellow]⚠️ 總結模型 {model_id} 遇尖峰或不支援思考預算 ({err_msg[:50]}...)，正在自動切換至備援模型...[/yellow]"
+
+            for attempt in range(3):
+                try:
+                    response = self.client.models.generate_content(
+                        model=model_id,
+                        contents=[prompt],
+                        config=gen_config,
                     )
-                    time.sleep(2.0)
-                    continue
-                else:
-                    raise e
+                    summary_md = (response.text or "").strip()
+                    model_used = model_id
+                    break
+                except Exception as e:
+                    last_error = e
+                    err_msg = str(e)
+                    transient_keywords = [
+                        "503",
+                        "429",
+                        "UNAVAILABLE",
+                        "RESOURCE_EXHAUSTED",
+                        "RemoteProtocolError",
+                        "Server disconnected",
+                        "timeout",
+                        "timed out",
+                        "ConnectionReset",
+                        "INVALID_ARGUMENT",
+                    ]
+                    if any(kw.lower() in err_msg.lower() for kw in transient_keywords):
+                        console.print(
+                            f"[yellow]⚠️ 總結模型 {model_id} (嘗試 {attempt + 1}/3) 遇伺服器尖峰或連線中斷 ({err_msg[:60]}...)，保守等待 6 秒後重試...[/yellow]"
+                        )
+                        time.sleep(6.0)
+                        continue
+                    else:
+                        raise e
+
+            if summary_md:
+                break
         else:
             raise RuntimeError(f"所有總結模型候選皆執行失敗，最後錯誤: {last_error}")
 

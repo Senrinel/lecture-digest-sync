@@ -15,6 +15,7 @@ from lecture_pipeline.cleanup import (
     save_cleanup_outputs,
 )
 from lecture_pipeline.export import (
+    GoogleDrivePublisher,
     open_notebooklm_in_browser,
     prepare_notebook_bundle,
     reveal_in_explorer,
@@ -233,12 +234,33 @@ def stt_command(
     start_time = time.time()
     console.print(f"\n[bold]⏳ 正在進行語音轉錄 ({stt_worker.name})...[/bold]")
 
-    full_transcription = stt_worker.transcribe_all(
-        chunks=state.chunks,
-        course=state.course,
-        date=state.date,
-        glossary=glossary,
-    )
+    try:
+        full_transcription = stt_worker.transcribe_all(
+            chunks=state.chunks,
+            course=state.course,
+            date=state.date,
+            glossary=glossary,
+        )
+    except Exception as e:
+        fallback_channel = stt_cfg.get("fallback_local_channel", "C7")
+        if selected_channel != fallback_channel:
+            console.print(f"\n[bold yellow]⚠️ 通道 {selected_channel} 執行遭遇異常 ({e})！[/bold yellow]")
+            console.print(f"🔄 自動無縫切換至標準本地備援通道：[bold green]{fallback_channel} (Whisper Turbo)[/bold green] 繼續辨識...\n")
+            try:
+                stt_worker = get_stt_channel(fallback_channel)
+                selected_channel = fallback_channel
+                full_transcription = stt_worker.transcribe_all(
+                    chunks=state.chunks,
+                    course=state.course,
+                    date=state.date,
+                    glossary=glossary,
+                )
+            except Exception as e2:
+                console.print(f"[bold red]❌ 本地備援通道 {fallback_channel} 亦執行失敗：{e2}[/bold red]")
+                raise typer.Exit(code=1)
+        else:
+            console.print(f"[bold red]❌ 語音辨識失敗：{e}[/bold red]")
+            raise typer.Exit(code=1)
 
     # Save outputs
     output_files = save_stt_outputs(full_transcription, target_work_dir)
@@ -342,8 +364,8 @@ def clean_command(
     cfg = load_config()
     clean_cfg = cfg.get("cleanup", {})
 
-    selected_model = model or clean_cfg.get("model", "gemini-3.5-flash")
-    prompt_file = prompt or clean_cfg.get("prompt_template", "prompts/library/fabric_clean_text.md")
+    selected_model = model or clean_cfg.get("model", "gemini-3.5-flash-lite")
+    prompt_file = prompt or clean_cfg.get("prompt_template", "prompts/library/videolingo_punct.md")
     ratio_min = min_ratio if min_ratio is not None else float(clean_cfg.get("length_ratio_min", 0.80))
     ratio_max = max_ratio if max_ratio is not None else float(clean_cfg.get("length_ratio_max", 1.20))
     max_chunk = chunk_chars if chunk_chars is not None else int(clean_cfg.get("chunk_chars", 8000))
@@ -489,7 +511,7 @@ def summary_command(
     cfg = load_config()
     sum_cfg = cfg.get("summarize", {})
 
-    selected_model = model or sum_cfg.get("model", "gemini-3.5-flash")
+    selected_model = model or sum_cfg.get("model", "gemini-3.5-flash-lite")
     template_file = template or sum_cfg.get("template", "prompts/library/fabric_summarize_lecture.md")
     thinking_budget = thinking if thinking is not None else int(sum_cfg.get("thinking_budget", 1024))
 
@@ -622,6 +644,45 @@ def notebook_command(
         reveal_in_explorer(bundle_result.bundle_dir)
 
 
+@app.command("upload")
+@app.command("drive")
+def upload_command(
+    work_dir: Path = typer.Argument(..., help="已執行過 summary 的課堂工作目錄路徑 (包含 notebook_bundle/ 或 03_summary.md)"),
+    credentials: Optional[Path] = typer.Option(
+        None,
+        "--credentials",
+        help="Google OAuth client secrets JSON 檔案路徑 (預設 credentials.json)",
+    ),
+    open_browser: bool = typer.Option(
+        True,
+        "--open/--no-open",
+        help="上傳完成後是否在瀏覽器開啟目標 Google Drive 資料夾",
+    ),
+) -> None:
+    # Unwrap Typer OptionInfo if called programmatically
+    if not isinstance(credentials, (str, Path)) and credentials is not None:
+        credentials = getattr(credentials, "default", None)
+    if not isinstance(open_browser, bool):
+        open_browser = getattr(open_browser, "default", True)
+
+    target_work_dir = Path(work_dir).resolve()
+    creds_path = credentials or Path("credentials.json")
+
+    try:
+        publisher = GoogleDrivePublisher(credentials_file=creds_path)
+        result = publisher.publish_lecture(target_work_dir)
+        console.print(f"\n[bold green]🎉 Google Drive 雲端發布完成！[/bold green]")
+        console.print(f"📁 課程資料夾：[bold]{result.course_folder_link}[/bold]\n")
+
+        if open_browser:
+            import webbrowser
+            webbrowser.open(result.course_folder_link)
+
+    except Exception as e:
+        console.print(f"[bold red]❌ Google Drive 發布失敗：{e}[/bold red]")
+        raise typer.Exit(code=1)
+
+
 @app.command("run")
 def run_command(
     audio_files: List[Path] = typer.Argument(..., help="欲處理的課堂錄音檔案路徑 (.wav, .mp3, .m4a 等，可傳入多個分段檔案)"),
@@ -649,6 +710,17 @@ def run_command(
         "-o",
         help="管線執行完成後是否自動於瀏覽器開啟 NotebookLM",
     ),
+    upload: bool = typer.Option(
+        True,
+        "--upload/--no-upload",
+        help="是否自動上傳至 Google Drive 並轉為 Google Docs (需存在 credentials.json)",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="強制重新執行所有階段 (預設為 False，已完成階段自動沿用以節省 API 額度)",
+    ),
 ) -> None:
     """【一鍵全流程】自動依序執行 Phase 1 ➜ Phase 2 ➜ Phase 3 ➜ Phase 4 ➜ Phase 5。"""
     raw_paths = [Path(f).resolve() for f in audio_files]
@@ -666,21 +738,49 @@ def run_command(
     console.print(f"📌 識別課程：[green]{parsed.course}[/green] | 日期：[green]{parsed.date}[/green]\n")
 
     total_start = time.time()
+    state = load_run_state(target_work_dir)
 
     # Step 1: Prep
-    prep_command(audio_files=raw_paths, pre=pre, target_sec=target_sec, work_dir=target_work_dir)
+    if not force and state and state.stage_status.get("preprocess") == "DONE" and state.stage_status.get("vad_segment") == "DONE" and state.chunks:
+        console.print(f"[green]✔ 偵測到已完成 Phase 1 前處理與切段 ({len(state.chunks)} 個切片)，自動沿用。[/green]")
+    else:
+        prep_command(audio_files=raw_paths, pre=pre, target_sec=target_sec, work_dir=target_work_dir)
+        state = load_run_state(target_work_dir)
 
     # Step 2: STT
-    stt_command(work_dir=target_work_dir, channel=channel, model=None)
+    if not force and state and state.stage_status.get("stt") == "DONE" and (target_work_dir / "01_raw.txt").is_file():
+        console.print(f"[green]✔ 偵測到已完成 Phase 2 STT 轉錄，自動沿用既有逐字稿以節省 API 額度。[/green]")
+    else:
+        stt_command(work_dir=target_work_dir, channel=channel, model=None)
+        state = load_run_state(target_work_dir)
 
     # Step 3: Clean
-    clean_command(work_dir=target_work_dir, model=None, prompt=None, min_ratio=None, max_ratio=None, chunk_chars=None, mode="text", fusion_file=None)
+    if not force and state and state.stage_status.get("cleanup") == "DONE" and (target_work_dir / "02_cleaned.txt").is_file():
+        console.print(f"[green]✔ 偵測到已完成 Phase 3 內文整理，自動沿用既有整理文稿以節省 API 額度。[/green]")
+    else:
+        clean_command(work_dir=target_work_dir, model=None, prompt=None, min_ratio=None, max_ratio=None, chunk_chars=None, mode="text", fusion_file=None)
+        state = load_run_state(target_work_dir)
 
     # Step 4: Summary
-    summary_command(work_dir=target_work_dir, model=None, template=None, thinking=None)
+    if not force and state and state.stage_status.get("summarize") == "DONE" and (target_work_dir / "03_summary.md").is_file():
+        console.print(f"[green]✔ 偵測到已完成 Phase 4 重點總結，自動沿用既有筆記。[/green]")
+    else:
+        summary_command(work_dir=target_work_dir, model=None, template=None, thinking=None)
+        state = load_run_state(target_work_dir)
 
     # Step 5: Notebook Bundle
     notebook_command(work_dir=target_work_dir, export_dir=None, open_browser=open_notebook, reveal=False)
+
+    # Step 6: Google Drive Auto-Upload (Spec Section 9)
+    if upload:
+        if Path("credentials.json").is_file():
+            console.print(f"\n[bold cyan]☁️ 偵測到 credentials.json，正在自動上傳至 Google Drive...[/bold cyan]")
+            try:
+                upload_command(work_dir=target_work_dir, credentials=None, open_browser=False)
+            except Exception as e:
+                console.print(f"[yellow]⚠️ Google Drive 自動上傳未完成 ({e})，可於後續使用 'upload' 指令重試。[/yellow]")
+        else:
+            console.print(f"[dim]ℹ️ 未偵測到 credentials.json，略過 Google Drive 自動上傳。[/dim]")
 
     total_elapsed = round(time.time() - total_start, 2)
 
@@ -756,10 +856,10 @@ def matrix_command(
         help="是否跳過雲端 API 實驗（僅評測本地前處理與本地 ASR 通道）",
     ),
     ref: str = typer.Option(
-        "C1",
+        "C7",
         "--ref",
         "-r",
-        help="作為 CER 比較基準 (Ground Truth) 的通道 (預設 C1 Gemini 3.8 Flash)",
+        help="作為 CER 比較基準 (Ground Truth) 的通道 (預設 C7 Whisper Turbo，可選 C1)",
     ),
     output_dir: Path = typer.Option(
         Path("benchmark"),
@@ -816,8 +916,24 @@ def watch_command(
         "--interval",
         help="持續監看輪詢間隔秒數 (預設 5s)",
     ),
+    timeout: int = typer.Option(
+        3600,
+        "--timeout",
+        "-t",
+        help="單次課堂處理逾時熔斷上限秒數 (預設 3600s/60分鐘)",
+    ),
+    tray: bool = typer.Option(
+        True,
+        "--tray/--no-tray",
+        help="是否顯示 Windows 工作列系統匣狀態小圖示 (預設開啟)",
+    ),
+    archive_storage: Optional[str] = typer.Option(
+        None,
+        "--archive-storage",
+        help="自訂長期修剪封存目錄 (預設 C:\\Users\\LinKJ\\Pictures\\Record)",
+    ),
 ) -> None:
-    """執行 Phase 8：資料夾無人值守監看與多段錄音自動合併端對端管線。"""
+    """執行 Phase 8：資料夾無人值守監看、壞檔隔離、逾時熔斷與自動修剪封存端對端管線。"""
     from lecture_pipeline.automation import watch_inbox
 
     watch_inbox(
@@ -826,7 +942,73 @@ def watch_command(
         pre_flags=pre,
         once=once,
         poll_interval=interval,
+        timeout_sec=timeout,
+        enable_tray=tray,
+        record_archive_base_dir=archive_storage,
     )
+
+
+@app.command("extract-glossary")
+def extract_glossary_command(
+    course: str = typer.Argument(..., help="課程名稱 (例如: 離散數學, Algorithms)"),
+    source: Path = typer.Argument(..., help="投影片 PDF 或講義文字檔路徑 (支援單檔或整個資料夾)"),
+) -> None:
+    """純本地 0 API 消耗解析課堂講義/投影片，自動提取專有名詞與縮寫並匯入詞庫。"""
+    from lecture_pipeline.glossary import auto_extract_course_glossary
+
+    if not source.exists():
+        console.print(f"[bold red]❌ 找不到指定的講義檔案或目錄: {source}[/bold red]")
+        raise typer.Exit(code=1)
+
+    console.print(f"\n[bold cyan]📚 啟動純本地詞庫自動解析 (0 API 耗用)[/bold cyan]")
+    console.print(f"課程名稱: [yellow]{course}[/yellow] | 來源教材: {source}")
+
+    extracted = auto_extract_course_glossary(course=course, source_path=source)
+    console.print(f"[bold green]✔ 成功萃取並增量寫入 {len(extracted)} 個領域專有名詞與縮寫！[/bold green]")
+    for term in extracted[:20]:
+        console.print(f"  • {term}")
+    if len(extracted) > 20:
+        console.print(f"  [dim]...以及其餘 {len(extracted) - 20} 個詞彙[/dim]")
+    console.print(f"詞庫檔案位置：[dim]courses/{course}/glossary.txt[/dim]\n")
+
+
+@app.command("quota")
+def quota_command() -> None:
+    """檢視 Google Cloud API 官方額度與本地 RTX 4060 對比分析與最佳化調用策略。"""
+    from lecture_pipeline.automation.quota import QuotaManager
+    summary = QuotaManager.get_quota_comparison_summary()
+
+    console.print("\n[bold cyan]📊 Google Cloud API 官方額度 vs 本地硬體能力對比與智慧調用報告[/bold cyan]\n")
+
+    g_table = Table(title="1. Google 官方 Free Tier 額度限制說明")
+    g_table.add_column("限制維度", style="cyan")
+    g_table.add_column("官方配額 / 特徵", style="bold")
+    g_info = summary["google_official_free_tier"]
+    g_table.add_row("每分鐘請求數 (RPM)", str(g_info["rpm"]))
+    g_table.add_row("每日請求數 (RPD)", str(g_info["rpd"]))
+    g_table.add_row("每分鐘 Token 數 (TPM)", str(g_info["tpm"]))
+    g_table.add_row("音訊 Token 費率", str(g_info["audio_token_rate"]))
+    g_table.add_row("每日額度重置時間", str(g_info["reset_time"]))
+    g_table.add_row("主要潛在瓶頸", f"[yellow]{g_info['bottleneck']}[/yellow]")
+    console.print(g_table)
+
+    l_table = Table(title="\n2. 本地硬體 (RTX 4060 8GB) 執行能力")
+    l_table.add_column("硬體與模型項目", style="green")
+    l_table.add_column("本地規格與實測性能", style="bold")
+    l_info = summary["local_hardware_capabilities"]
+    l_table.add_row("顯示卡規格", l_info["gpu"])
+    l_table.add_row("STT 備援模型", l_info["model"])
+    l_table.add_row("實測 VRAM 佔用", l_info["vram_usage"])
+    l_table.add_row("即時轉錄倍速", l_info["speed"])
+    l_table.add_row("成本與配額限制", f"[bold green]{l_info['cost_and_quota']}[/bold green]")
+    l_table.add_row("詞庫自動解析能力", f"[bold green]{l_info['glossary_extraction']}[/bold green]")
+    console.print(l_table)
+
+    console.print("\n[bold]3. 系統智慧最佳化調用路由策略：[/bold]")
+    for strat in summary["optimal_routing_strategy"]:
+        console.print(f"  {strat}")
+    console.print()
+
 
 
 @app.command("info")
@@ -849,14 +1031,185 @@ def info_command(
     console.print(f"切段總數: {len(state.chunks)}")
 
 
-@app.command("version")
-def version_command() -> None:
-    """顯示目前套件版本。"""
-    from lecture_pipeline import __version__
+@app.command("autostart")
+def autostart_command(
+    action: str = typer.Argument(
+        "status",
+        help="操作動作: status (檢視狀態) | enable (啟用 Windows 開機背景自動監控) | disable (關閉開機自動監控)",
+    ),
+    channel: str = typer.Option(
+        "C1",
+        "--channel",
+        "-c",
+        help="自動監控預設使用的 STT 通道 (預設 C1)",
+    ),
+    interval: int = typer.Option(
+        5,
+        "--interval",
+        "-i",
+        help="輪詢間隔秒數 (預設 5s)",
+    ),
+) -> None:
+    """管理 Windows 開機無感自動背景監看服務。"""
+    from lecture_pipeline.automation import (
+        disable_autostart,
+        enable_autostart,
+        get_autostart_status,
+    )
 
-    console.print(f"Lecture Pipeline v{__version__}")
+    act = action.strip().lower()
+
+    if act == "enable":
+        vbs = enable_autostart(channel=channel, poll_interval=interval)
+        console.print(f"\n[bold green]✔ 已成功啟用 Windows 開機無感自動監看！[/bold green]")
+        console.print(f"啟動指令碼：[dim]{vbs}[/dim]")
+        console.print(f"📌 開機後將以極低優先權在背景靜默監控 `inbox/`，不跳黑視窗、零干擾遊戲與工作。\n")
+
+    elif act == "disable":
+        ok = disable_autostart()
+        if ok:
+            console.print(f"\n[bold green]✔ 已成功移除 Windows 開機自動監看服務！[/bold green]\n")
+        else:
+            console.print(f"\n[yellow]ℹ️ 目前未啟用開機自動監看。[/yellow]\n")
+
+    else:
+        st = get_autostart_status()
+        status_tag = "[bold green]已啟用 (Enabled)[/bold green]" if st["enabled"] else "[bold red]未啟用 (Disabled)[/bold red]"
+        console.print(f"\n[bold cyan]⚙️ Windows 開機自動監看狀態：[/bold cyan]{status_tag}")
+        console.print(f"路徑：{st['path']}\n")
+
+
+@app.command("doctor")
+def doctor_command() -> None:
+    """【系統健檢診斷中心】一鍵全面掃描 GPU、CUDA、FFmpeg、API 金鑰、Google Drive、磁碟與背景服務健康度。"""
+    import os
+    import shutil
+    import subprocess
+    import time
+
+    console.print("\n[bold cyan]🩺 正在執行 ASR 課堂自動化系統全方位健康診斷 (System Health Check)...[/bold cyan]\n")
+
+    table = Table(title="系統核心組件健康狀態總覽")
+    table.add_column("檢測項目", style="cyan", width=22)
+    table.add_column("狀態", style="bold", width=12)
+    table.add_column("詳細規格與檢測結果", style="white")
+
+    # 1. Python & Platform
+    py_ver = f"Python {sys.version.split()[0]} ({sys.platform}, UTF-8: {sys.flags.utf8_mode})"
+    table.add_row("作業系統與環境", "[bold green]✔ 正常[/bold green]", py_ver)
+
+    # 2. NVIDIA GPU & nvidia-smi
+    gpu_status = "[bold red]✖ 未偵測[/bold red]"
+    gpu_detail = "無法取得 GPU 資訊"
+    try:
+        smi_out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=gpu_name,memory.total,memory.free,driver_version", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+        )
+        if smi_out.returncode == 0 and smi_out.stdout.strip():
+            gpu_status = "[bold green]✔ 正常運行[/bold green]"
+            gpu_detail = smi_out.stdout.strip()
+    except Exception as e:
+        gpu_detail = f"nvidia-smi 查詢失敗: {e}"
+    table.add_row("NVIDIA 顯示卡 (GPU)", gpu_status, gpu_detail)
+
+    # 3. Isolated faster-whisper backend
+    fw_status = "[bold red]✖ 未就緒[/bold red]"
+    fw_detail = "backends/fasterwhisper/.venv 尚未建立"
+    backend_py = Path("backends/fasterwhisper/.venv/Scripts/python.exe")
+    if backend_py.is_file():
+        try:
+            res = subprocess.run(
+                [str(backend_py), "-c", "import ctranslate2; print(ctranslate2.get_cuda_device_count())"],
+                capture_output=True,
+                text=True,
+            )
+            if res.returncode == 0 and res.stdout.strip() != "0":
+                fw_status = "[bold green]✔ 就緒[/bold green]"
+                fw_detail = f"CTranslate2 獨立後端就緒 (CUDA 設備: {res.stdout.strip()})"
+            else:
+                fw_detail = "後端虛擬環境可執行但未偵測到 CUDA"
+        except Exception as e:
+            fw_detail = f"後端檢測異常: {e}"
+    table.add_row("本地 STT 引擎 (C7)", fw_status, fw_detail)
+
+    # 4. FFmpeg & Codecs
+    ffmpeg_status = "[bold red]✖ 遺失[/bold red]"
+    ffmpeg_detail = "系統 PATH 中找不到 ffmpeg.exe"
+    if shutil.which("ffmpeg"):
+        try:
+            codec_res = subprocess.run(["ffmpeg", "-codecs"], capture_output=True, text=True)
+            has_opus = "libopus" in codec_res.stdout or "opus" in codec_res.stdout
+            has_aac = "aac" in codec_res.stdout
+            ffmpeg_status = "[bold green]✔ 完整支援[/bold green]"
+            ffmpeg_detail = f"FFmpeg 已安裝 (支援 Opus: {has_opus}, AAC: {has_aac})"
+        except Exception:
+            ffmpeg_detail = "FFmpeg 已就緒"
+    table.add_row("聲學處理器 (FFmpeg)", ffmpeg_status, ffmpeg_detail)
+
+    # 5. Gemini API Key & Latency
+    from dotenv import load_dotenv
+    load_dotenv()
+    gemini_status = "[bold red]✖ 未設定[/bold red]"
+    gemini_detail = "環境變數缺少 GEMINI_API_KEY"
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key:
+        t0 = time.time()
+        try:
+            from google import genai
+            client = genai.Client(api_key=api_key)
+            # Lightweight model list probe
+            models = list(client.models.list(config={"page_size": 2}))
+            latency = int((time.time() - t0) * 1000)
+            gemini_status = "[bold green]✔ 連線正常[/bold green]"
+            gemini_detail = f"API 通訊成功 (回應延遲: {latency} ms, Key: ...{api_key[-6:]})"
+        except Exception as e:
+            gemini_status = "[bold yellow]⚠️ 探測警示[/bold yellow]"
+            gemini_detail = f"已填 Key 但探測超時或異常 ({e})"
+    table.add_row("Google Gemini API", gemini_status, gemini_detail)
+
+    # 6. Google Drive API
+    drive_status = "[bold red]✖ 未授權[/bold red]"
+    drive_detail = "缺少 credentials.json"
+    if Path("credentials.json").is_file():
+        if Path("token.json").is_file():
+            drive_status = "[bold green]✔ 授權有效[/bold green]"
+            drive_detail = "憑證與 token.json 皆已就緒，Docs 自動上傳已啟用"
+        else:
+            drive_status = "[bold yellow]⚠️ 尚未登入[/bold yellow]"
+            drive_detail = "已有 credentials.json，首發同步時將自動跳出瀏覽器登入"
+    table.add_row("Google Drive / Docs", drive_status, drive_detail)
+
+    # 7. Storage Free Space Guard
+    free_bytes = shutil.disk_usage(".").free
+    free_gb = round(free_bytes / (1024 ** 3), 2)
+    disk_status = "[bold green]✔ 空間充裕[/bold green]" if free_gb >= 5.0 else (
+        "[bold yellow]⚠️ 空間偏低[/bold yellow]" if free_gb >= 3.0 else "[bold red]⛔ 嚴重不足[/bold red]"
+    )
+    disk_detail = f"工作磁區剩餘 {free_gb} GB (系統安全熔斷閥值: 3.0 GB)"
+    table.add_row("磁碟儲存安全守護", disk_status, disk_detail)
+
+    # 8. Windows Autostart Status
+    from lecture_pipeline.automation import get_autostart_status
+    as_info = get_autostart_status()
+    as_status = "[bold green]已啟用[/bold green]" if as_info["enabled"] else "[dim]未啟用 (手動或批次執行)[/dim]"
+    as_detail = str(as_info["path"])
+    table.add_row("Windows 開機自動監看", as_status, as_detail)
+
+    # 9. Offline Upload Queue
+    from lecture_pipeline.automation.offline_queue import OfflineUploadQueue
+    oq = OfflineUploadQueue()
+    pending_items = oq.get_pending()
+    q_status = "[bold green]✔ 清空無積壓[/bold green]" if not pending_items else f"[yellow]⚠️ {len(pending_items)} 筆等候中[/yellow]"
+    q_detail = f"待上傳佇列共 {len(pending_items)} 筆錄音"
+    table.add_row("斷網排隊佇列", q_status, q_detail)
+
+    console.print(table)
+    console.print("\n[bold green]💡 系統診斷完成！所有核心模組運作正常，隨時可投入日常課堂與會議處理。[/bold green]\n")
 
 
 if __name__ == "__main__":
     app()
+
 

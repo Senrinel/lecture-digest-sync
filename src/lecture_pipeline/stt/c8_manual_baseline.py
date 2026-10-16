@@ -7,7 +7,6 @@ as well as running Phase 3-5 directly on human-verified lecture transcripts.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import List, Optional
 from opencc import OpenCC

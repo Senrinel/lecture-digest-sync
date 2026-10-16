@@ -12,7 +12,6 @@ from lecture_pipeline.stt import (
     WhisperTurboChannel,
     get_stt_channel,
 )
-from lecture_pipeline.stt.faster_whisper_base import FasterWhisperChannelBase
 
 
 def test_channel_instantiation():
@@ -106,3 +105,66 @@ def test_transcribe_chunk_mock_subprocess(tmp_path: Path):
     assert "生成樹" in result.raw_text
     assert len(result.metadata["timestamps"]) == 2
     assert "這是離散數學" in result.metadata["timestamps"][0]["text"]
+
+
+def test_transcribe_chunk_with_chinese_filename_and_path(tmp_path: Path):
+    """Verify that transcribe_chunk correctly handles Chinese filenames with special characters."""
+    chinese_dir = tmp_path / "測試【中文目錄】（專題）"
+    chinese_dir.mkdir(parents=True, exist_ok=True)
+    audio_file = chinese_dir / "課堂 錄音 %20 (第一講).wav"
+    audio_file.write_bytes(b"RIFFdummydataWAVEfmt ")
+
+    chunk_info = ChunkInfo(
+        index=1,
+        filename=audio_file.name,
+        filepath=str(audio_file),
+        start_sec=0.0,
+        end_sec=60.0,
+        duration_sec=60.0,
+    )
+
+    channel = WhisperTurboChannel()
+
+    mock_output_data = {
+        "text": "這是畢業流程說明的審查事項。",
+        "language": "zh",
+        "language_probability": 0.99,
+        "duration_sec": 2.1,
+        "timestamps": [{"start": 0.0, "end": 2.0, "text": "這是畢業流程說明的審查事項。"}],
+    }
+
+    captured_cmd = []
+    captured_env = {}
+
+    def fake_subprocess_run(cmd, env=None, **kwargs):
+        nonlocal captured_cmd, captured_env
+        captured_cmd = list(cmd)
+        captured_env = dict(env) if env else {}
+
+        if "--output-json" in cmd:
+            idx = cmd.index("--output-json")
+            json_file = Path(cmd[idx + 1])
+            with open(json_file, "w", encoding="utf-8") as f:
+                json.dump(mock_output_data, f, ensure_ascii=False)
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        mock_res.stdout = json.dumps(mock_output_data, ensure_ascii=False)
+        mock_res.stderr = ""
+        return mock_res
+
+    with patch("subprocess.run", side_effect=fake_subprocess_run):
+        result = channel.transcribe_chunk(
+            audio_chunk_path=audio_file,
+            chunk_info=chunk_info,
+            course="畢業流程說明",
+            glossary=["審查系統"],
+        )
+
+    assert result.index == 1
+    assert "畢業流程說明" in result.raw_text
+    # Verify UTF-8 defensive flags are strictly enforced in subprocess command and environment
+    assert "-X" in captured_cmd and "utf8" in captured_cmd
+    assert captured_env.get("PYTHONUTF8") == "1"
+    assert captured_env.get("PYTHONIOENCODING") == "utf-8"
+    # Verify that the full unicode Chinese path was passed cleanly
+    assert str(audio_file.resolve()) in captured_cmd

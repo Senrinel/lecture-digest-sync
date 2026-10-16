@@ -55,24 +55,45 @@ def main():
     # Transcribe with hallucination mitigations:
     # condition_on_previous_text=False prevents infinite repetition loops on lecture audio
     # vad_filter=True filters non-speech noises
-    segments, info = model.transcribe(
-        args.audio,
-        language=args.language,
-        initial_prompt=args.initial_prompt,
-        beam_size=args.beam_size,
-        vad_filter=True,
-        condition_on_previous_text=False,
-    )
+    # Defensive countermeasure for Windows paths containing special Unicode/Chinese characters:
+    audio_file_handle = None
+    try:
+        try:
+            segments, info = model.transcribe(
+                args.audio,
+                language=args.language,
+                initial_prompt=args.initial_prompt,
+                beam_size=args.beam_size,
+                vad_filter=True,
+                condition_on_previous_text=False,
+            )
+        except Exception as path_err:
+            if os.path.isfile(args.audio):
+                # Fallback to Python native wide-character file handle if PyAV C string fails
+                audio_file_handle = open(args.audio, "rb")
+                segments, info = model.transcribe(
+                    audio_file_handle,
+                    language=args.language,
+                    initial_prompt=args.initial_prompt,
+                    beam_size=args.beam_size,
+                    vad_filter=True,
+                    condition_on_previous_text=False,
+                )
+            else:
+                raise path_err
 
-    text_parts = []
-    timestamps = []
-    for seg in segments:
-        text_parts.append(seg.text.strip())
-        timestamps.append({
-            "start": round(seg.start, 2),
-            "end": round(seg.end, 2),
-            "text": seg.text.strip(),
-        })
+        text_parts = []
+        timestamps = []
+        for seg in segments:
+            text_parts.append(seg.text.strip())
+            timestamps.append({
+                "start": round(seg.start, 2),
+                "end": round(seg.end, 2),
+                "text": seg.text.strip(),
+            })
+    finally:
+        if audio_file_handle:
+            audio_file_handle.close()
 
     duration = round(time.time() - start_time, 2)
     output = {

@@ -20,13 +20,11 @@ from rich.console import Console
 from lecture_pipeline.state import ChunkInfo
 from lecture_pipeline.stt.base import BaseSTTChannel, ChunkTranscription
 
-console = Console()
+console = Console(legacy_windows=False)
 
 FLASH_MODEL_CANDIDATES = [
+    "gemini-3.5-flash-lite",
     "gemini-3.5-flash",
-    "gemini-3.6-flash",
-    "gemini-3.7-flash",
-    "gemini-3.8-flash",
 ]
 
 
@@ -36,7 +34,7 @@ class GeminiFlashChannel(BaseSTTChannel):
     def __init__(
         self,
         api_key: Optional[str] = None,
-        primary_model: str = "gemini-3.5-flash",
+        primary_model: str = "gemini-3.5-flash-lite",
         temperature: float = 0.0,
     ):
         load_dotenv()
@@ -113,47 +111,47 @@ class GeminiFlashChannel(BaseSTTChannel):
             m for m in FLASH_MODEL_CANDIDATES if m != self.primary_model
         ]
 
-        # Explicitly disable thinking tokens for verbatim transcription:
-        # saves quota, prevents timeouts, and avoids rambling internal reasoning
         gen_config = types.GenerateContentConfig(
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
             temperature=self.temperature,
         )
 
         try:
             for model_id in models_to_try:
-                try:
-                    response = self.client.models.generate_content(
-                        model=model_id,
-                        contents=[uploaded_file, prompt],
-                        config=gen_config,
-                    )
-                    transcribed_text = (response.text or "").strip()
-                    model_used = model_id
-                    break
-                except Exception as e:
-                    last_error = e
-                    err_msg = str(e)
-                    # Broad transient error detection: 503, 429, timeout, server disconnect
-                    transient_keywords = [
-                        "503",
-                        "429",
-                        "UNAVAILABLE",
-                        "RESOURCE_EXHAUSTED",
-                        "RemoteProtocolError",
-                        "Server disconnected",
-                        "timeout",
-                        "timed out",
-                        "ConnectionReset",
-                    ]
-                    if any(kw.lower() in err_msg.lower() for kw in transient_keywords):
-                        console.print(
-                            f"[yellow]⚠️ 模型 {model_id} 遇到暫時性連線或伺服端尖峰問題，正在自動平滑切換至備用模型...[/yellow]"
+                for attempt in range(2):
+                    try:
+                        response = self.client.models.generate_content(
+                            model=model_id,
+                            contents=[uploaded_file, prompt],
+                            config=gen_config,
                         )
-                        time.sleep(2.0)
-                        continue
-                    else:
-                        raise e
+                        transcribed_text = (response.text or "").strip()
+                        model_used = model_id
+                        break
+                    except Exception as e:
+                        last_error = e
+                        err_msg = str(e)
+                        # Broad transient error detection: 503, 429, timeout, server disconnect
+                        transient_keywords = [
+                            "503",
+                            "429",
+                            "UNAVAILABLE",
+                            "RESOURCE_EXHAUSTED",
+                            "RemoteProtocolError",
+                            "Server disconnected",
+                            "timeout",
+                            "timed out",
+                            "ConnectionReset",
+                        ]
+                        if any(kw.lower() in err_msg.lower() for kw in transient_keywords):
+                            console.print(
+                                f"[yellow][!] 模型 {model_id} (嘗試 {attempt+1}/2) 遇到暫時性尖峰或連線問題，保守等待 8 秒後重試...[/yellow]"
+                            )
+                            time.sleep(8.0)
+                            continue
+                        else:
+                            raise e
+                if transcribed_text:
+                    break
 
             if not transcribed_text and last_error is not None:
                 raise RuntimeError(f"C1 所有 Flash 候選模型皆呼叫失敗: {last_error}")

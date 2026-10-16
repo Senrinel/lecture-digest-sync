@@ -9,10 +9,9 @@ Supports 3 cleanup modes:
 from __future__ import annotations
 
 import os
-import re
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -24,14 +23,11 @@ from lecture_pipeline.cleanup.base import (
     CleanupResult,
 )
 
-console = Console()
+console = Console(legacy_windows=False)
 
 CLEANUP_MODEL_CANDIDATES = [
-    "gemini-3.1-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
+    "gemini-3.5-flash-lite",
     "gemini-3.5-flash",
-    "gemini-3.6-flash",
 ]
 
 DEFAULT_PROMPT_TEMPLATES = {
@@ -48,7 +44,7 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
     def __init__(
         self,
         api_key: Optional[str] = None,
-        primary_model: str = "gemini-3.5-flash",
+        primary_model: str = "gemini-3.5-flash-lite",
         prompt_template_path: Optional[str | Path] = None,
         mode: str = "text",
         temperature: float = 0.1,
@@ -72,7 +68,13 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
             self.mode = "text"
 
         if prompt_template_path:
-            self.prompt_template_path = Path(prompt_template_path)
+            p = Path(prompt_template_path)
+            if not p.is_file() and not p.is_absolute():
+                if (Path("prompts/library") / prompt_template_path).is_file():
+                    p = Path("prompts/library") / prompt_template_path
+                elif (Path("prompts") / prompt_template_path).is_file():
+                    p = Path("prompts") / prompt_template_path
+            self.prompt_template_path = p
         else:
             default_tpl = DEFAULT_PROMPT_TEMPLATES.get(self.mode, DEFAULT_PROMPT_TEMPLATES["text"])
             self.prompt_template_path = Path(default_tpl)
@@ -203,7 +205,6 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
         ]
 
         gen_config = types.GenerateContentConfig(
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
             temperature=self.temperature,
         )
 
@@ -241,9 +242,9 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
                     ]
                     if any(kw.lower() in err_msg.lower() for kw in transient_keywords):
                         console.print(
-                            f"[yellow]⚠️ 整理模型 {model_id} 遇尖峰或連線中斷 ({err_msg[:50]}...)，正在自動切換至備援模型...[/yellow]"
+                            f"[yellow]⚠️ 整理模型 {model_id} 遇尖峰或連線中斷 ({err_msg[:50]}...)，等待 5 秒後切換或重試...[/yellow]"
                         )
-                        time.sleep(2.0)
+                        time.sleep(5.0)
                         continue
                     else:
                         raise e
@@ -369,6 +370,8 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
         full_cleaned_parts: List[str] = []
 
         for idx, chunk in enumerate(text_chunks, start=1):
+            if idx > 1:
+                time.sleep(2.5)  # Conservative pause between text cleanup calls to prevent rate limits
             sec_chunk = secondary_chunks[idx - 1] if idx - 1 < len(secondary_chunks) else None
             audio_p = audio_chunks[idx - 1] if audio_chunks and idx - 1 < len(audio_chunks) else None
 

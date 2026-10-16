@@ -7,6 +7,7 @@ paths:
   inbox_dir: "inbox"
   work_dir: "work"
   archive_dir: "archive"
+  record_archive_dir: "C:\\Users\\LinKJ\\Pictures\\Record"
   logs_dir: "logs"
   benchmark_dir: "benchmark"
   prompts_dir: "prompts"
@@ -47,10 +48,10 @@ segmentation:
 
 # STT 語音辨識設定
 stt:
-  # 預設通道: C1 (Gemini 3.8 Flash) 或 C2 (Gemini 3.5 Transcribe)
+  # 預設通道: C1 (Gemini Flash Audio Verbatim)
   default_channel: "C1"
-  # 備援通道 (額度用完時切換的本地模型): C4 (Breeze-ASR-25) 或 C3 (Qwen3-ASR)
-  fallback_local_channel: "C4"
+  # 備援通道 (額度用完或網路異常時自動切換之本地模型): C7 (Whisper Large-v3-Turbo)
+  fallback_local_channel: "C7"
   # 辨識 Prompt 策略: verbatim (字字逐字) | polite_clean (去贅字)
   prompt_style: "verbatim"
   # 溫度
@@ -62,8 +63,8 @@ stt:
 cleanup:
   # 模式: text (純文字整理) | audio (聽音檔修正) | fusion (雙通道比對融合)
   mode: "text"
-  model: "gemini-3.1-flash-lite"
-  prompt_template: "fabric_clean_text.md"
+  model: "gemini-3.5-flash-lite"
+  prompt_template: "videolingo_punct.md"
   # 每次送進整理模型的字元數 (分段保證零摘要與低延遲)
   chunk_chars: 1500
   overlap_chars: 300
@@ -73,7 +74,7 @@ cleanup:
 
 # 重點總結設定
 summarize:
-  model: "gemini-3.1-flash-lite"
+  model: "gemini-3.5-flash-lite"
   template: "fabric_summarize_lecture.md"
   thinking_budget: 1024
 
@@ -95,3 +96,22 @@ quota_policy:
   on_quota_exhausted: "local_then_defer"
   # 每天免費額度重置時間 (估計為 UTC 08:00 / 台灣時間 16:00)
   daily_reset_hour_utc: 8
+
+# 課表排程自動對齊 (針對錄音筆原始未命名音檔 YYMMDD_HHMM 如 261016_0915 自動識別科目)
+timetable:
+  enabled: true  # 預設關閉，填妥課表並設為 true 即可享受無感課表自動分類
+  Monday:
+  Tuesday:
+    - time: "9:00-11:00"
+      course: "人文通識:世界文明史"
+    - time: "11:00-13:00"
+      course: "人文通識:藝術欣賞"
+    - time: "13:00-16:00"
+      course: "光電子學"
+    - time: "16:00-18:00"
+      course: "科技英文導讀"
+  Wednesday:
+  Thursday:
+  Friday:
+    - time: "09:00-12:00"
+      course: "電磁學"

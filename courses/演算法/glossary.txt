@@ -1,0 +1,12 @@
+# Course glossary for 演算法
+
+# --- Auto-extracted terms (9) ---
+Dynamic Programming
+動態規劃
+BFS
+DFS
+GPU
+VRAM
+ASR
+特徵值與特徵向量
+定理

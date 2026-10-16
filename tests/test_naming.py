@@ -122,3 +122,25 @@ def test_parse_course_with_section_and_duplicate_ext(tmp_path: Path):
     assert "L12C" in info.work_dir.name
     assert info.work_dir.parent.name == "Engineering Mathematics"
 
+
+def test_parse_chinese_standard_filename():
+    """Verify parsing of Chinese standard CourseName_YYYYMMDD format."""
+    info = parse_filename("演算法_20261016.mp3", base_work_dir="work")
+    assert info.is_standard is True
+    assert info.course == "演算法"
+    assert info.date == "20261016"
+    assert info.work_dir.parent.name == "演算法"
+
+
+def test_parse_chinese_topic_without_date(tmp_path: Path):
+    """Verify parsing of Chinese topic filename without date (e.g. '.畢業流程說明.mp3')."""
+    test_file = tmp_path / ".畢業流程說明.mp3"
+    test_file.touch()
+
+    info = parse_filename(test_file, base_work_dir="work")
+    assert info.course == "畢業流程說明"
+    assert len(info.date) == 8
+    assert info.work_dir.parent.name == "畢業流程說明"
+    assert "已識別主題為 '畢業流程說明'" in info.warning
+
+

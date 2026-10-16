@@ -6,17 +6,16 @@ into clean, citation-friendly Markdown files ready for 1-click import into Googl
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import sys
 import webbrowser
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
 
-from lecture_pipeline.state import RunState, load_run_state, save_run_state
+from lecture_pipeline.state import load_run_state, save_run_state
 
 
 class NotebookBundleResult(BaseModel):

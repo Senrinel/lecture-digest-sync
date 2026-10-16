@@ -9,10 +9,7 @@ from lecture_pipeline.cleanup.base import (
     CleanupResult,
     save_cleanup_outputs,
 )
-from lecture_pipeline.cleanup.text_cleanup import (
-    CLEANUP_MODEL_CANDIDATES,
-    GeminiTextCleanupEngine,
-)
+from lecture_pipeline.cleanup.text_cleanup import GeminiTextCleanupEngine
 
 
 def test_cleanup_prompt_building_with_course_and_glossary(tmp_path: Path):
@@ -145,7 +142,7 @@ def test_cleanup_model_fallback_on_transient_error(mock_client_cls):
     raw = "成功使用備用模型完成課堂文字整理"
     result = engine.clean_single_chunk(chunk_index=1, raw_chunk=raw)
 
-    assert result.model_used == "gemini-3.1-flash-lite"
+    assert result.model_used == "gemini-3.5-flash-lite"
     assert result.cleaned_text == mock_success.text
 
 
