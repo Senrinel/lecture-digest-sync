@@ -1,0 +1,26 @@
+# Engineering Mathematics Course Glossary
+Engineering Mathematics
+Differential Equation
+ODE
+PDE
+Linear Algebra
+Matrix
+Eigenvalue
+Eigenvector
+Determinant
+Fourier Series
+Fourier Transform
+Laplace Transform
+Convolution
+Boundary Value Problem
+Initial Value Problem
+Characteristic Equation
+Wronskian
+Partial Derivative
+Gradient
+Divergence
+Curl
+Jacobian
+Orthogonal
+Vector Space
+Basis

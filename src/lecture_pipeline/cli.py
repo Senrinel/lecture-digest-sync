@@ -733,6 +733,61 @@ def bench_command(
     )
 
 
+@app.command("matrix")
+def matrix_command(
+    audio_file: Path = typer.Argument(
+        ...,
+        help="欲進行多維矩陣實驗的課堂錄音檔案路徑 (例如 inbox/Discrete Mathematics 06.wav)",
+    ),
+    clip_sec: float = typer.Option(
+        300.0,
+        "--clip-sec",
+        "-s",
+        help="標準化評測片段長度 (秒，預設 300 秒 / 5 分鐘)",
+    ),
+    start_sec: float = typer.Option(
+        60.0,
+        "--start-sec",
+        help="評測片段起始時間位移 (秒，預設 60 秒以跳過課堂開場安靜期)",
+    ),
+    skip_cloud: bool = typer.Option(
+        False,
+        "--skip-cloud",
+        help="是否跳過雲端 API 實驗（僅評測本地前處理與本地 ASR 通道）",
+    ),
+    ref: str = typer.Option(
+        "C1",
+        "--ref",
+        "-r",
+        help="作為 CER 比較基準 (Ground Truth) 的通道 (預設 C1 Gemini 3.8 Flash)",
+    ),
+    output_dir: Path = typer.Option(
+        Path("benchmark"),
+        "--output-dir",
+        "-o",
+        help="評測報告與數據輸出目錄 (預設 benchmark/)",
+    ),
+) -> None:
+    """【多維測試矩陣】將前處理、STT 通道、提示詞模板各變數作為獨立操縱變因，產出比對數據與最佳流程分析。"""
+    from lecture_pipeline.bench import MatrixBenchmarkRunner
+
+    target_audio = Path(audio_file).resolve()
+    if not target_audio.is_file():
+        console.print(f"[bold red]❌ 找不到音檔：{target_audio}[/bold red]")
+        raise typer.Exit(code=1)
+
+    runner = MatrixBenchmarkRunner(
+        audio_file=target_audio,
+        clip_sec=clip_sec,
+        start_sec=start_sec,
+        base_dir=output_dir / "matrix",
+    )
+    runner.run_all(skip_cloud=skip_cloud, reference_channel=ref)
+    runner.export_csv(output_dir / "matrix_results.csv")
+    runner.export_html(output_dir / "matrix_report.html")
+
+
+
 @app.command("watch")
 def watch_command(
     inbox: Path = typer.Argument(

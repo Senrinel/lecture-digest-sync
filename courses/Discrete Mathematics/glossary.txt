@@ -1,0 +1,31 @@
+# Discrete Mathematics Course Glossary
+Discrete Mathematics
+Logic
+Proposition
+Predicate
+Quantifier
+Truth Table
+Set Theory
+Bijection
+Injection
+Surjection
+Mathematical Induction
+Recurrence Relation
+Graph Theory
+Vertex
+Edge
+Degree
+Tree
+Binary Tree
+Eulerian Circuit
+Hamiltonian Path
+Isomorphism
+Adjacency Matrix
+Pigeonhole Principle
+Permutation
+Combination
+Inclusion-Exclusion Principle
+Boolean Algebra
+Modulo
+Equivalence Relation
+Partial Order

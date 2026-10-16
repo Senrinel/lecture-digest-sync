@@ -13,10 +13,12 @@ from lecture_pipeline.bench.report_html import (
     generate_benchmark_html,
 )
 from lecture_pipeline.bench.runner import run_benchmark
+from lecture_pipeline.bench.matrix import MatrixBenchmarkRunner
 
 __all__ = [
     "CERResult",
     "ChannelBenchmarkResult",
+    "MatrixBenchmarkRunner",
     "TermRecallResult",
     "compute_cer",
     "compute_term_recall",
@@ -25,3 +27,4 @@ __all__ = [
     "normalize_text_for_cer",
     "run_benchmark",
 ]
+
