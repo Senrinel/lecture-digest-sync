@@ -1209,7 +1209,40 @@ def doctor_command() -> None:
     console.print("\n[bold green]💡 系統診斷完成！所有核心模組運作正常，隨時可投入日常課堂與會議處理。[/bold green]\n")
 
 
+@app.command("gui")
+def gui_command(
+    mode: Optional[str] = typer.Option(
+        None,
+        "--mode",
+        "-m",
+        help="執行模式: window (Windows 獨立視窗) | web (瀏覽器網頁) | both (雙軌同時使用)。若未指定則自動載入上次記憶之模式。",
+    ),
+    host: Optional[str] = typer.Option(
+        None,
+        "--host",
+        "-h",
+        help="綁定主機位址 (預設 127.0.0.1)",
+    ),
+    port: Optional[int] = typer.Option(
+        None,
+        "--port",
+        "-p",
+        help="服務連接埠 (預設 8000)",
+    ),
+    debug: bool = typer.Option(
+        False,
+        "--debug",
+        "-d",
+        help="開啟 WebView 偵錯工具",
+    ),
+) -> None:
+    """【GUI 互動工作台】啟動視覺化介面 (支援 Windows 獨立視窗、網頁瀏覽器或雙軌同時模式，自動記憶上次模式)。"""
+    from lecture_pipeline.gui import launch_gui
+    launch_gui(mode=mode, host=host, port=port, debug=debug)
+
+
 if __name__ == "__main__":
     app()
+
 
 
