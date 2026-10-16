@@ -82,3 +82,35 @@ def test_preprocess_audio_multi_part_concat(tmp_path: Path):
         duration = w.getnframes() / w.getframerate()
         assert 2.3 <= duration <= 2.7
 
+
+def test_preprocess_flac_companion_export(tmp_path: Path):
+    """Verify generation of companion FLAC file for cloud API upload."""
+    raw_wav = tmp_path / "raw.wav"
+    out_wav = tmp_path / "norm.wav"
+    create_synthetic_wav(raw_wav, duration_sec=1.0)
+
+    processed = preprocess_audio(raw_wav, out_wav, export_flac=True)
+    assert processed.is_file()
+
+    flac_file = out_wav.with_suffix(".flac")
+    assert flac_file.is_file()
+    assert flac_file.stat().st_size > 0
+
+
+def test_preprocess_neural_enhancement_switches(tmp_path: Path):
+    """Verify execution of neural enhancement pipeline with wpe, dfn, se, vadtrim."""
+    raw_wav = tmp_path / "speech_test.wav"
+    out_wav = tmp_path / "enhanced.wav"
+    create_synthetic_wav(raw_wav, duration_sec=2.0)
+
+    opts = PreprocessOptions(hp="100Hz", loud="-19LUFS", wpe="on", dfn="on", se="on", vadtrim="on")
+    processed = preprocess_audio(raw_wav, out_wav, opts=opts)
+
+    assert processed.is_file()
+    assert processed.stat().st_size > 0
+
+    with wave.open(str(processed), "rb") as w:
+        assert w.getnchannels() == 1
+        assert w.getframerate() == 16000
+
+
