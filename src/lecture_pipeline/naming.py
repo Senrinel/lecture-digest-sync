@@ -54,10 +54,10 @@ STANDARD_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# University course pattern: Course Name  02, 通識 音樂 04 (2), Discrete Mathematics 13
-# Allows multi-word English or Chinese course names, optional multiple spaces, lecture index, and optional (part)
+# University course pattern: Course Name  02, 通識 音樂 04 (2), Discrete Mathematics 13, Engineering Mathematics 12 C
+# Allows multi-word English or Chinese course names, optional multiple spaces, lecture index, optional section letter, and optional (part)
 COURSE_LECTURE_PATTERN = re.compile(
-    r"^(?P<course>.+?)\s+(?P<lec_num>\d+)(?:\s*\((?P<part>\d+)\))?$",
+    r"^(?P<course>.+?)\s+(?P<lec_num>\d+)(?:\s+(?P<section>[A-Za-z]))?(?:\s*\((?P<part>\d+)\))?$",
     re.UNICODE,
 )
 
@@ -95,10 +95,12 @@ def parse_filename(
     """
     path = Path(filepath)
     raw_stem = path.stem.strip()
+    # Strip any internal duplicate audio extension (e.g. "Engineering Mathematics 12.mp3 C" -> "Engineering Mathematics 12 C")
+    cleaned_stem = re.sub(r"\.(mp3|wav|m4a|aac|flac|ogg)\b", "", raw_stem, flags=re.IGNORECASE).strip()
     base_work = Path(base_work_dir)
 
     # 1. Try standard pattern: CourseName_YYYYMMDD[_HHMM]
-    match = STANDARD_PATTERN.match(raw_stem)
+    match = STANDARD_PATTERN.match(cleaned_stem)
     if match:
         course = match.group("course").strip()
         date_str = match.group("date")
@@ -116,30 +118,32 @@ def parse_filename(
         )
 
     # 2. Try university course + lecture number pattern: Course Name 02, 通識 音樂 04 (2)
-    match_course = COURSE_LECTURE_PATTERN.match(raw_stem)
+    match_course = COURSE_LECTURE_PATTERN.match(cleaned_stem)
     if match_course:
         raw_course = match_course.group("course").strip()
         # Collapse multiple internal spaces
         course = re.sub(r"\s+", " ", raw_course)
         lec_num = match_course.group("lec_num")
+        section = match_course.group("section")
         part = match_course.group("part")
+        lec_num_full = f"{lec_num}{section.upper()}" if section else lec_num
 
         # Try to find embedded date, or fallback to file modification timestamp
-        match_date = DATE_DETECTOR_PATTERN.search(raw_stem)
+        match_date = DATE_DETECTOR_PATTERN.search(cleaned_stem)
         if match_date:
             date_str = match_date.group("date")
             time_str = None
         else:
             date_str, time_str = get_file_mtime_date(path)
 
-        dir_name = f"{date_str}_L{lec_num}"
+        dir_name = f"{date_str}_L{lec_num_full}"
         work_dir = base_work / course / dir_name
 
         return ParsedLectureInfo(
             course=course,
             date=date_str,
             time_str=time_str,
-            lecture_num=lec_num,
+            lecture_num=lec_num_full,
             part=part,
             is_standard=True,
             original_filename=path.name,

@@ -108,3 +108,17 @@ def test_parse_completely_irregular_filename(tmp_path: Path):
     assert info.course == "Unsorted"
     assert len(info.date) == 8  # YYYYMMDD from file timestamp
     assert info.warning is not None
+
+
+def test_parse_course_with_section_and_duplicate_ext(tmp_path: Path):
+    """Verify parsing of files like 'Engineering Mathematics 12.mp3 C.mp3'."""
+    test_file = tmp_path / "Engineering Mathematics 12.mp3 C.mp3"
+    test_file.touch()
+
+    info = parse_filename(test_file, base_work_dir="work")
+    assert info.is_standard is True
+    assert info.course == "Engineering Mathematics"
+    assert info.lecture_num == "12C"
+    assert "L12C" in info.work_dir.name
+    assert info.work_dir.parent.name == "Engineering Mathematics"
+
