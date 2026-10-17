@@ -29,3 +29,7 @@ Boolean Algebra
 Modulo
 Equivalence Relation
 Partial Order
+
+# --- Auto-extracted terms (2) ---
+s Algorithm
+戴克斯特拉

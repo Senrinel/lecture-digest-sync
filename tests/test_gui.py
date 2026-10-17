@@ -404,3 +404,119 @@ def test_task_control_and_system_desktop_endpoints(isolated_gui_env: Path, monke
     assert res.status_code == 200
     assert res.json()["status"] == "ok"
     assert len(res.json()["terms"]) >= 1
+
+
+# ===========================================================================
+# 9. Lecture & Glossary Management CRUD & Mode Switching Tests
+# ===========================================================================
+
+def test_lecture_management_crud(isolated_gui_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify lecture renaming, folder opening, alias endpoint, and safe deletion."""
+    client = TestClient(app)
+
+    # Setup dummy lecture bundle
+    lecture_dir = isolated_gui_env / "archive" / "OperatingSystems" / "20261017"
+    lecture_dir.mkdir(parents=True, exist_ok=True)
+    (lecture_dir / "03_summary.md").write_text("# 【課堂考前重點總結筆記】作業系統 (2026-10-17)", encoding="utf-8")
+    (lecture_dir / "02_cleaned.txt").write_text("課堂文字內容", encoding="utf-8")
+    (lecture_dir / "run.json").write_text('{"course": "OperatingSystems", "title": "20261017_OS"}', encoding="utf-8")
+
+    # 1. Alias endpoint GET /api/lecture/{lecture_id}
+    res = client.get("/api/lecture/OperatingSystems_20261017")
+    assert res.status_code == 200
+    assert res.json()["course"] == "OperatingSystems"
+
+    # 2. Rename lecture
+    res = client.post(
+        "/api/lecture/OperatingSystems_20261017/rename",
+        json={"course": "AdvancedOS", "title": "期中複習"},
+    )
+    assert res.status_code == 200
+    assert res.json()["status"] == "ok"
+
+    # 3. Open folder in desktop (mocked)
+    monkeypatch.setattr("lecture_pipeline.gui.server.open_folder_in_desktop", lambda p: True)
+    res = client.post("/api/lecture/OperatingSystems_20261017/open-folder")
+    assert res.status_code == 200
+    assert res.json()["status"] == "ok"
+
+    # 4. Delete lecture
+    res = client.delete("/api/lecture/OperatingSystems_20261017")
+    assert res.status_code == 200
+    assert res.json()["status"] == "ok"
+    assert not lecture_dir.exists()
+
+
+def test_glossary_management_crud(isolated_gui_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify complete CRUD lifecycle of courses and domain terms."""
+    client = TestClient(app)
+
+    # Mock browse-file
+    monkeypatch.setattr("lecture_pipeline.gui.server.browse_file_dialog", lambda p: "C:/Mock/File.pdf")
+    res = client.post("/api/system/browse-file", json={})
+    assert res.status_code == 200
+    assert res.json()["path"] == "C:/Mock/File.pdf"
+
+    # 1. Add course
+    res = client.post("/api/glossary/course", json={"course": "NetworkSecurity"})
+    assert res.status_code == 200
+    assert res.json()["status"] == "ok"
+    assert "NetworkSecurity" in res.json()["courses"]
+
+    # 2. Add term
+    res = client.post(
+        "/api/glossary/term",
+        json={"course": "NetworkSecurity", "term": "RSA", "translation": "非對稱加密"},
+    )
+    assert res.status_code == 200
+    terms = [t["term"] for t in res.json()["terms"]]
+    assert "RSA" in terms
+
+    # 3. Edit term
+    res = client.put(
+        "/api/glossary/term",
+        json={"course": "NetworkSecurity", "old_term": "RSA", "new_term": "RSA Algorithm", "new_translation": "RSA 密碼演算法"},
+    )
+    assert res.status_code == 200
+    terms = [t["term"] for t in res.json()["terms"]]
+    assert "RSA Algorithm" in terms
+
+    # 4. Delete term
+    res = client.request(
+        "DELETE",
+        "/api/glossary/term",
+        json={"course": "NetworkSecurity", "term": "RSA Algorithm"},
+    )
+    assert res.status_code == 200
+    terms = [t["term"] for t in res.json()["terms"]]
+    assert "RSA Algorithm" not in terms
+
+    # 5. Delete course
+    res = client.delete("/api/glossary/course/NetworkSecurity")
+    assert res.status_code == 200
+    assert res.json()["status"] == "ok"
+
+
+def test_mode_switching_actions(isolated_gui_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify /api/mode/switch triggering window show/hide and browser opening."""
+    client = TestClient(app)
+
+    # Mock webbrowser.open and window show/hide
+    monkeypatch.setattr("webbrowser.open", lambda u: True)
+    monkeypatch.setattr("lecture_pipeline.gui.window.show_desktop_window", lambda: True)
+    monkeypatch.setattr("lecture_pipeline.gui.window.hide_desktop_window", lambda: True)
+
+    # 1. Switch to web
+    res = client.post("/api/mode/switch", json={"mode": "web"})
+    assert res.status_code == 200
+    assert res.json()["mode"] == "web"
+
+    # 2. Switch to window
+    res = client.post("/api/mode/switch", json={"mode": "window"})
+    assert res.status_code == 200
+    assert res.json()["mode"] == "window"
+
+    # 3. Switch to both
+    res = client.post("/api/mode/switch", json={"mode": "both"})
+    assert res.status_code == 200
+    assert res.json()["mode"] == "both"

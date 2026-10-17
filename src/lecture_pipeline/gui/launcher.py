@@ -20,10 +20,12 @@ from typing import Optional
 
 import uvicorn
 
+from lecture_pipeline.automation.tray import WatcherTray
 from lecture_pipeline.gui.bridge import (
     get_current_config,
     get_remembered_gui_mode,
     save_remembered_gui_mode,
+    set_global_tray,
 )
 from lecture_pipeline.gui.server import app
 from lecture_pipeline.gui.window import DesktopWindow
@@ -93,37 +95,59 @@ def launch_gui(
         print(f"📱 區網跨裝置網址：http://{lan_ip}:{server_port}")
     print(f"========================================================\n")
 
-    # Start FastAPI server in background thread if window or both mode
-    if active_mode in {"window", "both"}:
-        server_thread = threading.Thread(
-            target=run_uvicorn_server,
-            args=(server_host, server_port),
-            daemon=True,
+    # 1. Initialize and start Windows System Tray Icon
+    tray = None
+    try:
+        paths = cfg.get("paths", {})
+        tray = WatcherTray(
+            inbox_dir=paths.get("inbox_dir", "inbox"),
+            log_file=Path(paths.get("logs_dir", "logs")) / "watcher.log",
+            server_url=url,
         )
-        server_thread.start()
-        time.sleep(0.5)  # Wait briefly for server startup
+        tray.start()
+        set_global_tray(tray)
+        print("🔔 工作列系統匣小圖示 (System Tray) 已成功啟動！")
+    except Exception as te:
+        logger.warning(f"無法啟動系統匣小圖示: {te}")
 
-        if active_mode == "both":
+    # 2. Start Uvicorn ASGI server in background thread
+    server_thread = threading.Thread(
+        target=run_uvicorn_server,
+        args=(server_host, server_port),
+        daemon=True,
+    )
+    server_thread.start()
+    time.sleep(0.5)
+
+    # 3. Handle execution modes
+    desktop = DesktopWindow(
+        url=url,
+        title="Lecture Digest Sync - 課堂錄音辨識與筆記同步系統",
+        width=gui_cfg.get("window_width", 1280),
+        height=gui_cfg.get("window_height", 800),
+    )
+
+    try:
+        if active_mode == "web":
+            print(f"🌐 網頁模式啟用：正在以預設瀏覽器開啟 {url}...")
+            webbrowser.open(url)
+            desktop.create(hidden=True)
+            desktop.start(debug=debug)
+        elif active_mode == "both":
             print(f"✨ 同時模式啟用：正在以預設瀏覽器開啟 {url} 並啟動原生視窗...")
             webbrowser.open(url)
+            desktop.create(hidden=False)
+            print("🖥️ 啟動 Windows 10/11 原生獨立視窗 (Microsoft Edge WebView2)...")
+            desktop.start(debug=debug)
+        else:
+            # window mode
+            desktop.create(hidden=False)
+            print("🖥️ 啟動 Windows 10/11 原生獨立視窗 (Microsoft Edge WebView2)...")
+            desktop.start(debug=debug)
 
-        # Launch PyWebView native desktop window (blocking)
-        desktop = DesktopWindow(
-            url=url,
-            title="Lecture Digest Sync - 課堂錄音辨識與筆記同步系統",
-            width=gui_cfg.get("window_width", 1280),
-            height=gui_cfg.get("window_height", 800),
-        )
-        desktop.create()
-        print("🖥️ 啟動 Windows 10/11 原生獨立視窗 (Microsoft Edge WebView2)...")
-        desktop.start(debug=debug)
-        print("🛑 視窗已關閉，正在結束本機後端服務...")
-
-    else:
-        # Web mode: open browser and run Uvicorn on main thread
-        print(f"🌐 網頁模式啟用：正在以預設瀏覽器開啟 {url}...")
-        webbrowser.open(url)
-        try:
-            run_uvicorn_server(server_host, server_port)
-        except KeyboardInterrupt:
-            print("\n🛑 收到終止訊號，Web 服務器已停止。")
+    except KeyboardInterrupt:
+        print("\n🛑 收到終止訊號，系統正在結束...")
+    finally:
+        if tray:
+            tray.stop()
+        print("🛑 系統服務已順利退出。")

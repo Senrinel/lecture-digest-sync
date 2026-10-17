@@ -1,0 +1,1 @@
+Dijkstra's Algorithm (戴克斯特拉) is a shortest path algorithm.

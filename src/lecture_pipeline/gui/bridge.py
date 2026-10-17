@@ -133,6 +133,46 @@ def save_remembered_gui_mode(mode: str) -> str:
     return valid_mode
 
 
+def switch_gui_mode_action(mode: str) -> Dict[str, Any]:
+    """Switch execution mode, persist to config.yaml, and trigger window/browser actions."""
+    saved_mode = save_remembered_gui_mode(mode)
+    cfg = get_current_config()
+    gui_cfg = cfg.get("gui", {})
+    server_host = gui_cfg.get("host", "127.0.0.1")
+    server_port = int(gui_cfg.get("port", 8000))
+    url = f"http://{server_host}:{server_port}"
+
+    from lecture_pipeline.gui.window import hide_desktop_window, show_desktop_window
+    import webbrowser
+
+    if saved_mode == "web":
+        webbrowser.open(url)
+        hide_desktop_window()
+        return {
+            "status": "ok",
+            "mode": "web",
+            "message": "已開啟預設瀏覽器，桌面原生視窗已關閉。",
+            "url": url,
+        }
+    elif saved_mode == "window":
+        show_desktop_window()
+        return {
+            "status": "ok",
+            "mode": "window",
+            "message": "已開啟桌面原生視窗，瀏覽器分頁可關閉。",
+            "url": url,
+        }
+    else:  # both
+        show_desktop_window()
+        webbrowser.open(url)
+        return {
+            "status": "ok",
+            "mode": "both",
+            "message": "已同時開啟瀏覽器與桌面原生視窗。",
+            "url": url,
+        }
+
+
 def update_pipeline_config(updates: Dict[str, Any]) -> Dict[str, Any]:
     """Update configurable parameters in config.yaml."""
     cfg = load_config(CONFIG_FILE_PATH)
@@ -635,6 +675,45 @@ def browse_folder_dialog(initial_dir: Optional[str] = None) -> Optional[str]:
     return None
 
 
+def browse_file_dialog(initial_dir: Optional[str] = None, file_types: Optional[List[tuple[str, str]]] = None) -> Optional[str]:
+    """Launch native Windows file selection dialog."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        types = file_types or [
+            ("課程講義與文字 (*.pdf, *.txt, *.md)", "*.pdf;*.txt;*.md"),
+            ("音訊檔案 (*.wav, *.mp3, *.m4a, *.flac, *.opus)", "*.wav;*.mp3;*.m4a;*.flac;*.opus;*.ogg"),
+            ("所有檔案 (*.*)", "*.*"),
+        ]
+        selected = filedialog.askopenfilename(
+            initialdir=initial_dir or os.getcwd(),
+            title="請選擇檔案",
+            filetypes=types,
+        )
+        root.destroy()
+        return selected if selected else None
+    except Exception:
+        pass
+
+    try:
+        ps_cmd = (
+            "[System.Reflection.Assembly]::LoadWithPartialName('System.windows.forms') | Out-Null;"
+            "$dlg = New-Object System.Windows.Forms.OpenFileDialog;"
+            "$dlg.Filter = '所有支援檔案 (*.pdf;*.txt;*.md;*.wav;*.mp3;*.m4a)|*.pdf;*.txt;*.md;*.wav;*.mp3;*.m4a|所有檔案 (*.*)|*.*';"
+            "$dlg.Title = '請選擇檔案';"
+            "if($dlg.ShowDialog() -eq 'OK'){$dlg.FileName}"
+        )
+        res = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=20)
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Background Task Execution with Real Pause & Abort Controls
 # ---------------------------------------------------------------------------
@@ -652,6 +731,17 @@ _current_task_info: Dict[str, Any] = {
 }
 _task_abort_event = threading.Event()
 _task_pause_event = threading.Event()
+_tray_instance: Optional[Any] = None
+
+
+def set_global_tray(tray: Any) -> None:
+    global _tray_instance
+    _tray_instance = tray
+
+
+def get_global_tray() -> Optional[Any]:
+    global _tray_instance
+    return _tray_instance
 
 
 def get_current_task_status() -> Dict[str, Any]:
@@ -679,6 +769,13 @@ def pause_processing_task() -> Dict[str, Any]:
         else:
             _task_pause_event.clear()
 
+    if _tray_instance:
+        _tray_instance.update_status(
+            state="paused" if new_paused else "processing",
+            detail="任務已暫停" if new_paused else _current_task_info.get("task_name", "處理中"),
+            progress="暫停中" if new_paused else f"{_current_task_info.get('progress', 50)}%",
+        )
+
     broadcaster.broadcast_sync({
         "type": "task_pause_toggle",
         "paused": new_paused,
@@ -695,6 +792,9 @@ def abort_processing_task() -> Dict[str, Any]:
         _current_task_info["running"] = False
         _current_task_info["aborted"] = True
         _task_abort_event.set()
+
+    if _tray_instance:
+        _tray_instance.update_status(state="idle", detail="任務已中止", progress="等待音檔")
 
     broadcaster.broadcast_sync({
         "type": "task_aborted",
@@ -743,6 +843,10 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
             paths = cfg.get("paths", {})
             archive_dir = paths.get("archive_dir", "archive")
             rec_archive = paths.get("record_archive_dir")
+            export_dir = cfg.get("export", {}).get("export_dir", "exports")
+
+            if _tray_instance:
+                _tray_instance.update_status(state="processing", detail=primary_name, progress="開始處理")
 
             out_dir = run_pipeline_for_group(
                 audio_files=audio_files,
@@ -752,8 +856,15 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
                 summary_model=cfg.get("summarize", {}).get("model", "gemini-3.5-flash-lite"),
                 archive_dir=archive_dir,
                 upload_drive=True,
+                tray=_tray_instance,
                 record_archive_base_dir=rec_archive,
+                abort_event=_task_abort_event,
+                export_dir=export_dir,
             )
+
+            if _tray_instance:
+                _tray_instance.increment_processed()
+                _tray_instance.update_status(state="idle", detail="準備就緒", progress="等待音檔")
 
             broadcaster.broadcast_sync({
                 "type": "progress",
@@ -767,7 +878,23 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
                 "lecture_id": out_dir.name,
             })
 
+        except InterruptedError as ie:
+            if _tray_instance:
+                _tray_instance.update_status(state="idle", detail="任務已中止", progress="等待音檔")
+            broadcaster.broadcast_sync({
+                "type": "progress",
+                "running": False,
+                "progress": 0,
+                "stage": "已中止",
+                "detail": "任務已由使用者強制熔斷中止。已處理之中間進度保留於暫存目錄。",
+            })
+            broadcaster.broadcast_sync({
+                "type": "task_aborted",
+                "detail": str(ie),
+            })
         except Exception as e:
+            if _tray_instance:
+                _tray_instance.update_status(state="idle", detail="處理失敗", progress="等待音檔")
             broadcaster.broadcast_sync({
                 "type": "progress",
                 "running": False,
@@ -804,11 +931,11 @@ def get_course_glossary_terms(course: str = "Discrete Mathematics") -> List[Dict
 
     result: List[Dict[str, Any]] = []
     for t in terms:
-        m = re.match(r"([A-Za-z0-9\s\-\_]+)\s*[\(（]([\u4e00-\u9fa5\s]+)[\)）]", t)
+        m = re.match(r"^([^\(（\r\n]+?)\s*[\(（](.+?)[\)）]$", t.strip())
         if m:
             result.append({"term": m.group(1).strip(), "translation": m.group(2).strip()})
         else:
-            result.append({"term": t, "translation": ""})
+            result.append({"term": t.strip(), "translation": ""})
     return result
 
 
@@ -839,3 +966,191 @@ def extract_terms_from_uploaded_file(file_content: bytes, filename: str, course:
     except Exception as e:
         logging.getLogger("lecture_pipeline.gui").error(f"Failed to extract glossary from {filename}: {e}")
         return get_course_glossary_terms(course)
+
+
+# ---------------------------------------------------------------------------
+# Lecture & Glossary Management CRUD (Real Data Control)
+# ---------------------------------------------------------------------------
+
+def rename_lecture(lecture_id: str, new_course: str = "", new_title: str = "") -> Dict[str, Any]:
+    """Rename lecture metadata and title in run.json and summary note."""
+    global _lecture_cache
+    if not _lecture_cache:
+        get_archived_lectures()
+
+    target_dir = _lecture_cache.get(lecture_id)
+    if not target_dir or not target_dir.is_dir():
+        return {"status": "error", "message": f"找不到指定課堂目錄：{lecture_id}"}
+
+    run_json = target_dir / "run.json"
+    rdata: Dict[str, Any] = {}
+    if run_json.is_file():
+        try:
+            with open(run_json, "r", encoding="utf-8") as rf:
+                rdata = json.load(rf)
+        except Exception:
+            pass
+
+    if new_course:
+        rdata["course"] = new_course.strip()
+    if new_title:
+        rdata["title"] = new_title.strip()
+
+    try:
+        with open(run_json, "w", encoding="utf-8") as wf:
+            json.dump(rdata, wf, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return {"status": "error", "message": f"寫入 run.json 失敗：{e}"}
+
+    # Invalidate cache so changes reflect immediately
+    _lecture_cache.clear()
+    get_archived_lectures()
+
+    return {
+        "status": "ok",
+        "message": f"課堂資訊已成功更新",
+        "lecture": get_lecture_content(lecture_id),
+    }
+
+
+def delete_lecture(lecture_id: str) -> Dict[str, Any]:
+    """Safely delete archived lecture directory and cache."""
+    global _lecture_cache
+    if not _lecture_cache:
+        get_archived_lectures()
+
+    target_dir = _lecture_cache.get(lecture_id)
+    if not target_dir or not target_dir.is_dir():
+        return {"status": "error", "message": f"找不到指定課堂目錄：{lecture_id}"}
+
+    try:
+        shutil.rmtree(str(target_dir))
+        _lecture_cache.pop(lecture_id, None)
+        _lecture_cache.clear()
+        return {"status": "ok", "message": "課堂紀錄與相關產物已安全刪除"}
+    except Exception as e:
+        return {"status": "error", "message": f"刪除課堂目錄失敗：{e}"}
+
+
+def add_course(course: str) -> Dict[str, Any]:
+    """Create a new course directory and glossary file."""
+    clean_course = re.sub(r'[\/\\:\*\?"<>\|]', '_', course).strip()
+    if not clean_course:
+        return {"status": "error", "message": "科目名稱不可為空"}
+
+    course_dir = Path("courses") / clean_course
+    course_dir.mkdir(parents=True, exist_ok=True)
+    glossary_file = course_dir / "glossary.txt"
+    if not glossary_file.is_file():
+        glossary_file.write_text(f"# Course glossary for {clean_course}\n", encoding="utf-8")
+
+    return {
+        "status": "ok",
+        "course": clean_course,
+        "courses": get_available_courses(),
+        "message": f"已成功新增科目：{clean_course}",
+    }
+
+
+def delete_course(course: str) -> Dict[str, Any]:
+    """Delete a course directory and its glossary."""
+    course_dir = Path("courses") / course
+    if not course_dir.is_dir():
+        return {"status": "error", "message": f"找不到科目：{course}"}
+
+    try:
+        shutil.rmtree(str(course_dir))
+        return {
+            "status": "ok",
+            "courses": get_available_courses(),
+            "message": f"科目 {course} 已移除",
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"刪除科目失敗：{e}"}
+
+
+def add_glossary_term(course: str, term: str, translation: str = "") -> Dict[str, Any]:
+    """Add a domain term to course glossary."""
+    clean_term = term.strip()
+    if not clean_term:
+        return {"status": "error", "message": "名詞不可為空"}
+
+    course_dir = Path("courses") / course
+    course_dir.mkdir(parents=True, exist_ok=True)
+    glossary_file = course_dir / "glossary.txt"
+
+    entry = f"{clean_term} ({translation.strip()})" if translation.strip() else clean_term
+
+    with open(glossary_file, "a", encoding="utf-8") as f:
+        f.write(f"\n{entry}\n")
+
+    return {
+        "status": "ok",
+        "course": course,
+        "terms": get_course_glossary_terms(course),
+        "message": f"已新增專有名詞：{entry}",
+    }
+
+
+def edit_glossary_term(course: str, old_term: str, new_term: str, new_translation: str = "") -> Dict[str, Any]:
+    """Edit an existing term in course glossary."""
+    course_dir = Path("courses") / course
+    glossary_file = course_dir / "glossary.txt"
+    if not glossary_file.is_file():
+        return {"status": "error", "message": "詞庫檔不存在"}
+
+    lines = glossary_file.read_text(encoding="utf-8").splitlines()
+    updated_lines = []
+    replaced = False
+
+    new_entry = f"{new_term.strip()} ({new_translation.strip()})" if new_translation.strip() else new_term.strip()
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped.startswith("#") and old_term.strip().lower() in stripped.lower() and not replaced:
+            updated_lines.append(new_entry)
+            replaced = True
+        else:
+            updated_lines.append(line)
+
+    if not replaced:
+        updated_lines.append(new_entry)
+
+    glossary_file.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+
+    return {
+        "status": "ok",
+        "course": course,
+        "terms": get_course_glossary_terms(course),
+        "message": f"名詞已更新為：{new_entry}",
+    }
+
+
+def delete_glossary_term(course: str, term: str) -> Dict[str, Any]:
+    """Delete a domain term from course glossary."""
+    course_dir = Path("courses") / course
+    glossary_file = course_dir / "glossary.txt"
+    if not glossary_file.is_file():
+        return {"status": "error", "message": "詞庫檔不存在"}
+
+    lines = glossary_file.read_text(encoding="utf-8").splitlines()
+    updated_lines = []
+    target = term.strip().lower()
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            updated_lines.append(line)
+        elif target in stripped.lower():
+            continue
+        else:
+            updated_lines.append(line)
+
+    glossary_file.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+
+    return {
+        "status": "ok",
+        "course": course,
+        "terms": get_course_glossary_terms(course),
+        "message": f"已刪除專有名詞：{term}",
+    }

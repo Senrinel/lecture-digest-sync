@@ -163,6 +163,9 @@ def test_auto_pruning_and_archival(tmp_path: Path):
     assert archived["audio"].is_file()
     assert (dest_dir / "02_cleaned.txt").is_file()
     assert (dest_dir / "03_summary.md").is_file()
+    # Specification compliance: archives must not contain HTML files
+    assert not (dest_dir / "04_player.html").exists()
+    assert not any(dest_dir.glob("*.html"))
     # User requested: log 改放至專案資料夾內 (不在 Record 中)
     assert not (dest_dir / "run.json").exists()
     assert "run_log" in archived

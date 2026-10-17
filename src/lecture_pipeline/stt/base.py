@@ -80,14 +80,24 @@ class BaseSTTChannel(ABC):
         course: str = "",
         date: str = "",
         glossary: Optional[List[str]] = None,
+        abort_event: Optional[Any] = None,
     ) -> FullTranscription:
         """Transcribe all chunks sequentially and aggregate full output."""
         transcriptions: List[ChunkTranscription] = []
         total_latency = 0.0
 
         for idx, chunk in enumerate(chunks):
+            if abort_event and abort_event.is_set():
+                raise InterruptedError("語音辨識已被使用者強制中止。")
+
             if idx > 0:
-                time.sleep(3.0)  # Conservative pause between API calls to prevent rate limits
+                # Conservative 4.0s pause between chunk API calls to prevent 429 rate limits
+                wait_steps = 40
+                for _ in range(wait_steps):
+                    if abort_event and abort_event.is_set():
+                        raise InterruptedError("語音辨識已被使用者強制中止。")
+                    time.sleep(0.1)
+
             chunk_path = Path(chunk.filepath)
             result = self.transcribe_chunk(
                 audio_chunk_path=chunk_path,

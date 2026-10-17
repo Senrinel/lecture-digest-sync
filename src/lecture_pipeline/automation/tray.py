@@ -60,10 +60,12 @@ class WatcherTray:
         inbox_dir: Path | str = "inbox",
         log_file: Path | str = "logs/watcher.log",
         icon_path: Path | str = DEFAULT_ICON_FILE,
+        server_url: str = "http://127.0.0.1:8000",
     ):
         self.inbox_dir = Path(inbox_dir).resolve()
         self.log_file = Path(log_file).resolve()
         self.icon_path = Path(icon_path).resolve()
+        self.server_url = server_url
 
         self.is_paused: bool = False
         self.stop_requested: bool = False
@@ -97,6 +99,32 @@ class WatcherTray:
             f"今日處理: {self.processed_count} 堂",
         ]
         return "\n".join(lines)
+
+    def _on_show_window(self, _icon, _item):
+        """Right-click menu: 顯示桌面視窗."""
+        try:
+            from lecture_pipeline.gui.window import show_desktop_window
+            show_desktop_window()
+        except Exception:
+            pass
+
+    def _on_open_web(self, _icon, _item):
+        """Right-click menu: 開啟網頁版."""
+        try:
+            import webbrowser
+            webbrowser.open(self.server_url)
+        except Exception:
+            pass
+
+    def _on_both_modes(self, _icon, _item):
+        """Right-click menu: 同時雙軌模式."""
+        try:
+            from lecture_pipeline.gui.window import show_desktop_window
+            import webbrowser
+            show_desktop_window()
+            webbrowser.open(self.server_url)
+        except Exception:
+            pass
 
     def _on_open_inbox(self, _icon, _item):
         """Right-click menu: 打開 Inbox 資料夾."""
@@ -136,11 +164,22 @@ class WatcherTray:
             pass
 
     def _on_exit(self, icon, _item):
-        """Right-click menu: 關閉監控."""
+        """Right-click menu: 關閉系統."""
         with self._lock:
             self.stop_requested = True
         if icon:
-            icon.stop()
+            try:
+                icon.stop()
+            except Exception:
+                pass
+        try:
+            from lecture_pipeline.gui.window import get_desktop_window
+            win = get_desktop_window()
+            if win and win.window:
+                win.window.destroy()
+        except Exception:
+            pass
+        os._exit(0)
 
     def _get_pause_label(self, _item) -> str:
         return "恢復監控 ▶️" if self.is_paused else "暫停監控 ⏸️"
@@ -178,11 +217,15 @@ class WatcherTray:
     def start(self) -> None:
         """Launch the system tray icon detached in background thread."""
         menu = pystray.Menu(
+            pystray.MenuItem("顯示桌面視窗 🖥️", self._on_show_window),
+            pystray.MenuItem("開啟瀏覽器網頁 🌐", self._on_open_web),
+            pystray.MenuItem("同時雙軌模式 🔄", self._on_both_modes),
+            pystray.Menu.SEPARATOR,
             pystray.MenuItem("打開 Inbox 資料夾 📂", self._on_open_inbox),
             pystray.MenuItem(self._get_pause_label, self._on_toggle_pause),
             pystray.MenuItem("查看今日紀錄 📋", self._on_view_log),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("關閉監控 🛑", self._on_exit),
+            pystray.MenuItem("關閉並退出系統 🛑", self._on_exit),
         )
 
         initial_img = self._images.get(self.current_state, self._images["idle"])

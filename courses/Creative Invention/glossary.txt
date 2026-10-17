@@ -29,3 +29,106 @@ MVP
 專利檢索
 先行技術
 專利範圍
+
+# --- Auto-extracted terms (97) ---
+電磁學
+electromagnetics
+電荷和負電荷都是電場的源
+source
+移動的電荷產生電流
+current
+而電流能建立出磁場
+magnetic field
+而產生電磁場
+electromagnetic field
+遠距作用
+action at a distance
+在這開路狀天線
+open-ended antenna
+open-ended 
+antenna
+理論用以處理集總參數系統
+lumped-parameter system
+多是有大小與方向性的向量
+vectors
+歸納法
+inductive approach
+從中推導出定律
+laws
+與定理
+theorems
+演繹法
+deductive approach
+這些假設的關係便是公理
+axioms
+源量
+source quantities
+場量
+field quantities
+電荷
+electric charge
+數值只能是電子電荷
+-e
+是電荷單位庫侖
+coulomb
+電荷守恆
+conservation of electric charge
+數學上以連續方程式
+equation of continuity
+體電流密度
+volume current density
+這四個場量都是點函數
+point functions
+介質的本構關係
+constitutive relations
+安培系統
+MKSA system
+磁模型有關的三個通用常數
+universal constants
+真空的介電係數
+permittivity
+真空中的導磁係數
+permeability
+1-3 SI
+國際單位系統
+nt of Electrical Engineering
+1-3 SI
+f Electrical Engineering
+ 25
+1-3 SI
+SI
+1C
+MKSA
+R1
+Electrical Engineering
+Wave Electromagnetics
+The Electromagnetic Model
+Yau Tang
+International System
+電磁模型
+物理量的空間
+可以是時間的函數
+機電轉換
+此系統的主要變數
+系統變數
+產生的是代數方程
+與空間
+產生常微分方程
+大多數的電磁變數
+是與時間與空間
+相關的函數
+向量微積分
+在於掌握電磁模型
+先假設理想模型
+模型
+學問題的理想模型
+從理想模型
+用適當的電磁模型
+及偏微分方程
+數學上以連續方程
+理的平均密度函數
+自由空間
+個場量都是點函數
+與電磁模型
+要建立理想模型
+在電磁模型

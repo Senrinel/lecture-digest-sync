@@ -74,3 +74,6 @@ def test_prepare_notebook_bundle_files_and_headers(tmp_path: Path):
     mirrored_dir = Path(result.export_dir)
     assert (mirrored_dir / summary_file.name).is_file()
     assert (mirrored_dir / cleaned_file.name).is_file()
+    # Specification check: Neither bundle_dir nor export_dir may contain HTML
+    assert not any(bundle_dir.glob("*.html"))
+    assert not any(mirrored_dir.glob("*.html"))

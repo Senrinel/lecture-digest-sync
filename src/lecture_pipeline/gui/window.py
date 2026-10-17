@@ -36,7 +36,7 @@ class DesktopWindow:
         self.min_height = min_height
         self.window: Optional[webview.Window] = None
 
-    def create(self) -> webview.Window:
+    def create(self, hidden: bool = False) -> webview.Window:
         """Create and configure the desktop window."""
         self.window = webview.create_window(
             title=self.title,
@@ -46,8 +46,27 @@ class DesktopWindow:
             min_size=(self.min_width, self.min_height),
             background_color="#030712",
             confirm_close=False,
+            hidden=hidden,
         )
+        set_desktop_window(self)
         return self.window
+
+    def show(self) -> None:
+        """Show and bring window to front."""
+        if self.window:
+            try:
+                self.window.show()
+                self.window.restore()
+            except Exception as e:
+                logger.warning(f"Error showing window: {e}")
+
+    def hide(self) -> None:
+        """Hide window without closing backend loop."""
+        if self.window:
+            try:
+                self.window.hide()
+            except Exception as e:
+                logger.warning(f"Error hiding window: {e}")
 
     def start(self, debug: bool = False) -> None:
         """Start the PyWebView GUI event loop on Windows 10/11."""
@@ -59,3 +78,33 @@ class DesktopWindow:
             logger.error(f"PyWebView window error: {e}", exc_info=True)
             # Fallback to standard start
             webview.start(debug=debug)
+
+
+_active_desktop_window: Optional[DesktopWindow] = None
+
+
+def set_desktop_window(win: DesktopWindow) -> None:
+    global _active_desktop_window
+    _active_desktop_window = win
+
+
+def get_desktop_window() -> Optional[DesktopWindow]:
+    global _active_desktop_window
+    return _active_desktop_window
+
+
+def show_desktop_window() -> bool:
+    win = get_desktop_window()
+    if win:
+        win.show()
+        return True
+    return False
+
+
+def hide_desktop_window() -> bool:
+    win = get_desktop_window()
+    if win:
+        win.hide()
+        return True
+    return False
+

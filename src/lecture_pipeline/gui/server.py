@@ -20,8 +20,15 @@ from pydantic import BaseModel
 
 from lecture_pipeline.gui.bridge import (
     abort_processing_task,
+    add_course,
+    add_glossary_term,
     broadcaster,
+    browse_file_dialog,
     browse_folder_dialog,
+    delete_course,
+    delete_glossary_term,
+    delete_lecture,
+    edit_glossary_term,
     extract_terms_from_uploaded_file,
     get_archived_lectures,
     get_available_courses,
@@ -36,10 +43,12 @@ from lecture_pipeline.gui.bridge import (
     open_file_in_desktop,
     open_folder_in_desktop,
     pause_processing_task,
+    rename_lecture,
     save_remembered_gui_mode,
     save_timetable_rules,
     set_watcher_paused,
     start_processing_task,
+    switch_gui_mode_action,
     update_pipeline_config,
 )
 
@@ -112,6 +121,37 @@ class BrowseFolderRequest(BaseModel):
     initial_dir: Optional[str] = None
 
 
+class BrowseFileRequest(BaseModel):
+    initial_dir: Optional[str] = None
+
+
+class LectureRenameRequest(BaseModel):
+    course: Optional[str] = ""
+    title: Optional[str] = ""
+
+
+class CourseCreateRequest(BaseModel):
+    course: str
+
+
+class TermAddRequest(BaseModel):
+    course: str
+    term: str
+    translation: Optional[str] = ""
+
+
+class TermEditRequest(BaseModel):
+    course: str
+    old_term: str
+    new_term: str
+    new_translation: Optional[str] = ""
+
+
+class TermDeleteRequest(BaseModel):
+    course: str
+    term: str
+
+
 # ---------------------------------------------------------------------------
 # Core Endpoints
 # ---------------------------------------------------------------------------
@@ -145,14 +185,10 @@ async def api_status():
 
 
 @app.post("/api/mode")
+@app.post("/api/mode/switch")
 async def api_set_mode(req: ModeRequest):
-    """Update and persist GUI execution mode ('window', 'web', 'both') in config.yaml."""
-    saved_mode = save_remembered_gui_mode(req.mode)
-    return {
-        "status": "ok",
-        "mode": saved_mode,
-        "message": f"介面模式已更新並寫入設定檔：{saved_mode}",
-    }
+    """Update and persist GUI execution mode ('window', 'web', 'both') and trigger desktop/browser actions."""
+    return switch_gui_mode_action(req.mode)
 
 
 @app.get("/api/config")
@@ -199,12 +235,43 @@ async def api_get_history():
 
 
 @app.get("/api/history/{lecture_id}")
+@app.get("/api/lecture/{lecture_id}")
 async def api_get_lecture_detail(lecture_id: str):
     """Retrieve full text files and audio metadata for a lecture."""
     content = get_lecture_content(lecture_id)
     if not content:
         raise HTTPException(status_code=404, detail="Lecture not found")
     return content
+
+
+@app.post("/api/lecture/{lecture_id}/rename")
+async def api_rename_lecture(lecture_id: str, req: LectureRenameRequest):
+    """Rename lecture metadata or course."""
+    res = rename_lecture(lecture_id, new_course=req.course or "", new_title=req.title or "")
+    if res.get("status") == "error":
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
+
+
+@app.delete("/api/lecture/{lecture_id}")
+async def api_delete_lecture(lecture_id: str):
+    """Delete lecture bundle."""
+    res = delete_lecture(lecture_id)
+    if res.get("status") == "error":
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
+
+
+@app.post("/api/lecture/{lecture_id}/open-folder")
+async def api_open_lecture_folder(lecture_id: str):
+    """Open lecture directory in Windows File Explorer."""
+    detail = get_lecture_content(lecture_id)
+    if not detail or not detail.get("path"):
+        raise HTTPException(status_code=404, detail="Lecture directory not found")
+    ok = open_folder_in_desktop(detail["path"])
+    if not ok:
+        raise HTTPException(status_code=500, detail="Cannot open lecture directory")
+    return {"status": "ok", "path": detail["path"]}
 
 
 @app.get("/api/audio/{lecture_id}")
@@ -310,6 +377,15 @@ async def api_browse_folder(req: BrowseFolderRequest):
     return {"status": "cancelled", "path": None}
 
 
+@app.post("/api/system/browse-file")
+async def api_browse_file(req: BrowseFileRequest):
+    """Launch native file picker dialog."""
+    selected = browse_file_dialog(req.initial_dir)
+    if selected:
+        return {"status": "ok", "path": selected}
+    return {"status": "cancelled", "path": None}
+
+
 @app.get("/api/glossary")
 async def api_get_glossary(course: Optional[str] = None):
     """Get domain terms for course along with list of all available courses."""
@@ -317,6 +393,51 @@ async def api_get_glossary(course: Optional[str] = None):
     selected_course = course or (courses[0] if courses else "Discrete Mathematics")
     terms = get_course_glossary_terms(selected_course)
     return {"status": "ok", "course": selected_course, "courses": courses, "terms": terms}
+
+
+@app.post("/api/glossary/course")
+async def api_add_course(req: CourseCreateRequest):
+    """Create a new course directory and glossary."""
+    res = add_course(req.course)
+    if res.get("status") == "error":
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
+
+
+@app.delete("/api/glossary/course/{course}")
+async def api_delete_course(course: str):
+    """Delete a course directory and its glossary."""
+    res = delete_course(course)
+    if res.get("status") == "error":
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
+
+
+@app.post("/api/glossary/term")
+async def api_add_term(req: TermAddRequest):
+    """Add a domain term to course glossary."""
+    res = add_glossary_term(req.course, req.term, req.translation or "")
+    if res.get("status") == "error":
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
+
+
+@app.put("/api/glossary/term")
+async def api_edit_term(req: TermEditRequest):
+    """Edit existing term in course glossary."""
+    res = edit_glossary_term(req.course, req.old_term, req.new_term, req.new_translation or "")
+    if res.get("status") == "error":
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
+
+
+@app.delete("/api/glossary/term")
+async def api_delete_term(req: TermDeleteRequest):
+    """Delete domain term from course glossary."""
+    res = delete_glossary_term(req.course, req.term)
+    if res.get("status") == "error":
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
 
 
 @app.post("/api/glossary/upload-pdf")

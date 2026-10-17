@@ -344,6 +344,7 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
         course: Optional[str] = None,
         date: Optional[str] = None,
         glossary: Optional[List[str]] = None,
+        abort_event: Optional[Any] = None,
     ) -> CleanupResult:
         """Execute complete text cleanup workflow across all chunks."""
         start_total = time.time()
@@ -370,8 +371,17 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
         full_cleaned_parts: List[str] = []
 
         for idx, chunk in enumerate(text_chunks, start=1):
+            if abort_event and abort_event.is_set():
+                raise InterruptedError("內文整理已被使用者強制中止。")
+
             if idx > 1:
-                time.sleep(2.5)  # Conservative pause between text cleanup calls to prevent rate limits
+                # Conservative 3.5s pause between text cleanup calls to prevent rate limits
+                wait_steps = 35
+                for _ in range(wait_steps):
+                    if abort_event and abort_event.is_set():
+                        raise InterruptedError("內文整理已被使用者強制中止。")
+                    time.sleep(0.1)
+
             sec_chunk = secondary_chunks[idx - 1] if idx - 1 < len(secondary_chunks) else None
             audio_p = audio_chunks[idx - 1] if audio_chunks and idx - 1 < len(audio_chunks) else None
 

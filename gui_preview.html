@@ -533,6 +533,15 @@
               <button onclick="openLocalSummary()" class="bio-btn px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1.5">
                 <i data-lucide="file-text" class="w-3.5 h-3.5"></i> <span>本機開啟筆記</span>
               </button>
+              <button onclick="openCurrentLectureFolder()" title="在檔案總管開啟此課堂目錄" class="bio-btn px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1.5">
+                <i data-lucide="folder" class="w-3.5 h-3.5 text-amber-400"></i> <span>開啟資料夾</span>
+              </button>
+              <button onclick="promptRenameLecture()" title="編輯課堂名稱或科目" class="bio-btn px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1.5">
+                <i data-lucide="edit-3" class="w-3.5 h-3.5 text-cyan-400"></i> <span>重新命名</span>
+              </button>
+              <button onclick="promptDeleteLecture()" title="刪除此課堂與產物紀錄" class="bio-btn px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/25 text-red-400 text-xs flex items-center gap-1.5">
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> <span>刪除課堂</span>
+              </button>
             </div>
           </div>
 
@@ -602,26 +611,37 @@
               <h3 class="font-bold text-sm flex items-center gap-2">
                 <i data-lucide="file-text" class="w-4 h-4 text-cyan-400"></i> 課堂詞庫自動萃取 (純本機 0 API)
               </h3>
-              <input type="file" id="glossary-file-input" accept=".pdf,.txt" class="hidden" onchange="handleGlossaryFileUpload(this.files)">
-              <button onclick="document.getElementById('glossary-file-input').click()" class="bio-btn px-3 py-1 rounded-xl glass-card text-xs flex items-center gap-1.5">
+              <input type="file" id="glossary-file-input" accept=".pdf,.txt,.md" style="position:fixed;opacity:0;pointer-events:none;width:1px;height:1px;left:-9999px;" onchange="handleGlossaryFileUpload(this.files)">
+              <button onclick="triggerGlossaryUpload()" class="bio-btn px-3 py-1 rounded-xl glass-card text-xs flex items-center gap-1.5">
                 <i data-lucide="upload" class="w-3.5 h-3.5 text-cyan-400"></i>
                 <span id="ui-glossary-import-btn">匯入講義 PDF / TXT</span>
               </button>
             </div>
             
-            <div id="glossary-drop-zone" onclick="document.getElementById('glossary-file-input').click()" class="border border-dashed border-white/20 rounded-2xl p-5 text-center text-xs text-slate-400 glass-card cursor-pointer hover:border-indigo-400 hover:bg-white/5 transition-all">
+            <div id="glossary-drop-zone" onclick="triggerGlossaryUpload()" class="border border-dashed border-white/20 rounded-2xl p-5 text-center text-xs text-slate-400 glass-card cursor-pointer hover:border-indigo-400 hover:bg-white/5 transition-all">
               <span id="ui-glossary-drop-prompt">點擊或拖曳課程講義 PDF/TXT 至此，自動解析中英文專有名詞、縮寫與雙語對照</span>
             </div>
 
-            <div class="space-y-2">
+            <div class="space-y-3">
               <div class="flex flex-wrap justify-between items-center gap-2 text-xs text-slate-400">
                 <div class="flex items-center gap-2">
                   <span>選擇科目：</span>
                   <select id="glossary-course-select" onchange="changeGlossaryCourse(this.value)" class="bg-black/25 dark:bg-black/40 light:bg-black/5 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-slate-200">
                     <option value="Discrete Mathematics">Discrete Mathematics</option>
                   </select>
+                  <button onclick="promptAddCourse()" title="新增新科目" class="bio-btn px-2 py-1 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 text-xs flex items-center gap-1">
+                    <i data-lucide="plus" class="w-3 h-3"></i> <span>新增科目</span>
+                  </button>
+                  <button onclick="promptDeleteCourse()" title="刪除選定科目" class="bio-btn px-2 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 text-xs flex items-center gap-1">
+                    <i data-lucide="trash-2" class="w-3 h-3"></i> <span>刪除</span>
+                  </button>
                 </div>
-                <span id="glossary-terms-count" class="text-indigo-400 font-mono">共 0 個專有名詞</span>
+                <div class="flex items-center gap-2">
+                  <span id="glossary-terms-count" class="text-indigo-400 font-mono">共 0 個專有名詞</span>
+                  <button onclick="promptAddGlossaryTerm()" class="bio-btn px-2.5 py-1 rounded-lg bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-300 text-xs flex items-center gap-1">
+                    <i data-lucide="plus" class="w-3 h-3"></i> <span>新增詞彙</span>
+                  </button>
+                </div>
               </div>
               <div id="glossary-terms-list" class="h-60 overflow-y-auto rounded-2xl glass-card p-3 space-y-1.5 text-xs font-mono">
                 <div class="text-slate-500 text-center py-8">載入專屬詞庫中...</div>
@@ -1668,18 +1688,25 @@
       saveState();
 
       try {
-        const res = await fetch('/api/mode', {
+        const res = await fetch('/api/mode/switch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ mode })
         });
         if (res.ok) {
+          const data = await res.json();
           if (mode === 'web') {
-            showToast('已切換為「網頁模式」並記憶至 config.yaml：開啟瀏覽器操作');
+            showToast('已切換為「網頁模式」：預設瀏覽器已開啟，桌面視窗已自動關閉。');
           } else if (mode === 'window') {
-            showToast('已切換為「視窗模式」並記憶至 config.yaml：以原生視窗常駐');
+            showToast('已切換為「視窗模式」：桌面原生視窗已啟動。本瀏覽器分頁正在嘗試關閉...');
+            setTimeout(() => {
+              try {
+                window.open('', '_self', '');
+                window.close();
+              } catch (_) {}
+            }, 1200);
           } else if (mode === 'both') {
-            showToast('已切換為「同時模式」並記憶至 config.yaml：視窗與瀏覽器多端同步連線');
+            showToast('已切換為「同時模式」：桌面原生視窗與瀏覽器網頁雙軌同時運行。');
           }
         }
       } catch (e) {
@@ -2933,10 +2960,208 @@
       }
     }
 
+    async function openCurrentLectureFolder() {
+      if (!currentSelectedLecture || !currentSelectedLecture.id) {
+        showToast('請先選取一堂課堂');
+        return;
+      }
+      try {
+        const res = await fetch(`/api/lecture/${encodeURIComponent(currentSelectedLecture.id)}/open-folder`, {
+          method: 'POST'
+        });
+        if (res.ok) {
+          showToast('已在檔案總管開啟課堂目錄');
+        } else {
+          showToast('開啟資料夾失敗');
+        }
+      } catch (e) {
+        showToast('請求異常：' + e);
+      }
+    }
+
+    async function promptRenameLecture() {
+      if (!currentSelectedLecture || !currentSelectedLecture.id) {
+        showToast('請先選取一堂課堂');
+        return;
+      }
+      const newCourse = prompt('修改課堂所屬科目：', currentSelectedLecture.course || '');
+      if (newCourse === null) return;
+      const newTitle = prompt('修改課堂顯示標題：', currentSelectedLecture.title || '');
+      if (newTitle === null) return;
+
+      try {
+        const res = await fetch(`/api/lecture/${encodeURIComponent(currentSelectedLecture.id)}/rename`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ course: newCourse.trim(), title: newTitle.trim() })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message || '課堂資訊已成功更新');
+          await loadHistoryFromServer();
+          selectHistoryLecture(currentSelectedLecture.id);
+        } else {
+          showToast(data.detail || '重命名失敗');
+        }
+      } catch (e) {
+        showToast('請求失敗：' + e);
+      }
+    }
+
+    async function promptDeleteLecture() {
+      if (!currentSelectedLecture || !currentSelectedLecture.id) {
+        showToast('請先選取一堂課堂');
+        return;
+      }
+      if (!confirm(`確定要徹底刪除課堂「${currentSelectedLecture.title}」及其所有存檔紀錄嗎？此動作無法復原。`)) {
+        return;
+      }
+      try {
+        const res = await fetch(`/api/lecture/${encodeURIComponent(currentSelectedLecture.id)}`, {
+          method: 'DELETE'
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message || '課堂已安全刪除');
+          currentSelectedLecture = null;
+          await loadHistoryFromServer();
+          const titleEl = document.getElementById('player-lecture-title');
+          if (titleEl) titleEl.innerText = '未選取課堂';
+        } else {
+          showToast(data.detail || '刪除課堂失敗');
+        }
+      } catch (e) {
+        showToast('刪除請求失敗：' + e);
+      }
+    }
+
     // =========================================================================
     // 課堂詞庫管理與 PDF 上傳萃取 (Glossary & PDF Extract)
     // =========================================================================
     let currentGlossaryCourse = 'Discrete Mathematics';
+
+    async function triggerGlossaryUpload() {
+      const fileInput = document.getElementById('glossary-file-input');
+      if (fileInput) {
+        fileInput.click();
+      }
+    }
+
+    async function promptAddCourse() {
+      const name = prompt('請輸入新科目名稱（例如 Operating-Systems 或 作業系統）：');
+      if (!name || !name.trim()) return;
+      try {
+        const res = await fetch('/api/glossary/course', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ course: name.trim() })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message || `科目 ${name} 已建立！`);
+          await loadGlossaryFromServer(data.course);
+        } else {
+          showToast(data.detail || '新增科目失敗');
+        }
+      } catch (e) {
+        showToast(`連線失敗：${e.message || e}`);
+      }
+    }
+
+    async function promptDeleteCourse() {
+      if (!currentGlossaryCourse) return;
+      if (!confirm(`確定要刪除科目「${currentGlossaryCourse}」及其專屬詞庫嗎？`)) return;
+      try {
+        const res = await fetch(`/api/glossary/course/${encodeURIComponent(currentGlossaryCourse)}`, {
+          method: 'DELETE'
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message || '科目已刪除');
+          await loadGlossaryFromServer();
+        } else {
+          showToast(data.detail || '刪除科目失敗');
+        }
+      } catch (e) {
+        showToast(`連線失敗：${e.message || e}`);
+      }
+    }
+
+    async function promptAddGlossaryTerm() {
+      const term = prompt(`為「${currentGlossaryCourse}」新增專有名詞（英文或中文）：`);
+      if (!term || !term.trim()) return;
+      const translation = prompt('選填：請輸入中文翻譯或說明（無則留空）：', '') || '';
+      try {
+        const res = await fetch('/api/glossary/term', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            course: currentGlossaryCourse,
+            term: term.trim(),
+            translation: translation.trim()
+          })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message || '名詞已新增');
+          renderGlossaryTerms(data.terms || []);
+        } else {
+          showToast(data.detail || '新增名詞失敗');
+        }
+      } catch (e) {
+        showToast(`連線失敗：${e.message || e}`);
+      }
+    }
+
+    async function promptEditGlossaryTerm(oldTerm, oldTrans) {
+      const newTerm = prompt('修改名詞名稱：', oldTerm);
+      if (!newTerm || !newTerm.trim()) return;
+      const newTrans = prompt('修改中文翻譯/說明（無則留空）：', oldTrans || '') || '';
+      try {
+        const res = await fetch('/api/glossary/term', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            course: currentGlossaryCourse,
+            old_term: oldTerm,
+            new_term: newTerm.trim(),
+            new_translation: newTrans.trim()
+          })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message || '名詞已更新');
+          renderGlossaryTerms(data.terms || []);
+        } else {
+          showToast(data.detail || '更新名詞失敗');
+        }
+      } catch (e) {
+        showToast(`連線失敗：${e.message || e}`);
+      }
+    }
+
+    async function deleteGlossaryTerm(term) {
+      if (!confirm(`確定要從詞庫中移除「${term}」嗎？`)) return;
+      try {
+        const res = await fetch('/api/glossary/term', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            course: currentGlossaryCourse,
+            term: term
+          })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          showToast(data.message || '名詞已移除');
+          renderGlossaryTerms(data.terms || []);
+        } else {
+          showToast(data.detail || '刪除名詞失敗');
+        }
+      } catch (e) {
+        showToast(`連線失敗：${e.message || e}`);
+      }
+    }
 
     async function loadGlossaryFromServer(course = null) {
       try {
@@ -2982,11 +3207,22 @@
         const row = document.createElement('div');
         row.className = 'flex justify-between items-center py-1.5 px-3 rounded-lg bg-white/5 hover:bg-white/10 transition';
         row.innerHTML = `
-          <span class="font-medium text-slate-200 dark:text-slate-200 light:text-slate-800">${escapeHtml(t.term)}</span>
-          <span class="text-slate-400 text-[11px]">${escapeHtml(t.translation || '')}</span>
+          <div class="flex items-center gap-2 truncate">
+            <span class="font-medium text-slate-200 dark:text-slate-200 light:text-slate-800">${escapeHtml(t.term)}</span>
+            ${t.translation ? `<span class="text-slate-400 text-[11px]">(${escapeHtml(t.translation)})</span>` : ''}
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0 ml-2">
+            <button onclick="promptEditGlossaryTerm('${escapeHtml(t.term)}', '${escapeHtml(t.translation || '')}')" title="編輯" class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-cyan-400 transition">
+              <i data-lucide="edit-2" class="w-3.5 h-3.5"></i>
+            </button>
+            <button onclick="deleteGlossaryTerm('${escapeHtml(t.term)}')" title="刪除" class="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-red-400 transition">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            </button>
+          </div>
         `;
         container.appendChild(row);
       });
+      lucide.createIcons();
     }
 
     function changeGlossaryCourse(course) {

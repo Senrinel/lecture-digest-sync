@@ -294,8 +294,14 @@ def run_pipeline_for_group(
     tray: Optional[WatcherTray] = None,
     offline_queue: Optional[OfflineUploadQueue] = None,
     record_archive_base_dir: Optional[Path | str] = None,
+    abort_event: Optional[threading.Event] = None,
+    export_dir: Optional[Path | str] = None,
 ) -> Path:
     """Execute complete end-to-end processing for a single or multi-part lecture."""
+    def check_aborted():
+        if abort_event and abort_event.is_set():
+            raise InterruptedError("任務已由使用者強制中止。")
+
     start_total = time.time()
     primary_file = audio_files[0]
     parsed = parse_filename(primary_file)
@@ -317,12 +323,15 @@ def run_pipeline_for_group(
             progress="0% 準備處理",
         )
 
+    check_aborted()
+
     if len(audio_files) > 1:
         console.print(f"📦 偵測到多段錄音分檔 (共 {len(audio_files)} 檔)，將自動合併：")
         for f in audio_files:
             console.print(f"   - {f.name}")
 
     # 1. Preprocess
+    check_aborted()
     if tray:
         tray.update_status(state="processing", detail=parsed.display_tag, progress="15% 音訊前處理")
     norm_audio = target_work_dir / "00_normalized.wav"
@@ -331,6 +340,7 @@ def run_pipeline_for_group(
     preprocess_audio(audio_files, norm_audio, opts=pre_opts)
 
     # 2. VAD Segmentation
+    check_aborted()
     if tray:
         tray.update_status(state="processing", detail=parsed.display_tag, progress="30% VAD 切段")
     console.print("[dim]⏳ 執行 VAD 靜音切段...[/dim]")
@@ -349,6 +359,7 @@ def run_pipeline_for_group(
     state.mark_stage("vad_segment")
 
     # 3. STT Transcription (with offline fallback check)
+    check_aborted()
     if tray:
         tray.update_status(state="processing", detail=parsed.display_tag, progress="50% 語音轉錄")
     
@@ -360,31 +371,57 @@ def run_pipeline_for_group(
     console.print(f"[dim]⏳ 執行語音轉錄 (通道 {actual_channel_id})...[/dim]")
     glossary = load_course_glossary(parsed.course) if parsed.course != "Unsorted" else []
     channel = get_stt_channel(actual_channel_id)
-    transcription = channel.transcribe_all(chunks, course=parsed.course, date=parsed.date, glossary=glossary)
+    transcription = channel.transcribe_all(
+        chunks,
+        course=parsed.course,
+        date=parsed.date,
+        glossary=glossary,
+        abort_event=abort_event,
+    )
     save_stt_outputs(transcription, target_work_dir)
     state.mark_stage("stt")
 
     # 4. Cleanup
+    check_aborted()
     if tray:
         tray.update_status(state="processing", detail=parsed.display_tag, progress="70% 內文整理")
     console.print(f"[dim]⏳ 執行 AI 內文整理 ({cleanup_model})...[/dim]")
     cleaner = GeminiTextCleanupEngine(primary_model=cleanup_model)
-    clean_result = cleaner.clean(transcription.full_text, course=parsed.course, date=parsed.date, glossary=glossary)
+    clean_result = cleaner.clean(
+        transcription.full_text,
+        course=parsed.course,
+        date=parsed.date,
+        glossary=glossary,
+        abort_event=abort_event,
+    )
     save_cleanup_outputs(clean_result, target_work_dir)
     state.mark_stage("cleanup")
 
     # 5. Summary
+    check_aborted()
     if tray:
         tray.update_status(state="processing", detail=parsed.display_tag, progress="85% 重點筆記")
     console.print(f"[dim]⏳ 執行 AI 重點總結 ({summary_model})...[/dim]")
+    time.sleep(3.0)  # Rate limit cooldown buffer before summary call
+    check_aborted()
     summarizer = GeminiLectureSummarizer(primary_model=summary_model)
     summary_result = summarizer.summarize(clean_result.full_cleaned_text, course=parsed.course, date=parsed.date, glossary=glossary)
     save_summary_outputs(summary_result, target_work_dir)
     state.mark_stage("summarize")
 
-    # 6. Notebook Bundle
-    console.print("[dim]⏳ 封裝 Google NotebookLM / Drive 複習包...[/dim]")
-    prepare_notebook_bundle(target_work_dir)
+    # 6. Notebook Bundle & Exports
+    check_aborted()
+    console.print("[dim]⏳ 封裝重點總結筆記 Markdown 並同步至匯出目錄...[/dim]")
+    target_export = export_dir
+    if not target_export:
+        try:
+            from lecture_pipeline.state import load_config
+            c_cfg = load_config(Path("config.yaml"))
+            target_export = c_cfg.get("export", {}).get("export_dir", "exports")
+        except Exception:
+            target_export = "exports"
+
+    prepare_notebook_bundle(target_work_dir, export_dir=target_export)
     state.mark_stage("export")
 
     save_run_state(state, target_work_dir)

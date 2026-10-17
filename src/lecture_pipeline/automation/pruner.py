@@ -166,22 +166,14 @@ def prune_and_archive(
         shutil.copy2(str(summary_md), str(dest_md))
         archived_files["summary_notes"] = dest_md
 
-    # 3.5 Generate and archive interactive audio-synced HTML player
-    try:
-        from lecture_pipeline.export.html_player import generate_interactive_player
-        audio_name = compressed_audio_dest.name if "audio" in archived_files else "00_normalized.wav"
-        player_html = generate_interactive_player(
-            work_dir=w_dir,
-            course=course,
-            date=date,
-            audio_filename=audio_name,
-        )
-        dest_player = dest_dir / player_html.name
-        shutil.copy2(str(player_html), str(dest_player))
-        archived_files["player_html"] = dest_player
-        console.print(f"[green]✔ 互動同步播放器生成完畢: {dest_player.name}[/green]")
-    except Exception as e:
-        console.print(f"[dim]⚠️ 播放器生成略過: {e}[/dim]")
+    # 3.5 Specification compliance: Do NOT archive or generate HTML files.
+    # Interactive synced review is handled purely within native GUI without static HTML clutter.
+    old_html = dest_dir / "04_player.html"
+    if old_html.is_file():
+        try:
+            old_html.unlink()
+        except Exception:
+            pass
 
     # 4. Archive run execution log into project logs directory (專案 logs 資料夾)
     run_log = w_dir / "run.json"
