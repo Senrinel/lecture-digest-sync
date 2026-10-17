@@ -86,6 +86,7 @@ if STATIC_DIR.is_dir():
 
 class ModeRequest(BaseModel):
     mode: str
+    source: Optional[str] = "browser"
 
 
 class ConfigUpdateRequest(BaseModel):
@@ -188,7 +189,7 @@ async def api_status():
 @app.post("/api/mode/switch")
 async def api_set_mode(req: ModeRequest):
     """Update and persist GUI execution mode ('window', 'web', 'both') and trigger desktop/browser actions."""
-    return switch_gui_mode_action(req.mode)
+    return switch_gui_mode_action(mode=req.mode, source=req.source or "browser")
 
 
 @app.get("/api/config")

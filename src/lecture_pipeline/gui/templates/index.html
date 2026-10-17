@@ -1673,7 +1673,8 @@
 
     // 介面模式切換 (網頁 / 視窗 / 同時使用，寫入 config.yaml 記憶)
     let currentAppMode = 'window';
-    async function switchAppMode(mode) {
+
+    function setAppModeUI(mode) {
       currentAppMode = mode;
       const modes = ['web', 'window', 'both'];
       modes.forEach(m => {
@@ -1685,28 +1686,27 @@
           btn.className = 'flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition bio-btn text-slate-400 hover:text-white dark:hover:text-white light:hover:text-slate-900';
         }
       });
+    }
+
+    async function switchAppMode(mode) {
+      setAppModeUI(mode);
       saveState();
+
+      const isPyWebView = Boolean(window.pywebview || window.__pywebview__);
+      const source = isPyWebView ? 'window' : 'browser';
 
       try {
         const res = await fetch('/api/mode/switch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode })
+          body: JSON.stringify({ mode, source })
         });
         if (res.ok) {
           const data = await res.json();
           if (mode === 'web') {
-            showToast('已切換為「網頁模式」：預設瀏覽器已開啟，桌面視窗已自動關閉。');
+            showToast('已切換為「網頁模式」：桌面原生視窗已關閉。');
           } else if (mode === 'window') {
-            showToast('已切換為「視窗模式」：桌面原生視窗已啟動。本瀏覽器分頁正在嘗試關閉...');
-            if (!window.__is_test_mode) {
-              setTimeout(() => {
-                try {
-                  window.open('', '_self', '');
-                  window.close();
-                } catch (_) {}
-              }, 1200);
-            }
+            showToast('已切換為「視窗模式」：桌面原生視窗已啟動。');
           } else if (mode === 'both') {
             showToast('已切換為「同時模式」：桌面原生視窗與瀏覽器網頁雙軌同時運行。');
           }
@@ -2151,7 +2151,7 @@
       if (!raw) {
         changeSurfaceOpacity(60);
         applyUiZoom(100);
-        switchAppMode('window');
+        setAppModeUI('window');
         return;
       }
 
@@ -2176,9 +2176,9 @@
           changeSurfaceOpacity(60);
         }
         if (state.appMode) {
-          switchAppMode(state.appMode);
+          setAppModeUI(state.appMode);
         } else {
-          switchAppMode('window');
+          setAppModeUI('window');
         }
         if (state.colorList && Array.isArray(state.colorList)) {
           colorList = state.colorList;

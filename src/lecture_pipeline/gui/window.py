@@ -38,9 +38,10 @@ class DesktopWindow:
 
     def create(self, hidden: bool = False) -> webview.Window:
         """Create and configure the desktop window."""
+        initial_url = "about:blank" if hidden else self.url
         self.window = webview.create_window(
             title=self.title,
-            url=self.url,
+            url=initial_url,
             width=self.width,
             height=self.height,
             min_size=(self.min_width, self.min_height),
@@ -55,6 +56,12 @@ class DesktopWindow:
         """Show and bring window to front."""
         if self.window:
             try:
+                try:
+                    cur_url = self.window.get_current_url()
+                except Exception:
+                    cur_url = None
+                if cur_url in (None, "", "about:blank"):
+                    self.window.load_url(self.url)
                 self.window.show()
                 self.window.restore()
             except Exception as e:

@@ -133,7 +133,7 @@ def save_remembered_gui_mode(mode: str) -> str:
     return valid_mode
 
 
-def switch_gui_mode_action(mode: str) -> Dict[str, Any]:
+def switch_gui_mode_action(mode: str, source: str = "browser") -> Dict[str, Any]:
     """Switch execution mode, persist to config.yaml, and trigger window/browser actions."""
     saved_mode = save_remembered_gui_mode(mode)
     cfg = get_current_config()
@@ -154,12 +154,14 @@ def switch_gui_mode_action(mode: str) -> Dict[str, Any]:
         }
 
     if saved_mode == "web":
-        webbrowser.open(url)
+        # Only open external browser if user clicked this inside desktop window
+        if source == "window":
+            webbrowser.open(url)
         hide_desktop_window()
         return {
             "status": "ok",
             "mode": "web",
-            "message": "已開啟預設瀏覽器，桌面原生視窗已關閉。",
+            "message": "已設定為「網頁模式」，桌面原生視窗已關閉。",
             "url": url,
         }
     elif saved_mode == "window":
@@ -167,12 +169,13 @@ def switch_gui_mode_action(mode: str) -> Dict[str, Any]:
         return {
             "status": "ok",
             "mode": "window",
-            "message": "已開啟桌面原生視窗，瀏覽器分頁可關閉。",
+            "message": "已開啟桌面原生視窗。",
             "url": url,
         }
     else:  # both
         show_desktop_window()
-        webbrowser.open(url)
+        if source == "window":
+            webbrowser.open(url)
         return {
             "status": "ok",
             "mode": "both",
