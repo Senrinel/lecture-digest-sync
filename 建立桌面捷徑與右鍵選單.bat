@@ -18,6 +18,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "$s1.IconLocation = 'shell32.dll,266'; " ^
     "$s1.Save(); " ^
     "Write-Host '[✔] 桌面捷徑已建立：' $deskLnk -ForegroundColor Green; " ^
+    "$guiTarget = Join-Path $PSScriptRoot '啟動GUI工作台.bat'; " ^
+    "$guiLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) '課堂錄音GUI工作台.lnk'; " ^
+    "$s3 = $WshShell.CreateShortcut($guiLnk); " ^
+    "$s3.TargetPath = $guiTarget; " ^
+    "$s3.WorkingDirectory = $PSScriptRoot; " ^
+    "$s3.Description = '啟動課堂錄音視覺化雙軌工作台 (視窗/網頁)'; " ^
+    "$s3.IconLocation = 'shell32.dll,220'; " ^
+    "$s3.Save(); " ^
+    "Write-Host '[✔] 桌面 GUI 捷徑已建立：' $guiLnk -ForegroundColor Green; " ^
     "$sendTo = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'Microsoft\Windows\SendTo\課堂錄音一鍵整理.lnk'; " ^
     "$s2 = $WshShell.CreateShortcut($sendTo); " ^
     "$s2.TargetPath = $target; " ^
@@ -30,8 +39,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
 echo.
 echo ==============================================================================
 echo   設置完成！您現在可以：
-echo   1. 將錄音檔案或整個錄音資料夾【直接拖曳到桌面的「課堂錄音一鍵整理」圖示】。
-echo   2. 或者在任何音檔或資料夾上【按右鍵 ➜ 傳送到 ➜ 課堂錄音一鍵整理】。
+echo   1. 雙擊桌面上的「課堂錄音GUI工作台」開啟視覺化操作介面。
+echo   2. 將錄音檔案或整個錄音資料夾【直接拖曳到桌面的「課堂錄音一鍵整理」圖示】。
+echo   3. 或者在任何音檔或資料夾上【按右鍵 ➜ 傳送到 ➜ 課堂錄音一鍵整理】。
 echo ==============================================================================
 echo.
 pause
