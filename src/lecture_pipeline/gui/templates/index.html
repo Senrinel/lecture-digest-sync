@@ -172,7 +172,7 @@
     <!-- 標題與圖示 (保留像素原圖與圓角無剪裁，加入 crisp-edges 最佳化) -->
     <div class="flex items-center gap-3 shrink-0">
       <div id="ui-brand-icon-box" class="w-10 h-10 min-w-[40px] min-h-[40px] shrink-0 aspect-square rounded-lg overflow-hidden bg-black/20 dark:bg-black/30 light:bg-slate-200/60 border border-white/10 flex items-center justify-center shadow-md shadow-indigo-500/20 bio-btn cursor-pointer p-0.5" title="Lecture Digest Sync">
-        <img id="ui-brand-icon-img" src="/icon.png" onerror="this.onerror=null; this.src='data:image/png;base64,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'" alt="App Icon" width="40" height="40" loading="eager" decoding="sync" style="image-rendering: pixelated; image-rendering: crisp-edges;" class="w-full h-full object-contain block shrink-0">
+        <img id="ui-brand-icon-img" src="/icon.png" onerror="this.onerror=null; this.src='/static/icon.png';" alt="App Icon" width="40" height="40" loading="eager" decoding="sync" style="image-rendering: pixelated; image-rendering: crisp-edges;" class="w-full h-full object-contain block shrink-0">
       </div>
       <div class="min-w-0">
         <h1 class="font-bold text-sm tracking-wide flex items-center gap-2">
@@ -1699,12 +1699,14 @@
             showToast('已切換為「網頁模式」：預設瀏覽器已開啟，桌面視窗已自動關閉。');
           } else if (mode === 'window') {
             showToast('已切換為「視窗模式」：桌面原生視窗已啟動。本瀏覽器分頁正在嘗試關閉...');
-            setTimeout(() => {
-              try {
-                window.open('', '_self', '');
-                window.close();
-              } catch (_) {}
-            }, 1200);
+            if (!window.__is_test_mode) {
+              setTimeout(() => {
+                try {
+                  window.open('', '_self', '');
+                  window.close();
+                } catch (_) {}
+              }, 1200);
+            }
           } else if (mode === 'both') {
             showToast('已切換為「同時模式」：桌面原生視窗與瀏覽器網頁雙軌同時運行。');
           }
@@ -1734,6 +1736,7 @@
       const el = document.getElementById(elemId);
       if (el) el.value = defaultVal;
       saveState();
+      syncSingleParamToBackend(elemId, defaultVal);
       showToast(`目錄已重置為預設路徑：${defaultVal}`);
     }
 
@@ -1778,7 +1781,9 @@
       lorenzTrail.length = 0;
       pendulumTrail.length = 0;
       saveState();
-      showToast(`背景模型切換為：${document.getElementById('fluid-model-select').options[document.getElementById('fluid-model-select').selectedIndex].text}`);
+      const sel = document.getElementById('fluid-model-select');
+      const optText = (sel && sel.selectedIndex >= 0 && sel.options[sel.selectedIndex]) ? sel.options[sel.selectedIndex].text : model;
+      showToast(`背景模型切換為：${optText}`);
     }
 
     function resetFluidModel() {
@@ -1932,6 +1937,7 @@
 
       renderTimetableRules();
       saveState();
+      syncTimetableToServer();
       closeTimetableModal();
     }
 
@@ -1947,6 +1953,7 @@
         timetableRules = timetableRules.filter(r => r.id !== id);
         renderTimetableRules();
         saveState();
+        syncTimetableToServer();
         showToast(`已刪除課堂排程規則：${rule.course}`);
       }
     }
@@ -1954,6 +1961,7 @@
     function toggleTimetableEnabled(enabled) {
       showToast(enabled ? '課表智慧對齊功能已啟用' : '課表智慧對齊功能已暫時停用');
       saveState();
+      syncTimetableToServer();
     }
 
     // =========================================================================
@@ -2221,7 +2229,17 @@
 
     function resetAllCustomizations() {
       localStorage.removeItem('lecture_sync_gui_v4_prefs');
-      location.reload();
+      resetFluidModel();
+      changeColorCount(4);
+      changeFluidSpeed(1.0);
+      changeSurfaceOpacity(60);
+      resetUiZoom();
+      changeFontSize(14);
+      resetFontFamily();
+      resetAllUiTexts();
+      setTheme('dark');
+      saveState();
+      showToast('已恢復所有美術與樣式預設值');
     }
 
     // =========================================================================
@@ -2424,18 +2442,18 @@
 
     async function syncSingleParamToBackend(key, value) {
       const paramMap = {
-        'dir-inbox': 'paths.inbox_dir',
-        'dir-archive': 'paths.archive_dir',
-        'dir-export': 'paths.export_dir',
-        'dir-logs': 'paths.log_dir',
+        'dir-inbox': 'inbox_dir',
+        'dir-archive': 'archive_dir',
+        'dir-export': 'export_dir',
+        'dir-logs': 'log_dir',
       };
-      const backendKey = paramMap[key];
-      if (!backendKey) return;
+      const field = paramMap[key];
+      if (!field) return;
       try {
         await fetch('/api/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ params: { [backendKey]: value } }),
+          body: JSON.stringify({ params: { paths: { [field]: value } } }),
         });
       } catch (e) {}
     }

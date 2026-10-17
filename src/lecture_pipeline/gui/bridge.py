@@ -145,6 +145,14 @@ def switch_gui_mode_action(mode: str) -> Dict[str, Any]:
     from lecture_pipeline.gui.window import hide_desktop_window, show_desktop_window
     import webbrowser
 
+    if os.environ.get("LECTURE_PIPELINE_TEST_MODE") == "1":
+        return {
+            "status": "ok",
+            "mode": saved_mode,
+            "message": f"已切換為「{saved_mode}」模式。",
+            "url": url,
+        }
+
     if saved_mode == "web":
         webbrowser.open(url)
         hide_desktop_window()
@@ -608,6 +616,8 @@ def open_folder_in_desktop(folder_path: Path | str) -> bool:
     p = Path(folder_path).resolve()
     if not p.exists():
         p.mkdir(parents=True, exist_ok=True)
+    if os.environ.get("LECTURE_PIPELINE_TEST_MODE") == "1":
+        return True
     try:
         if sys.platform == "win32":
             os.startfile(str(p))
@@ -628,6 +638,8 @@ def open_file_in_desktop(file_path: Path | str) -> bool:
     p = Path(file_path).resolve()
     if not p.is_file():
         return False
+    if os.environ.get("LECTURE_PIPELINE_TEST_MODE") == "1":
+        return True
     try:
         if sys.platform == "win32":
             os.startfile(str(p))
@@ -645,6 +657,8 @@ def open_file_in_desktop(file_path: Path | str) -> bool:
 
 def browse_folder_dialog(initial_dir: Optional[str] = None) -> Optional[str]:
     """Launch native Windows directory selection dialog."""
+    if os.environ.get("LECTURE_PIPELINE_TEST_MODE") == "1":
+        return str(Path(initial_dir or os.getcwd()).resolve())
     try:
         import tkinter as tk
         from tkinter import filedialog
@@ -677,6 +691,8 @@ def browse_folder_dialog(initial_dir: Optional[str] = None) -> Optional[str]:
 
 def browse_file_dialog(initial_dir: Optional[str] = None, file_types: Optional[List[tuple[str, str]]] = None) -> Optional[str]:
     """Launch native Windows file selection dialog."""
+    if os.environ.get("LECTURE_PIPELINE_TEST_MODE") == "1":
+        return str(Path(initial_dir or os.getcwd()).resolve())
     try:
         import tkinter as tk
         from tkinter import filedialog
