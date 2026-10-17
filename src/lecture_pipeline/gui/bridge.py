@@ -316,6 +316,7 @@ def get_full_system_status() -> Dict[str, Any]:
             "paused": is_watcher_paused(),
             "badge": "已暫停" if is_watcher_paused() else "常駐待命",
         },
+        "active_task": get_current_task_status(),
     }
 
 
@@ -323,118 +324,383 @@ def get_full_system_status() -> Dict[str, Any]:
 # History & Lecture Library
 # ---------------------------------------------------------------------------
 
+_lecture_cache: Dict[str, Path] = {}
+_drive_links_cache: Dict[str, str] = {}
+
+
+def _get_drive_link_from_logs(course_or_id: str) -> Optional[str]:
+    """Extract Google Drive link for a lecture or course from watcher.log if available."""
+    if course_or_id in _drive_links_cache:
+        return _drive_links_cache[course_or_id]
+
+    log_file = Path("logs/watcher.log")
+    if not log_file.is_file():
+        return None
+
+    try:
+        content = log_file.read_text(encoding="utf-8", errors="ignore")
+        matches = re.findall(r"已同步至 Google Drive：(https://drive\.google\.com/[^\s\r\n]+)", content)
+        if matches:
+            link = matches[-1]
+            _drive_links_cache[course_or_id] = link
+            return link
+    except Exception:
+        pass
+    return None
+
+
 def get_archived_lectures() -> List[Dict[str, Any]]:
-    """Scan archive and work directories for processed lecture bundles."""
+    """Recursively scan archive, work, and record directories for processed lecture bundles."""
+    global _lecture_cache
     cfg = get_current_config()
     paths = cfg.get("paths", {})
     archive_dir = Path(paths.get("archive_dir", "archive"))
     work_dir = Path(paths.get("work_dir", "work"))
+    rec_archive_str = paths.get("record_archive_dir")
+    rec_archive = Path(rec_archive_str) if rec_archive_str else None
 
-    search_dirs = [archive_dir, work_dir]
+    search_dirs = [work_dir, archive_dir]
+    if rec_archive and rec_archive.is_dir():
+        search_dirs.append(rec_archive)
+
     lectures: List[Dict[str, Any]] = []
+    seen_dirs: Set[str] = set()
+    new_cache: Dict[str, Path] = {}
 
-    seen_ids: Set[str] = set()
+    today_str = time.strftime("%Y-%m-%d")
+    today_compact = time.strftime("%Y%m%d")
 
     for base in search_dirs:
         if not base.is_dir():
             continue
 
-        for item in sorted(base.iterdir(), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
-            if not item.is_dir():
-                continue
+        candidate_dirs: List[Path] = []
+        try:
+            for p in base.rglob("*"):
+                if not p.is_dir():
+                    continue
+                has_summary = (p / "03_summary.md").is_file()
+                has_cleaned = (p / "02_cleaned.txt").is_file()
+                has_raw = (p / "01_raw.txt").is_file()
+                has_run = (p / "run.json").is_file()
+                if has_summary or has_cleaned or has_raw or has_run:
+                    canonical = str(p.resolve())
+                    if canonical not in seen_dirs:
+                        candidate_dirs.append(p)
+                        seen_dirs.add(canonical)
+        except Exception as e:
+            logging.getLogger("lecture_pipeline.gui").warning(f"Error scanning {base}: {e}")
 
-            lecture_id = item.name
-            if lecture_id in seen_ids:
-                continue
+        # Sort candidate directories newest first
+        candidate_dirs.sort(key=lambda d: d.stat().st_mtime if d.exists() else 0, reverse=True)
+
+        for item in candidate_dirs:
+            parent_name = item.parent.name
+            if parent_name and parent_name not in ["work", "archive", base.name]:
+                lecture_id = f"{parent_name}_{item.name}"
+            else:
+                lecture_id = item.name
+
+            lecture_id_clean = re.sub(r"[^a-zA-Z0-9_\u4e00-\u9fa5\-]", "_", lecture_id)
+            new_cache[lecture_id_clean] = item
+            new_cache[lecture_id] = item
+            new_cache[item.name] = item
 
             summary_file = item / "03_summary.md"
             cleaned_file = item / "02_cleaned.txt"
             raw_file = item / "01_raw.txt"
+            raw_ts_file = item / "01_raw_timestamped.txt"
             run_json = item / "run.json"
 
-            # Locate audio file in this lecture directory
+            course_name = ""
+            date_str = ""
+            channel_name = "C1 (Flash)"
+            docs_url = None
+            if run_json.is_file():
+                try:
+                    with open(run_json, "r", encoding="utf-8") as rf:
+                        rdata = json.load(rf)
+                        course_name = rdata.get("course", "")
+                        raw_date = str(rdata.get("date", ""))
+                        if len(raw_date) == 8:
+                            date_str = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+                        docs_url = rdata.get("docs_url") or rdata.get("drive_link")
+                except Exception:
+                    pass
+
+            if not course_name:
+                if parent_name and parent_name not in ["work", "archive", base.name]:
+                    course_name = parent_name
+                else:
+                    m = re.match(r"^(\d{6,8})_(.+)$", item.name)
+                    if m:
+                        course_name = m.group(2)
+                    else:
+                        course_name = item.name
+
+            if not date_str:
+                m_date = re.search(r"(20\d{6}|\d{6})", item.name)
+                if m_date:
+                    d = m_date.group(1)
+                    if len(d) == 8:
+                        date_str = f"{d[:4]}-{d[4:6]}-{d[6:]}"
+                    elif len(d) == 6:
+                        date_str = f"20{d[:2]}-{d[2:4]}-{d[4:6]}"
+                else:
+                    date_str = time.strftime("%Y-%m-%d", time.localtime(item.stat().st_mtime))
+
+            if not docs_url:
+                docs_url = _get_drive_link_from_logs(course_name)
+
             audio_path = None
-            for ext in [".opus", ".wav", ".mp3", ".m4a"]:
+            for ext in [".flac", ".opus", ".mp3", ".wav", ".m4a"]:
                 matched = list(item.glob(f"*{ext}"))
                 if matched:
+                    matched.sort(key=lambda f: (not f.name.startswith("00_normalized"), f.name.startswith("chunk"), len(f.name)))
                     audio_path = matched[0]
                     break
 
-            if summary_file.is_file() or cleaned_file.is_file() or raw_file.is_file():
-                seen_ids.add(lecture_id)
+            if not audio_path and course_name:
+                for base_arch in [archive_dir, work_dir]:
+                    matched = list(base_arch.glob(f"**/{course_name}*/*.*"))
+                    for mf in matched:
+                        if mf.suffix.lower() in [".mp3", ".opus", ".wav", ".flac", ".m4a"]:
+                            audio_path = mf
+                            break
+                    if audio_path:
+                        break
 
-                summary_text = summary_file.read_text(encoding="utf-8") if summary_file.is_file() else ""
-                cleaned_text = cleaned_file.read_text(encoding="utf-8") if cleaned_file.is_file() else ""
-                
-                # Extract title/course if available
-                course_name = lecture_id
-                date_str = ""
-                m = re.match(r"^(\d{6})_(.+)$", lecture_id)
-                if m:
-                    date_str = f"20{m.group(1)[:2]}-{m.group(1)[2:4]}-{m.group(1)[4:6]}"
-                    course_name = m.group(2)
+            summary_text = summary_file.read_text(encoding="utf-8") if summary_file.is_file() else ""
+            cleaned_text = cleaned_file.read_text(encoding="utf-8") if cleaned_file.is_file() else ""
+            raw_text = raw_ts_file.read_text(encoding="utf-8") if raw_ts_file.is_file() else (raw_file.read_text(encoding="utf-8") if raw_file.is_file() else "")
 
-                lectures.append({
-                    "id": lecture_id,
-                    "title": course_name,
-                    "date": date_str or time.strftime("%Y-%m-%d", time.localtime(item.stat().st_mtime)),
-                    "path": str(item.resolve()),
-                    "has_summary": summary_file.is_file(),
-                    "has_cleaned": cleaned_file.is_file(),
-                    "has_audio": audio_path is not None,
-                    "audio_filename": audio_path.name if audio_path else None,
-                    "summary_preview": summary_text[:200] if summary_text else "",
-                    "char_count": len(cleaned_text),
-                })
+            mtime_date = time.strftime("%Y-%m-%d", time.localtime(item.stat().st_mtime))
+            is_today = (mtime_date == today_str) or (date_str == today_str) or (today_compact in item.name)
 
+            display_title = course_name if course_name else item.name
+            lectures.append({
+                "id": lecture_id_clean,
+                "title": display_title,
+                "course": course_name,
+                "date": date_str,
+                "is_today": is_today,
+                "path": str(item.resolve()),
+                "has_summary": summary_file.is_file(),
+                "has_cleaned": cleaned_file.is_file(),
+                "has_raw": bool(raw_text),
+                "has_audio": audio_path is not None,
+                "audio_filename": audio_path.name if audio_path else None,
+                "audio_path": str(audio_path.resolve()) if audio_path else None,
+                "audio_url": f"/api/audio/{lecture_id_clean}" if audio_path else None,
+                "summary_preview": summary_text[:200] if summary_text else "",
+                "char_count": len(cleaned_text) or len(raw_text),
+                "channel": channel_name,
+                "docs_url": docs_url,
+            })
+
+    _lecture_cache = new_cache
     return lectures
 
 
 def get_lecture_content(lecture_id: str) -> Optional[Dict[str, Any]]:
     """Retrieve full text files and audio metadata for a specific lecture."""
-    cfg = get_current_config()
-    paths = cfg.get("paths", {})
-    search_dirs = [
-        Path(paths.get("archive_dir", "archive")),
-        Path(paths.get("work_dir", "work")),
-    ]
+    global _lecture_cache
+    if not _lecture_cache:
+        get_archived_lectures()
 
-    for base in search_dirs:
-        item = base / lecture_id
-        if item.is_dir():
-            summary_file = item / "03_summary.md"
-            cleaned_file = item / "02_cleaned.txt"
-            raw_file = item / "01_raw.txt"
+    target_dir = _lecture_cache.get(lecture_id)
+    if not target_dir or not target_dir.is_dir():
+        get_archived_lectures()
+        target_dir = _lecture_cache.get(lecture_id)
 
-            audio_file = None
-            for ext in [".opus", ".wav", ".mp3", ".m4a"]:
-                found = list(item.glob(f"*{ext}"))
-                if found:
-                    audio_file = found[0]
+    if not target_dir or not target_dir.is_dir():
+        cfg = get_current_config()
+        paths = cfg.get("paths", {})
+        for base in [Path(paths.get("work_dir", "work")), Path(paths.get("archive_dir", "archive"))]:
+            for p in base.rglob(lecture_id):
+                if p.is_dir():
+                    target_dir = p
                     break
+            if target_dir:
+                break
 
-            return {
-                "id": lecture_id,
-                "summary": summary_file.read_text(encoding="utf-8") if summary_file.is_file() else "",
-                "cleaned": cleaned_file.read_text(encoding="utf-8") if cleaned_file.is_file() else "",
-                "raw": raw_file.read_text(encoding="utf-8") if raw_file.is_file() else "",
-                "has_audio": audio_file is not None,
-                "audio_url": f"/api/audio/{lecture_id}" if audio_file else None,
-            }
+    if not target_dir or not target_dir.is_dir():
+        return None
 
+    summary_file = target_dir / "03_summary.md"
+    cleaned_file = target_dir / "02_cleaned.txt"
+    raw_file = target_dir / "01_raw.txt"
+    raw_ts_file = target_dir / "01_raw_timestamped.txt"
+    run_json = target_dir / "run.json"
+
+    audio_file = None
+    for ext in [".flac", ".opus", ".mp3", ".wav", ".m4a"]:
+        found = list(target_dir.glob(f"*{ext}"))
+        if found:
+            found.sort(key=lambda f: (not f.name.startswith("00_normalized"), f.name.startswith("chunk"), len(f.name)))
+            audio_file = found[0]
+            break
+
+    course_name = target_dir.parent.name if target_dir.parent.name not in ["work", "archive"] else target_dir.name
+    docs_url = _get_drive_link_from_logs(course_name) or _get_drive_link_from_logs(target_dir.name)
+
+    return {
+        "id": lecture_id,
+        "title": target_dir.name,
+        "course": course_name,
+        "path": str(target_dir.resolve()),
+        "summary": summary_file.read_text(encoding="utf-8") if summary_file.is_file() else "",
+        "cleaned": cleaned_file.read_text(encoding="utf-8") if cleaned_file.is_file() else "",
+        "raw": raw_ts_file.read_text(encoding="utf-8") if raw_ts_file.is_file() else (raw_file.read_text(encoding="utf-8") if raw_file.is_file() else ""),
+        "has_audio": audio_file is not None,
+        "audio_url": f"/api/audio/{lecture_id}" if audio_file else None,
+        "audio_path": str(audio_file.resolve()) if audio_file else None,
+        "docs_url": docs_url,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Native Windows Desktop Integration
+# ---------------------------------------------------------------------------
+
+def open_folder_in_desktop(folder_path: Path | str) -> bool:
+    """Open target folder in Windows File Explorer or create if not existing."""
+    p = Path(folder_path).resolve()
+    if not p.exists():
+        p.mkdir(parents=True, exist_ok=True)
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(p))
+            return True
+        elif sys.platform == "darwin":
+            subprocess.run(["open", str(p)])
+            return True
+        else:
+            subprocess.run(["xdg-open", str(p)])
+            return True
+    except Exception as e:
+        logging.getLogger("lecture_pipeline.gui").error(f"Failed to open folder {p}: {e}")
+        return False
+
+
+def open_file_in_desktop(file_path: Path | str) -> bool:
+    """Open target file using system default application."""
+    p = Path(file_path).resolve()
+    if not p.is_file():
+        return False
+    try:
+        if sys.platform == "win32":
+            os.startfile(str(p))
+            return True
+        elif sys.platform == "darwin":
+            subprocess.run(["open", str(p)])
+            return True
+        else:
+            subprocess.run(["xdg-open", str(p)])
+            return True
+    except Exception as e:
+        logging.getLogger("lecture_pipeline.gui").error(f"Failed to open file {p}: {e}")
+        return False
+
+
+def browse_folder_dialog(initial_dir: Optional[str] = None) -> Optional[str]:
+    """Launch native Windows directory selection dialog."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        selected = filedialog.askdirectory(
+            initialdir=initial_dir or os.getcwd(),
+            title="選擇資料夾路徑",
+        )
+        root.destroy()
+        return selected if selected else None
+    except Exception:
+        pass
+
+    try:
+        ps_cmd = (
+            "[System.Reflection.Assembly]::LoadWithPartialName('System.windows.forms') | Out-Null;"
+            "$dlg = New-Object System.Windows.Forms.FolderBrowserDialog;"
+            "$dlg.Description = '請選擇資料夾路徑';"
+            "if($dlg.ShowDialog() -eq 'OK'){$dlg.SelectedPath}"
+        )
+        res = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=20)
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except Exception:
+        pass
     return None
 
 
 # ---------------------------------------------------------------------------
-# Background Task Execution
+# Background Task Execution with Real Pause & Abort Controls
 # ---------------------------------------------------------------------------
 
 _processing_lock = threading.Lock()
-_current_task_info: Dict[str, Any] = {"running": False}
+_current_task_info: Dict[str, Any] = {
+    "running": False,
+    "paused": False,
+    "aborted": False,
+    "task_name": "",
+    "stage": "",
+    "progress": 0,
+    "detail": "",
+    "elapsed_seconds": 0,
+}
+_task_abort_event = threading.Event()
+_task_pause_event = threading.Event()
+
+
+def get_current_task_status() -> Dict[str, Any]:
+    global _current_task_info
+    with _processing_lock:
+        info = dict(_current_task_info)
+        if info.get("running") and "start_time" in info:
+            info["elapsed_seconds"] = int(time.time() - info["start_time"])
+        return info
 
 
 def is_processing_active() -> bool:
     return _current_task_info.get("running", False)
+
+
+def pause_processing_task() -> Dict[str, Any]:
+    global _current_task_info
+    with _processing_lock:
+        if not _current_task_info.get("running"):
+            return {"status": "error", "message": "目前無執行中的任務"}
+        new_paused = not _current_task_info.get("paused", False)
+        _current_task_info["paused"] = new_paused
+        if new_paused:
+            _task_pause_event.set()
+        else:
+            _task_pause_event.clear()
+
+    broadcaster.broadcast_sync({
+        "type": "task_pause_toggle",
+        "paused": new_paused,
+        "badge": "已暫停" if new_paused else "進行中",
+    })
+    return {"status": "ok", "paused": new_paused}
+
+
+def abort_processing_task() -> Dict[str, Any]:
+    global _current_task_info
+    with _processing_lock:
+        if not _current_task_info.get("running"):
+            return {"status": "error", "message": "目前無執行中的任務"}
+        _current_task_info["running"] = False
+        _current_task_info["aborted"] = True
+        _task_abort_event.set()
+
+    broadcaster.broadcast_sync({
+        "type": "task_aborted",
+        "detail": "任務已由使用者強制熔斷中止。已處理之中間進度保留於暫存目錄。",
+    })
+    return {"status": "ok", "message": "任務已強制熔斷中止"}
 
 
 def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bool:
@@ -444,9 +710,20 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
         if _current_task_info.get("running", False):
             return False
 
+        _task_abort_event.clear()
+        _task_pause_event.clear()
+        file_names = [f.name for f in audio_files]
+        primary_name = file_names[0] if file_names else "lecture.wav"
         _current_task_info = {
             "running": True,
-            "files": [f.name for f in audio_files],
+            "paused": False,
+            "aborted": False,
+            "task_name": primary_name,
+            "files": file_names,
+            "channel": channel_id,
+            "stage": "準備前處理",
+            "progress": 5,
+            "detail": f"開始處理音訊檔案：{', '.join(file_names)}",
             "start_time": time.time(),
         }
 
@@ -455,9 +732,11 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
         try:
             broadcaster.broadcast_sync({
                 "type": "progress",
+                "running": True,
+                "task_name": primary_name,
                 "progress": 5,
                 "stage": "準備前處理",
-                "detail": f"開始處理音訊檔案：{', '.join(f.name for f in audio_files)}",
+                "detail": f"開始處理音訊檔案：{', '.join(file_names)}",
             })
 
             cfg = get_current_config()
@@ -478,6 +757,7 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
 
             broadcaster.broadcast_sync({
                 "type": "progress",
+                "running": False,
                 "progress": 100,
                 "stage": "處理完成",
                 "detail": f"課堂已成功歸檔至 {out_dir.name}",
@@ -490,14 +770,72 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
         except Exception as e:
             broadcaster.broadcast_sync({
                 "type": "progress",
+                "running": False,
                 "progress": 0,
                 "stage": "處理失敗",
                 "detail": f"管線執行異常：{str(e)}",
             })
         finally:
             with _processing_lock:
-                _current_task_info = {"running": False}
+                _current_task_info = {"running": False, "paused": False, "aborted": False}
 
     th = threading.Thread(target=_worker, daemon=True)
     th.start()
     return True
+
+
+# ---------------------------------------------------------------------------
+# Glossary Management & PDF Extraction
+# ---------------------------------------------------------------------------
+
+def get_course_glossary_terms(course: str = "Discrete Mathematics") -> List[Dict[str, Any]]:
+    """Load extracted terms for course or default list."""
+    from lecture_pipeline.glossary import load_course_glossary
+    terms = load_course_glossary(course)
+    if not terms:
+        courses_dir = Path("courses")
+        if courses_dir.is_dir():
+            for c_dir in courses_dir.iterdir():
+                if c_dir.is_dir():
+                    c_terms = load_course_glossary(c_dir.name)
+                    if c_terms:
+                        terms = c_terms
+                        break
+
+    result: List[Dict[str, Any]] = []
+    for t in terms:
+        m = re.match(r"([A-Za-z0-9\s\-\_]+)\s*[\(（]([\u4e00-\u9fa5\s]+)[\)）]", t)
+        if m:
+            result.append({"term": m.group(1).strip(), "translation": m.group(2).strip()})
+        else:
+            result.append({"term": t, "translation": ""})
+    return result
+
+
+def get_available_courses() -> List[str]:
+    """Retrieve list of all courses configured under courses/ directory."""
+    courses_dir = Path("courses")
+    if not courses_dir.is_dir():
+        return ["Discrete Mathematics"]
+    courses = [p.name for p in courses_dir.iterdir() if p.is_dir() and not p.name.startswith(".")]
+    courses.sort()
+    return courses or ["Discrete Mathematics"]
+
+
+def extract_terms_from_uploaded_file(file_content: bytes, filename: str, course: str = "Discrete Mathematics") -> List[Dict[str, Any]]:
+    """Save temporary syllabus file, extract domain terms locally, and update course glossary."""
+    from lecture_pipeline.glossary import extract_terms_from_file, update_course_glossary
+
+    temp_dir = Path("courses") / course
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_file = temp_dir / filename
+    temp_file.write_bytes(file_content)
+
+    try:
+        extracted = extract_terms_from_file(temp_file)
+        if extracted:
+            update_course_glossary(course, extracted)
+        return get_course_glossary_terms(course)
+    except Exception as e:
+        logging.getLogger("lecture_pipeline.gui").error(f"Failed to extract glossary from {filename}: {e}")
+        return get_course_glossary_terms(course)

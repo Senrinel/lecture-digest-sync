@@ -12,15 +12,20 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from lecture_pipeline.gui.bridge import (
+    abort_processing_task,
     broadcaster,
+    browse_folder_dialog,
+    extract_terms_from_uploaded_file,
     get_archived_lectures,
+    get_available_courses,
+    get_course_glossary_terms,
     get_current_config,
     get_full_system_status,
     get_lecture_content,
@@ -28,6 +33,9 @@ from lecture_pipeline.gui.bridge import (
     get_timetable_rules,
     is_processing_active,
     is_watcher_paused,
+    open_file_in_desktop,
+    open_folder_in_desktop,
+    pause_processing_task,
     save_remembered_gui_mode,
     save_timetable_rules,
     set_watcher_paused,
@@ -88,6 +96,20 @@ class ProcessFileRequest(BaseModel):
 class ProcessFolderRequest(BaseModel):
     folderpath: str
     channel_id: Optional[str] = "C1"
+
+
+class OpenFolderRequest(BaseModel):
+    path: str
+
+
+class OpenFileRequest(BaseModel):
+    path: Optional[str] = None
+    lecture_id: Optional[str] = None
+    file_type: Optional[str] = "summary"
+
+
+class BrowseFolderRequest(BaseModel):
+    initial_dir: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -188,6 +210,23 @@ async def api_get_lecture_detail(lecture_id: str):
 @app.get("/api/audio/{lecture_id}")
 async def api_stream_audio(lecture_id: str):
     """Stream audio file for the dual sync player."""
+    content = get_lecture_content(lecture_id)
+    if content and content.get("audio_path"):
+        audio_p = Path(content["audio_path"])
+        if audio_p.is_file():
+            ext = audio_p.suffix.lower()
+            media_map = {
+                ".flac": "audio/flac",
+                ".opus": "audio/ogg",
+                ".ogg": "audio/ogg",
+                ".mp3": "audio/mpeg",
+                ".wav": "audio/wav",
+                ".m4a": "audio/mp4",
+                ".aac": "audio/aac",
+            }
+            media_type = media_map.get(ext, "application/octet-stream")
+            return FileResponse(str(audio_p), media_type=media_type)
+
     cfg = get_current_config()
     paths = cfg.get("paths", {})
     search_dirs = [
@@ -196,15 +235,96 @@ async def api_stream_audio(lecture_id: str):
     ]
 
     for base in search_dirs:
-        item = base / lecture_id
-        if item.is_dir():
-            for ext in [".opus", ".wav", ".mp3", ".m4a"]:
-                found = list(item.glob(f"*{ext}"))
-                if found:
-                    media_type = "audio/ogg" if ext == ".opus" else f"audio/{ext[1:]}"
-                    return FileResponse(str(found[0]), media_type=media_type)
+        for p in base.rglob(f"*{lecture_id}*"):
+            if p.is_dir():
+                for ext in [".flac", ".opus", ".mp3", ".wav", ".m4a"]:
+                    found = list(p.glob(f"*{ext}"))
+                    if found:
+                        media_type = "audio/ogg" if ext == ".opus" else f"audio/{ext[1:]}"
+                        return FileResponse(str(found[0]), media_type=media_type)
 
     raise HTTPException(status_code=404, detail="Audio file not found")
+
+
+@app.post("/api/task/pause")
+async def api_pause_task():
+    """Toggle current running task pause/resume state."""
+    return pause_processing_task()
+
+
+@app.post("/api/task/abort")
+async def api_abort_task():
+    """Force abort current running task."""
+    return abort_processing_task()
+
+
+@app.post("/api/system/open-folder")
+async def api_open_folder(req: OpenFolderRequest):
+    """Open folder in Windows File Explorer."""
+    ok = open_folder_in_desktop(req.path)
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"Cannot open folder: {req.path}")
+    return {"status": "ok", "path": req.path}
+
+
+@app.post("/api/system/open-file")
+async def api_open_file(req: OpenFileRequest):
+    """Open target note or summary file in default Windows application."""
+    target_path = None
+    if req.path:
+        target_path = Path(req.path)
+    elif req.lecture_id:
+        detail = get_lecture_content(req.lecture_id)
+        if detail and detail.get("path"):
+            base_dir = Path(detail["path"])
+            if req.file_type == "summary":
+                target_path = base_dir / "03_summary.md"
+            elif req.file_type == "cleaned":
+                target_path = base_dir / "02_cleaned.txt"
+            elif req.file_type == "raw":
+                target_path = base_dir / "01_raw_timestamped.txt"
+                if not target_path.is_file():
+                    target_path = base_dir / "01_raw.txt"
+            else:
+                target_path = base_dir
+
+    if not target_path or not target_path.exists():
+        raise HTTPException(status_code=404, detail="Target file or directory not found")
+
+    if target_path.is_dir():
+        ok = open_folder_in_desktop(target_path)
+    else:
+        ok = open_file_in_desktop(target_path)
+
+    if not ok:
+        raise HTTPException(status_code=500, detail=f"Cannot open: {target_path}")
+    return {"status": "ok", "path": str(target_path)}
+
+
+@app.post("/api/system/browse-folder")
+async def api_browse_folder(req: BrowseFolderRequest):
+    """Launch native directory picker dialog."""
+    selected = browse_folder_dialog(req.initial_dir)
+    if selected:
+        return {"status": "ok", "path": selected}
+    return {"status": "cancelled", "path": None}
+
+
+@app.get("/api/glossary")
+async def api_get_glossary(course: Optional[str] = None):
+    """Get domain terms for course along with list of all available courses."""
+    courses = get_available_courses()
+    selected_course = course or (courses[0] if courses else "Discrete Mathematics")
+    terms = get_course_glossary_terms(selected_course)
+    return {"status": "ok", "course": selected_course, "courses": courses, "terms": terms}
+
+
+@app.post("/api/glossary/upload-pdf")
+async def api_upload_pdf(file: UploadFile = File(...), course: str = Form("Discrete Mathematics")):
+    """Upload syllabus PDF/TXT and extract technical glossary terms."""
+    content = await file.read()
+    terms = extract_terms_from_uploaded_file(content, file.filename, course=course)
+    return {"status": "ok", "course": course, "terms": terms, "message": f"成功從 {file.filename} 萃取專有名詞"}
 
 
 @app.post("/api/process/upload")

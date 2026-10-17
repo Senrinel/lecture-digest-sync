@@ -348,3 +348,59 @@ def test_launcher_network_utils() -> None:
     # Test an unlikely used high port (e.g., 59123) is not in use
     in_use = is_port_in_use(59123)
     assert isinstance(in_use, bool)
+
+
+# ===========================================================================
+# 8. Task Control, System Desktop & Glossary API Tests
+# ===========================================================================
+
+def test_task_control_and_system_desktop_endpoints(isolated_gui_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify task pause/abort, folder opening, file opening, and glossary endpoints."""
+    client = TestClient(app)
+
+    # 1. Task control when idle
+    res = client.post("/api/task/pause")
+    assert res.status_code == 200
+    assert res.json()["status"] == "error"
+
+    res = client.post("/api/task/abort")
+    assert res.status_code == 200
+    assert res.json()["status"] == "error"
+
+    # 2. System folder open
+    # Mock open_folder_in_desktop so it doesn't pop up Explorer during test
+    monkeypatch.setattr("lecture_pipeline.gui.server.open_folder_in_desktop", lambda p: True)
+    monkeypatch.setattr("lecture_pipeline.gui.server.open_file_in_desktop", lambda p: True)
+    monkeypatch.setattr("lecture_pipeline.gui.server.browse_folder_dialog", lambda p: "C:/Mock/Path")
+
+    res = client.post("/api/system/open-folder", json={"path": str(isolated_gui_env / "inbox")})
+    assert res.status_code == 200
+    assert res.json()["status"] == "ok"
+
+    # 3. System file open
+    summary_dummy = isolated_gui_env / "summary.md"
+    summary_dummy.write_text("# Test Summary", encoding="utf-8")
+    res = client.post("/api/system/open-file", json={"path": str(summary_dummy)})
+    assert res.status_code == 200
+    assert res.json()["status"] == "ok"
+
+    # 4. Browse folder
+    res = client.post("/api/system/browse-folder", json={"initial_dir": "inbox"})
+    assert res.status_code == 200
+    assert res.json()["path"] == "C:/Mock/Path"
+
+    # 5. Glossary GET
+    res = client.get("/api/glossary?course=Discrete%20Mathematics")
+    assert res.status_code == 200
+    assert "terms" in res.json()
+
+    # 6. Glossary upload PDF / text
+    sample_text = b"Dijkstra's Algorithm (\xe6\x88\xb4\xe5\x85\x8b\xe6\x96\xaf\xe7\x89\xb9\xe6\x8b\x89) is a shortest path algorithm."
+    res = client.post(
+        "/api/glossary/upload-pdf",
+        files={"file": ("syllabus.txt", io.BytesIO(sample_text), "text/plain")},
+        data={"course": "Discrete Mathematics"},
+    )
+    assert res.status_code == 200
+    assert res.json()["status"] == "ok"
+    assert len(res.json()["terms"]) >= 1

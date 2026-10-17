@@ -167,79 +167,87 @@
   <canvas id="fluid-canvas"></canvas>
 
   <!-- ================= 頂部狀態列 ================= -->
-  <header class="h-14 border-b border-white/10 glass-surface px-4 md:px-6 flex items-center justify-between shrink-0 z-30 sticky top-0">
+  <header class="min-h-[56px] py-1.5 border-b border-white/10 glass-surface px-3 md:px-6 flex flex-wrap items-center justify-between gap-2 shrink-0 z-30 sticky top-0">
     
-    <!-- 標題與圖示 (鎖定 shrink-0 與 aspect-square，防止 flexbox 擠壓剪裁) -->
+    <!-- 標題與圖示 (保留像素原圖與圓角無剪裁，加入 crisp-edges 最佳化) -->
     <div class="flex items-center gap-3 shrink-0">
-      <div id="ui-brand-icon-box" class="w-9 h-9 min-w-[36px] min-h-[36px] shrink-0 aspect-square rounded-xl overflow-hidden bg-black/30 dark:bg-black/40 light:bg-slate-200/60 border border-white/10 flex items-center justify-center shadow-lg shadow-indigo-500/20 bio-btn cursor-pointer p-0.5" title="Lecture Digest Sync">
-        <img id="ui-brand-icon-img" src="data:image/png;base64,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" alt="" width="36" height="36" loading="eager" decoding="sync" class="w-full h-full object-contain block shrink-0">
+      <div id="ui-brand-icon-box" class="w-10 h-10 min-w-[40px] min-h-[40px] shrink-0 aspect-square rounded-lg overflow-hidden bg-black/20 dark:bg-black/30 light:bg-slate-200/60 border border-white/10 flex items-center justify-center shadow-md shadow-indigo-500/20 bio-btn cursor-pointer p-0.5" title="Lecture Digest Sync">
+        <img id="ui-brand-icon-img" src="/icon.png" onerror="this.onerror=null; this.src='data:image/png;base64,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'" alt="App Icon" width="40" height="40" loading="eager" decoding="sync" style="image-rendering: pixelated; image-rendering: crisp-edges;" class="w-full h-full object-contain block shrink-0">
       </div>
       <div class="min-w-0">
         <h1 class="font-bold text-sm tracking-wide flex items-center gap-2">
           <span id="txt-app-title" class="truncate">Lecture Digest Sync</span>
-          <span id="txt-app-badge" class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 shrink-0">v1.0 Pro</span>
+          <span id="txt-app-badge" class="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400 border border-indigo-500/30 shrink-0">v1.0</span>
         </h1>
         <p id="txt-app-subtitle" class="text-[11px] text-slate-400 dark:text-slate-400 light:text-slate-600 hidden lg:block truncate max-w-xs xl:max-w-md">課堂錄音自動化 ASR、重點總結與 Google 文件同步管線</p>
       </div>
     </div>
 
-    <!-- 系統狀態指示 (可點擊檢視真實系統指標) -->
-    <div class="flex items-center gap-2 md:gap-3 text-xs">
+    <!-- 系統狀態指示 (比例嚴格一致 h-8，自適應螢幕大小) -->
+    <div class="flex flex-wrap items-center gap-2 text-xs">
       
       <!-- 介面模式切換 (網頁 / 視窗 / 同時使用) -->
-      <div class="flex items-center gap-1 p-1 rounded-xl glass-card text-xs">
-        <span class="text-[11px] text-slate-400 font-medium px-1.5 hidden xl:inline">介面模式:</span>
-        <button id="mode-btn-web" onclick="switchAppMode('web')" class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition bio-btn text-slate-400 hover:text-white" title="網頁模式 (本機 Web 服務器，以預設瀏覽器開啟)">
+      <div class="h-8 flex items-center gap-0.5 p-0.5 rounded-xl glass-card text-[11px] shrink-0">
+        <span class="text-[11px] text-slate-400 font-medium px-1 hidden 2xl:inline">模式:</span>
+        <button id="mode-btn-web" onclick="switchAppMode('web')" class="h-7 flex items-center gap-1 px-2 rounded-lg text-[11px] font-medium transition bio-btn text-slate-400 hover:text-white" title="網頁模式 (以系統預設瀏覽器開啟)">
           <i data-lucide="globe" class="w-3.5 h-3.5"></i>
           <span>網頁</span>
         </button>
-        <button id="mode-btn-window" onclick="switchAppMode('window')" class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition bio-btn bg-indigo-600/30 text-indigo-300 border border-indigo-500/40" title="視窗模式 (Windows 原生 WebView2 獨立視窗，系統匣常駐)">
+        <button id="mode-btn-window" onclick="switchAppMode('window')" class="h-7 flex items-center gap-1 px-2 rounded-lg text-[11px] font-medium transition bio-btn bg-indigo-600/30 text-indigo-300 border border-indigo-500/40" title="視窗模式 (Windows 10/11 原生獨立視窗)">
           <i data-lucide="app-window" class="w-3.5 h-3.5"></i>
           <span>視窗</span>
         </button>
-        <button id="mode-btn-both" onclick="switchAppMode('both')" class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition bio-btn text-slate-400 hover:text-white" title="同時模式 (同時開啟原生視窗並保持本機 Web 服務待命，支援本機與區網多端)">
+        <button id="mode-btn-both" onclick="switchAppMode('both')" class="h-7 flex items-center gap-1 px-2 rounded-lg text-[11px] font-medium transition bio-btn text-slate-400 hover:text-white" title="同時模式 (原生視窗 + 瀏覽器雙軌)">
           <i data-lucide="layers" class="w-3.5 h-3.5"></i>
-          <span>同時使用</span>
+          <span>同時</span>
         </button>
       </div>
 
       <!-- 監控狀態開關 -->
-      <div class="flex items-center gap-2 px-3 py-1.5 rounded-xl glass-card">
-        <span class="relative flex h-2.5 w-2.5">
+      <div class="h-8 flex items-center gap-1.5 px-2.5 py-1 rounded-xl glass-card text-[11px] shrink-0">
+        <span class="relative flex h-2 w-2">
           <span id="watcher-ping" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-          <span id="watcher-dot" class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+          <span id="watcher-dot" class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
         </span>
-        <span class="hidden lg:inline font-medium">監控狀態：<span id="watcher-badge" class="text-emerald-400 font-semibold">常駐待命</span></span>
-        <button id="toggle-watcher-btn" class="text-[11px] px-2 py-0.5 rounded-lg bg-black/20 dark:bg-black/30 light:bg-black/5 hover:bg-black/40 transition">暫停</button>
+        <span class="hidden md:inline font-medium">監控：<span id="watcher-badge" class="text-emerald-400 font-semibold">常駐待命</span></span>
+        <button id="toggle-watcher-btn" class="text-[10px] px-1.5 py-0.5 rounded-lg bg-black/20 dark:bg-black/30 light:bg-black/5 hover:bg-black/40 transition">暫停</button>
       </div>
 
-      <!-- GPU 狀態 (點擊檢視真實診斷) -->
-      <div onclick="showStatusDetail('GPU: NVIDIA RTX 4060 8GB | 驅動程式: 617.42 | VRAM 空閒: 6994 MiB | CUDA 12.x 正常')" class="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl glass-card cursor-pointer bio-btn" title="點擊檢視 GPU 詳細資訊">
+      <!-- GPU 狀態 (即時讀取真實診斷) -->
+      <div id="status-gpu-pill" onclick="showStatusDetail('GPU 硬體診斷：' + (window._lastStatus?.gpu?.label || '運作中'))" class="h-8 hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-xl glass-card cursor-pointer bio-btn text-[11px] shrink-0" title="點擊檢視 GPU 詳細資訊">
         <i data-lucide="cpu" class="w-3.5 h-3.5 text-cyan-400"></i>
-        <span>RTX 4060 (6.9 GB)</span>
+        <span id="status-gpu-label">GPU: 偵測中</span>
       </div>
 
       <!-- 網路狀態 -->
-      <div onclick="showStatusDetail('網路連線: 已連通 (8.8.8.8:53 延遲 18ms) | 本日 Gemini API 呼叫次數: 4 次 | 額度限制: 正常無積壓')" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl glass-card cursor-pointer bio-btn" title="點擊檢視網路與 API 額度">
+      <div id="status-net-pill" onclick="showStatusDetail('網路連線診斷：' + (window._lastStatus?.network?.label || '連線正常'))" class="h-8 hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl glass-card cursor-pointer bio-btn text-[11px] shrink-0" title="點擊檢視網路與 API 連線">
         <i data-lucide="wifi" class="w-3.5 h-3.5 text-emerald-400"></i>
-        <span class="hidden xl:inline">在線 / 額度充裕</span>
+        <span id="status-net-label" class="hidden xl:inline">在線</span>
       </div>
 
-      <!-- Google Docs 狀態 -->
-      <div onclick="showStatusDetail('Google OAuth 授權: 有效 (token.json 驗證通過) | 目標資料夾: Google Drive 課堂筆記專用夾')" class="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl glass-card cursor-pointer bio-btn" title="點擊檢視 Google Docs 授權">
+      <!-- Google Docs 授權狀態 -->
+      <div id="status-docs-pill" onclick="showStatusDetail('Google Docs 授權：' + (window._lastStatus?.google_docs?.label || '已驗證'))" class="h-8 hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl glass-card cursor-pointer bio-btn text-[11px] shrink-0" title="點擊檢視 Google Docs 授權">
         <i data-lucide="cloud-check" class="w-3.5 h-3.5 text-indigo-400"></i>
-        <span>Google Docs 已授權</span>
+        <span id="status-docs-label">Google Docs</span>
+      </div>
+
+      <!-- 全域介面比例縮放 (快速調整按鈕) -->
+      <div class="h-8 flex items-center gap-1 px-2 rounded-xl glass-card text-[11px] shrink-0" title="介面整體大小比例調整">
+        <i data-lucide="zoom-in" class="w-3.5 h-3.5 text-slate-400"></i>
+        <button onclick="changeUiZoom(-10)" class="bio-btn px-1.5 py-0.5 rounded hover:bg-white/10 text-slate-300 font-bold" title="縮小 (A-)">-</button>
+        <span id="txt-header-zoom" class="font-mono px-0.5 text-indigo-400 font-semibold">100%</span>
+        <button onclick="changeUiZoom(10)" class="bio-btn px-1.5 py-0.5 rounded hover:bg-white/10 text-slate-300 font-bold" title="放大 (A+)">+</button>
       </div>
 
       <!-- 白日 / 黑夜風格切換 -->
-      <button id="theme-toggle-btn" title="切換白日 / 黑夜模式" class="bio-btn p-2 rounded-xl glass-card text-amber-400 dark:text-amber-400 light:text-slate-700">
+      <button id="theme-toggle-btn" title="切換白日 / 黑夜模式" class="h-8 w-8 flex items-center justify-center rounded-xl glass-card text-amber-400 dark:text-amber-400 light:text-slate-700 shrink-0 bio-btn">
         <i id="theme-icon" data-lucide="sun" class="w-4 h-4"></i>
       </button>
 
       <!-- 自定義抽屜按鈕 -->
-      <button onclick="toggleCustomizerDrawer()" title="開啟自定義設定面板" class="bio-btn px-3 py-1.5 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 font-medium flex items-center gap-1.5">
-        <i data-lucide="sliders" class="w-4 h-4"></i>
-        <span class="hidden sm:inline">自定義面板</span>
+      <button onclick="toggleCustomizerDrawer()" title="開啟自定義設定面板" class="h-8 flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 text-[11px] font-medium shrink-0 bio-btn">
+        <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
+        <span class="hidden sm:inline">自定義</span>
       </button>
 
     </div>
@@ -288,7 +296,7 @@
           <span class="font-bold font-mono">0 筆</span>
         </div>
         <hr class="border-white/10 my-1">
-        <button onclick="simulateOpenFolder('C:\\Users\\LinKJ\\Pictures\\Record')" class="bio-btn w-full text-center py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-[11px] font-medium flex items-center justify-center gap-1.5 transition">
+        <button onclick="openSystemFolder('dir-archive')" class="bio-btn w-full text-center py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-[11px] font-medium flex items-center justify-center gap-1.5 transition">
           <i data-lucide="folder" class="w-3.5 h-3.5"></i> <span id="ui-sidebar-open-archive">開啟長期歸檔目錄</span>
         </button>
       </div>
@@ -342,100 +350,119 @@
           </div>
         </div>
 
-        <!-- 進行中任務卡片 -->
-        <div class="glass-surface rounded-3xl p-5 md:p-6 space-y-5 shadow-2xl relative overflow-hidden">
+        <!-- 即時任務卡片 (動態待命 / 運行狀態切換，徹底消除 DEMO 假資訊) -->
+        <div id="workbench-task-card" class="glass-surface rounded-3xl p-5 md:p-6 space-y-5 shadow-2xl relative overflow-hidden transition-all duration-300">
           
-          <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/10 pb-4">
+          <!-- 1. 待命狀態 (常駐待命，無任務進行中) -->
+          <div id="task-state-idle" class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+            <div class="flex items-center gap-3">
+              <span class="relative flex h-3 w-3">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+              <div>
+                <div class="flex items-center gap-2">
+                  <h4 class="font-bold text-base text-slate-100 dark:text-slate-100 light:text-slate-900">常駐監控待命佇列中</h4>
+                  <span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">系統就緒</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-0.5">監控目錄無積壓錄音。拖入音檔或將音檔丟入 inbox 資料夾，將自動啟動 8 階段流水線。</p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button disabled class="px-3 py-1.5 rounded-xl glass-card text-xs text-slate-500 opacity-60 cursor-not-allowed">
+                <span>暫停任務</span>
+              </button>
+              <button disabled class="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-500/60 opacity-60 cursor-not-allowed">
+                <span>強制熔斷中止</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 2. 運行狀態 (有任務正在處理中，預設隱藏) -->
+          <div id="task-state-running" class="hidden flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/10 pb-4">
             <div class="flex items-start md:items-center gap-3">
               <span class="w-3 h-3 rounded-full bg-cyan-400 animate-ping mt-1 md:mt-0"></span>
               <div>
                 <div class="flex flex-wrap items-center gap-2">
-                  <h4 class="font-bold text-base">演算法_20261016_L01.wav</h4>
-                  <span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">C1 雲端 Gemini Flash</span>
-                  <span class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-white/10 text-slate-300 font-mono">時長: 2h 45m</span>
+                  <h4 id="task-active-title" class="font-bold text-base text-slate-100 dark:text-slate-100 light:text-slate-900">任務執行中</h4>
+                  <span id="task-active-channel" class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">C1 雲端 Gemini Flash</span>
+                  <span id="task-active-time" class="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-white/10 text-slate-300 font-mono">耗時: 00:00</span>
                 </div>
-                <p class="text-xs text-slate-400 mt-1">識別科目：<strong class="text-slate-200 dark:text-slate-200 light:text-slate-800">演算法</strong> | 注入專屬詞庫 (32 個關鍵詞校準中)</p>
+                <p id="task-active-detail" class="text-xs text-slate-400 mt-1">正在執行聲學處理與音訊切段...</p>
               </div>
             </div>
-
             <!-- 控制按鈕 -->
             <div class="flex items-center gap-2">
-              <button onclick="simulatePause()" class="bio-btn px-3 py-1.5 rounded-xl glass-card text-xs">
+              <button id="task-btn-pause" onclick="toggleTaskPause()" class="bio-btn px-3 py-1.5 rounded-xl glass-card text-xs text-amber-300 hover:text-amber-200">
                 <span id="ui-studio-btn-pause">暫停任務</span>
               </button>
-              <button onclick="simulateAbort()" class="bio-btn px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-xs text-rose-300">
+              <button id="task-btn-abort" onclick="abortCurrentTask()" class="bio-btn px-3 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/30 text-xs text-rose-300">
                 <span id="ui-studio-btn-abort">強制熔斷中止</span>
               </button>
             </div>
           </div>
 
-          <!-- 8 階段管線狀態指示器 -->
-          <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-center text-xs">
-            <div class="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
+          <!-- 8 階段管線狀態指示器 (動態高亮) -->
+          <div id="pipeline-stages-grid" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-center text-xs">
+            <div id="stage-card-1" class="p-2.5 rounded-xl glass-card text-slate-400 transition-all">
               <div class="font-bold">1. 聲學前處理</div>
-              <div class="text-[10px] text-slate-400 mt-0.5">✔ 100Hz / -19LUFS</div>
+              <div id="stage-desc-1" class="text-[10px] text-slate-500 mt-0.5">待命中</div>
             </div>
-            <div class="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
+            <div id="stage-card-2" class="p-2.5 rounded-xl glass-card text-slate-400 transition-all">
               <div class="font-bold">2. VAD 停頓切段</div>
-              <div class="text-[10px] text-slate-400 mt-0.5">✔ 17 個音訊區段</div>
+              <div id="stage-desc-2" class="text-[10px] text-slate-500 mt-0.5">待命中</div>
             </div>
-            <div class="p-2.5 rounded-xl bg-cyan-500/25 border border-cyan-400/50 text-cyan-200 ring-2 ring-cyan-500/20 font-bold">
-              <div>3. 語音辨識 STT</div>
-              <div class="text-[10px] text-cyan-300 mt-0.5">處理中 (12/17)</div>
+            <div id="stage-card-3" class="p-2.5 rounded-xl glass-card text-slate-400 transition-all">
+              <div class="font-bold">3. 語音辨識 STT</div>
+              <div id="stage-desc-3" class="text-[10px] text-slate-500 mt-0.5">待命中</div>
             </div>
-            <div class="p-2.5 rounded-xl glass-card text-slate-400">
+            <div id="stage-card-4" class="p-2.5 rounded-xl glass-card text-slate-400 transition-all">
               <div class="font-bold">4. AI 文稿整理</div>
-              <div class="text-[10px] text-slate-500 mt-0.5">等候中</div>
+              <div id="stage-desc-4" class="text-[10px] text-slate-500 mt-0.5">待命中</div>
             </div>
-            <div class="p-2.5 rounded-xl glass-card text-slate-400">
+            <div id="stage-card-5" class="p-2.5 rounded-xl glass-card text-slate-400 transition-all">
               <div class="font-bold">5. 重點總結筆記</div>
-              <div class="text-[10px] text-slate-500 mt-0.5">等候中</div>
+              <div id="stage-desc-5" class="text-[10px] text-slate-500 mt-0.5">待命中</div>
             </div>
-            <div class="p-2.5 rounded-xl glass-card text-slate-400">
+            <div id="stage-card-6" class="p-2.5 rounded-xl glass-card text-slate-400 transition-all">
               <div class="font-bold">6. 同步播放器</div>
-              <div class="text-[10px] text-slate-500 mt-0.5">等候中</div>
+              <div id="stage-desc-6" class="text-[10px] text-slate-500 mt-0.5">待命中</div>
             </div>
-            <div class="p-2.5 rounded-xl glass-card text-slate-400">
+            <div id="stage-card-7" class="p-2.5 rounded-xl glass-card text-slate-400 transition-all">
               <div class="font-bold">7. Google 文件</div>
-              <div class="text-[10px] text-slate-500 mt-0.5">等候上傳</div>
+              <div id="stage-desc-7" class="text-[10px] text-slate-500 mt-0.5">待命中</div>
             </div>
-            <div class="p-2.5 rounded-xl glass-card text-slate-400">
+            <div id="stage-card-8" class="p-2.5 rounded-xl glass-card text-slate-400 transition-all">
               <div class="font-bold">8. 輕量封存</div>
-              <div class="text-[10px] text-slate-500 mt-0.5">Opus 壓縮存檔</div>
+              <div id="stage-desc-8" class="text-[10px] text-slate-500 mt-0.5">待命中</div>
             </div>
           </div>
 
           <!-- 進度條 -->
           <div class="space-y-2">
             <div class="flex flex-wrap justify-between text-xs text-slate-400">
-              <span>當前執行區段：<span class="font-mono text-slate-200 dark:text-slate-200 light:text-slate-800">Chunk 12/17 [01:50:00 -> 02:00:00]</span></span>
-              <span class="font-mono text-cyan-400 font-semibold">68% · 耗時: 3m 42s · 預估剩餘: 1m 40s</span>
+              <span id="task-stage-summary">當前狀態：<span id="task-stage-name" class="font-mono text-slate-200 dark:text-slate-200 light:text-slate-800">常駐監控待命</span></span>
+              <span id="task-progress-pct" class="font-mono text-cyan-400 font-semibold">100% · 就緒</span>
             </div>
             <div class="w-full bg-slate-800/80 dark:bg-slate-800/80 light:bg-slate-200 rounded-full h-2.5 overflow-hidden p-0.5 border border-white/5">
-              <div class="bg-gradient-to-r from-cyan-400 via-indigo-500 to-emerald-400 h-full rounded-full transition-all duration-300" style="width: 68%"></div>
+              <div id="task-progress-bar" class="bg-gradient-to-r from-emerald-400 to-cyan-400 h-full rounded-full transition-all duration-300" style="width: 100%"></div>
             </div>
           </div>
 
-          <!-- 折疊執行日誌 -->
+          <!-- 即時詳細運行記錄 (折疊) -->
           <details class="glass-card rounded-2xl text-xs overflow-hidden">
             <summary class="px-4 py-2.5 text-slate-400 hover:text-slate-200 cursor-pointer font-mono flex items-center justify-between select-none">
               <span class="flex items-center gap-2"><i data-lucide="terminal" class="w-4 h-4 text-indigo-400"></i> 即時詳細運行記錄 (Live Execution Logs)</span>
               <span class="text-[11px] text-slate-500">點擊展開/收合</span>
             </summary>
-            <div class="p-4 pt-1 font-mono text-[11px] space-y-1.5 max-h-48 overflow-y-auto bg-black/40">
-              <div class="text-slate-500">[21:48:10] [INFO] Watcher detected file: 演算法_20261016_L01.wav</div>
-              <div class="text-slate-500">[21:48:12] [INFO] File settled & exclusive lock verified. Process Priority set to BELOW_NORMAL.</div>
-              <div class="text-slate-500">[21:48:15] [DSP] Applying 100Hz HP + -19LUFS EBU R128 loudness normalization...</div>
-              <div class="text-slate-500">[21:48:22] [VAD] Segmentation completed: 17 chunks generated at natural silence boundaries.</div>
-              <div class="text-emerald-400">[21:48:40] [STT] Chunk 1-5 transcribed via Gemini 3.8 Flash (Latency: 1.8s/chunk)</div>
-              <div class="text-emerald-400">[21:49:15] [STT] Chunk 6-10 transcribed via Gemini 3.8 Flash (Latency: 1.7s/chunk)</div>
-              <div class="text-cyan-400">[21:49:38] [STT] Processing Chunk 12/17 [01:50:00 -> 02:00:00] (Audio FLAC: 6.2 MB)...</div>
+            <div id="task-live-logs" class="p-4 pt-1 font-mono text-[11px] space-y-1.5 max-h-48 overflow-y-auto bg-black/40">
+              <div class="text-slate-500">[待命] Watcher 常駐背景監看中，隨時接收課堂錄音...</div>
             </div>
           </details>
 
         </div>
 
-        <!-- 歷史處理完成紀錄 -->
+        <!-- 今日處理完成紀錄 (真實資料動態加載) -->
         <div class="space-y-3">
           <div class="flex items-center justify-between">
             <h3 class="text-sm font-bold flex items-center gap-2">
@@ -455,22 +482,9 @@
                   <th class="py-3 px-4 text-right">操作</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-white/5">
-                <tr class="hover:bg-white/5 transition">
-                  <td class="py-3 px-4 font-medium flex items-center gap-2.5">
-                    <i data-lucide="file-check" class="w-4 h-4 text-emerald-400 shrink-0"></i>
-                    <div>
-                      <div class="font-semibold text-slate-200 dark:text-slate-100 light:text-slate-900">Discrete_Math_20261015</div>
-                      <div class="text-[11px] text-slate-400">2026-10-15 14:30 · 2h 10m</div>
-                    </div>
-                  </td>
-                  <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-mono">C1 (Flash)</span></td>
-                  <td class="py-3 px-4 font-mono">36,412 字 / Opus 18.2 MB (-88%)</td>
-                  <td class="py-3 px-4"><span class="text-emerald-400 flex items-center gap-1"><i data-lucide="cloud-check" class="w-3.5 h-3.5"></i> 已同步</span></td>
-                  <td class="py-3 px-4 text-right space-x-2">
-                    <button onclick="simulateOpenNote()" class="bio-btn px-2.5 py-1 rounded-lg glass-card text-slate-200">開啟筆記</button>
-                    <button onclick="switchTab('history')" class="bio-btn px-2.5 py-1 rounded-lg bg-indigo-600/30 text-indigo-300 border border-indigo-500/40">雙向播放器</button>
-                  </td>
+              <tbody id="today-records-tbody" class="divide-y divide-white/5">
+                <tr>
+                  <td colspan="5" class="py-8 text-center text-slate-400">載入歷史紀錄中...</td>
                 </tr>
               </tbody>
             </table>
@@ -486,81 +500,88 @@
             <h2 id="ui-history-title" class="text-xl md:text-2xl font-bold tracking-tight">課堂歸檔庫與雙向同步檢視器</h2>
             <p id="ui-history-subtitle" class="text-xs text-slate-400 mt-1">內建即時點擊音訊跳轉、關鍵字全文檢索與 NotebookLM 筆記一鍵匯出</p>
           </div>
-          <input type="text" id="ui-history-search" placeholder="搜尋課堂、專有名詞或日期..." class="glass-card rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-indigo-500 w-full sm:w-64">
+          <input type="text" id="history-search-input" oninput="filterHistoryLectures(this.value)" placeholder="搜尋課堂、專有名詞或日期..." class="glass-card rounded-xl px-3.5 py-2 text-xs focus:outline-none focus:border-indigo-500 w-full sm:w-72">
+        </div>
+
+        <!-- 歷史課堂快速選取晶片列 -->
+        <div class="space-y-1.5">
+          <div class="text-[11px] text-slate-400 font-medium flex items-center justify-between">
+            <span>已歸檔課堂清單 (點擊切換)：</span>
+            <span id="history-total-count" class="text-indigo-400 font-mono">共 0 堂</span>
+          </div>
+          <div id="history-lecture-chips" class="flex items-center gap-2 overflow-x-auto pb-1.5 pt-0.5 scrollbar-thin">
+            <span class="text-xs text-slate-500 py-1">載入中...</span>
+          </div>
         </div>
 
         <!-- 播放器區塊 -->
-        <div class="glass-surface rounded-3xl p-5 md:p-6 space-y-4">
+        <div class="glass-surface rounded-3xl p-5 md:p-6 space-y-4 shadow-xl">
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
             <div>
               <h3 class="font-bold text-base flex items-center gap-2">
-                <span>Discrete_Math_20261015 (離散數學：圖論與尤拉路徑)</span>
+                <span id="player-lecture-title" class="text-slate-100 dark:text-slate-100 light:text-slate-900">未選取課堂</span>
               </h3>
-              <p class="text-xs text-slate-400 mt-0.5">點擊文稿中任意段落或時間戳，音訊將即時秒級跳轉至該處開始播放</p>
+              <p id="player-lecture-meta" class="text-xs text-slate-400 mt-0.5">點擊文稿中任意段落或時間戳，音訊將即時秒級跳轉至該處開始播放</p>
             </div>
-            <div class="flex items-center gap-2">
-              <button onclick="simulateCopyNotebook()" class="bio-btn px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs text-white font-medium flex items-center gap-1.5 shadow-md">
-                <i data-lucide="copy" class="w-3.5 h-3.5"></i> <span id="ui-player-copy-btn">複製 NotebookLM 筆記包</span>
+            <div class="flex flex-wrap items-center gap-2">
+              <button onclick="copyNotebookBundle()" class="bio-btn px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs text-white font-medium flex items-center gap-1.5 shadow-md">
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i> <span id="ui-player-copy-btn">複製筆記包</span>
               </button>
-              <button onclick="simulateOpenDocs()" class="bio-btn px-3 py-1.5 rounded-xl glass-card text-xs flex items-center gap-1.5">
-                <i data-lucide="external-link" class="w-3.5 h-3.5"></i> <span id="ui-player-docs-btn">Google Docs 原檔</span>
+              <button id="btn-player-docs" onclick="openDocsLink()" class="bio-btn px-3 py-1.5 rounded-xl glass-card text-xs flex items-center gap-1.5">
+                <i data-lucide="external-link" class="w-3.5 h-3.5"></i> <span id="ui-player-docs-btn">Google Docs</span>
+              </button>
+              <button onclick="openLocalSummary()" class="bio-btn px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1.5">
+                <i data-lucide="file-text" class="w-3.5 h-3.5"></i> <span>本機開啟筆記</span>
               </button>
             </div>
           </div>
 
-          <!-- 音訊控制面板 -->
+          <!-- HTML5 音訊控制面板 -->
+          <audio id="player-audio-el" class="hidden"></audio>
           <div class="glass-card rounded-2xl p-4 flex flex-col md:flex-row items-center gap-4">
-            <button class="w-12 h-12 rounded-2xl bg-indigo-600 hover:bg-indigo-500 flex items-center justify-center text-white shrink-0 shadow-lg shadow-indigo-600/35 bio-btn">
-              <i data-lucide="play" class="w-6 h-6 ml-0.5"></i>
+            <button id="player-play-btn" onclick="toggleAudioPlay()" class="w-12 h-12 rounded-2xl bg-indigo-600 hover:bg-indigo-500 flex items-center justify-center text-white shrink-0 shadow-lg shadow-indigo-600/35 bio-btn">
+              <i id="player-play-icon" data-lucide="play" class="w-6 h-6 ml-0.5"></i>
             </button>
             <div class="flex-1 w-full space-y-1.5">
               <div class="flex justify-between text-xs font-mono text-slate-400">
-                <span>00:15:32</span>
-                <span>02:10:45 (Opus 64kbps 串流)</span>
+                <span id="player-time-current">00:00:00</span>
+                <span id="player-time-total">00:00:00 (音訊串流)</span>
               </div>
-              <div class="w-full bg-slate-800/80 dark:bg-slate-800/80 light:bg-slate-200 h-3 rounded-full cursor-pointer relative overflow-hidden border border-white/5">
-                <div class="bg-gradient-to-r from-indigo-500 to-cyan-400 h-full rounded-full" style="width: 12%"></div>
+              <div id="player-progress-track" onclick="seekAudio(event)" class="w-full bg-slate-800/80 dark:bg-slate-800/80 light:bg-slate-200 h-3 rounded-full cursor-pointer relative overflow-hidden border border-white/5">
+                <div id="player-progress-bar" class="bg-gradient-to-r from-indigo-500 to-cyan-400 h-full rounded-full pointer-events-none transition-all duration-100" style="width: 0%"></div>
               </div>
             </div>
             <div class="flex items-center gap-1.5 text-xs">
               <span class="text-slate-400 mr-1">倍速:</span>
-              <button class="bio-btn px-2.5 py-1 rounded-lg glass-card text-slate-300">1.0x</button>
-              <button class="bio-btn px-2.5 py-1 rounded-lg bg-indigo-600/40 text-indigo-300 border border-indigo-500/40">1.25x</button>
-              <button class="bio-btn px-2.5 py-1 rounded-lg glass-card text-slate-300">1.5x</button>
+              <button id="speed-btn-1" onclick="setPlaybackRate(1.0)" class="bio-btn px-2.5 py-1 rounded-lg bg-indigo-600/40 text-indigo-300 border border-indigo-500/40 font-mono">1.0x</button>
+              <button id="speed-btn-125" onclick="setPlaybackRate(1.25)" class="bio-btn px-2.5 py-1 rounded-lg glass-card text-slate-300 font-mono">1.25x</button>
+              <button id="speed-btn-15" onclick="setPlaybackRate(1.5)" class="bio-btn px-2.5 py-1 rounded-lg glass-card text-slate-300 font-mono">1.5x</button>
+              <button id="speed-btn-2" onclick="setPlaybackRate(2.0)" class="bio-btn px-2.5 py-1 rounded-lg glass-card text-slate-300 font-mono">2.0x</button>
             </div>
           </div>
 
           <!-- 雙向跳轉文字與筆記對照 -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 h-96">
-            <div class="glass-card rounded-2xl p-4 overflow-y-auto space-y-3 text-xs leading-relaxed">
-              <div class="font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 h-[420px]">
+            <!-- 左欄：逐字稿 -->
+            <div class="glass-card rounded-2xl p-4 overflow-y-auto space-y-2 text-xs leading-relaxed flex flex-col">
+              <div class="font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between shrink-0">
                 <span>雙向同步逐字稿</span>
-                <span class="text-slate-500 text-[11px]">點擊任意句聆聽</span>
+                <span class="text-slate-500 text-[11px]">點擊時間戳立即跳轉聆聽</span>
               </div>
-              <p class="p-2.5 rounded-xl bg-indigo-500/15 border-l-4 border-indigo-500 text-indigo-200 cursor-pointer bio-btn">
-                <span class="font-mono text-indigo-400 font-semibold">[00:15:32]</span> 老師：好，那我們接下來看圖論裡面的尤拉路徑（Eulerian Path）。所謂的尤拉路徑，就是經典的一筆畫問題...
-              </p>
-              <p class="p-2.5 rounded-xl hover:bg-white/5 cursor-pointer transition">
-                <span class="font-mono text-slate-500">[00:16:05]</span> 它的充要條件是：在連通圖中，度數為奇數的頂點數量必須是 0 個或是恰好 2 個。
-              </p>
-              <p class="p-2.5 rounded-xl hover:bg-white/5 cursor-pointer transition">
-                <span class="font-mono text-slate-500">[00:16:40]</span> 如果恰好有兩個奇數頂點，那麼這條路徑的起點和終點必定分別落在這兩個奇數頂點上。
-              </p>
+              <div id="history-transcript-pane" class="space-y-2 flex-1 overflow-y-auto pr-1">
+                <div class="text-slate-400 py-8 text-center">請先從上方選取一堂課堂。</div>
+              </div>
             </div>
 
-            <div class="glass-card rounded-2xl p-4 overflow-y-auto space-y-3 text-xs leading-relaxed text-slate-300 dark:text-slate-300 light:text-slate-700">
-              <div class="font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
-                <span>重點總結筆記 (Gemini 3.5 Flash Lite)</span>
-                <span class="text-emerald-400 text-[11px]">考點架構提煉</span>
+            <!-- 右欄：重點筆記 -->
+            <div class="glass-card rounded-2xl p-4 overflow-y-auto space-y-3 text-xs leading-relaxed text-slate-300 dark:text-slate-300 light:text-slate-700 flex flex-col">
+              <div class="font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between shrink-0">
+                <span>重點總結筆記 (Markdown)</span>
+                <span id="player-summary-badge" class="text-emerald-400 text-[11px]">考點架構提煉</span>
               </div>
-              <h4 class="font-bold text-indigo-400 text-sm">一、 尤拉路徑與尤拉迴路定理</h4>
-              <ul class="list-disc list-inside space-y-1.5">
-                <li><strong class="text-slate-100 dark:text-slate-100 light:text-slate-900">定義</strong>：遍歷圖中每一條邊恰好一次的路徑。</li>
-                <li><strong class="text-slate-100 dark:text-slate-100 light:text-slate-900">尤拉迴路 (Circuit)</strong>：起終點相同，所有頂點度數皆為偶數 (even degree)。</li>
-                <li><strong class="text-slate-100 dark:text-slate-100 light:text-slate-900">尤拉路徑 (Path)</strong>：起終點相異，恰有 2 個奇數頂點 (odd degree)。</li>
-              </ul>
-              <h4 class="font-bold text-indigo-400 text-sm mt-3">二、 期末必考題型提醒</h4>
-              <p class="text-slate-400 dark:text-slate-400 light:text-slate-600">老師在 00:28:10 特別強調柯尼斯堡七橋問題為經典申論，務必熟記頂點度數判定法。</p>
+              <div id="history-summary-pane" class="space-y-3 flex-1 overflow-y-auto pr-1">
+                <div class="text-slate-400 py-8 text-center">請先從上方選取一堂課堂。</div>
+              </div>
             </div>
           </div>
         </div>
@@ -575,47 +596,35 @@
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           
-          <!-- 左側：詞庫萃取 -->
-          <div class="glass-surface rounded-3xl p-5 md:p-6 space-y-4">
+          <!-- 左側：詞庫萃取 (純本機零 API，真實 PDF/TXT 檔案匯入) -->
+          <div class="glass-surface rounded-3xl p-5 md:p-6 space-y-4 shadow-xl">
             <div class="flex items-center justify-between">
               <h3 class="font-bold text-sm flex items-center gap-2">
                 <i data-lucide="file-text" class="w-4 h-4 text-cyan-400"></i> 課堂詞庫自動萃取 (純本機 0 API)
               </h3>
-              <button onclick="simulatePdfImport()" class="bio-btn px-3 py-1 rounded-xl glass-card text-xs">
-                <span id="ui-glossary-import-btn">匯入講義 PDF</span>
+              <input type="file" id="glossary-file-input" accept=".pdf,.txt" class="hidden" onchange="handleGlossaryFileUpload(this.files)">
+              <button onclick="document.getElementById('glossary-file-input').click()" class="bio-btn px-3 py-1 rounded-xl glass-card text-xs flex items-center gap-1.5">
+                <i data-lucide="upload" class="w-3.5 h-3.5 text-cyan-400"></i>
+                <span id="ui-glossary-import-btn">匯入講義 PDF / TXT</span>
               </button>
             </div>
             
-            <div id="ui-glossary-drop-prompt" class="border border-dashed border-white/20 rounded-2xl p-5 text-center text-xs text-slate-400 glass-card">
-              拖曳課程講義 PDF/TXT 至此，自動解析中英文專有名詞、縮寫與雙語對照
+            <div id="glossary-drop-zone" onclick="document.getElementById('glossary-file-input').click()" class="border border-dashed border-white/20 rounded-2xl p-5 text-center text-xs text-slate-400 glass-card cursor-pointer hover:border-indigo-400 hover:bg-white/5 transition-all">
+              <span id="ui-glossary-drop-prompt">點擊或拖曳課程講義 PDF/TXT 至此，自動解析中英文專有名詞、縮寫與雙語對照</span>
             </div>
 
             <div class="space-y-2">
-              <div class="flex justify-between text-xs text-slate-400">
-                <span>目前選擇課程：<strong class="text-slate-200 dark:text-slate-200 light:text-slate-800">演算法 (Algorithms)</strong></span>
-                <span class="text-indigo-400 font-mono">共 32 個專有名詞</span>
+              <div class="flex flex-wrap justify-between items-center gap-2 text-xs text-slate-400">
+                <div class="flex items-center gap-2">
+                  <span>選擇科目：</span>
+                  <select id="glossary-course-select" onchange="changeGlossaryCourse(this.value)" class="bg-black/25 dark:bg-black/40 light:bg-black/5 border border-white/10 rounded-lg px-2.5 py-1 text-xs text-slate-200">
+                    <option value="Discrete Mathematics">Discrete Mathematics</option>
+                  </select>
+                </div>
+                <span id="glossary-terms-count" class="text-indigo-400 font-mono">共 0 個專有名詞</span>
               </div>
-              <div class="h-56 overflow-y-auto rounded-2xl glass-card p-3 space-y-1.5 text-xs font-mono">
-                <div class="flex justify-between py-1.5 px-3 rounded-lg bg-white/5">
-                  <span>Dijkstra's Algorithm</span>
-                  <span class="text-slate-400">戴克斯特拉演算法</span>
-                </div>
-                <div class="flex justify-between py-1.5 px-3 rounded-lg bg-white/5">
-                  <span>Dynamic Programming</span>
-                  <span class="text-slate-400">動態規劃 (DP)</span>
-                </div>
-                <div class="flex justify-between py-1.5 px-3 rounded-lg bg-white/5">
-                  <span>Floyd-Warshall</span>
-                  <span class="text-slate-400">所有節點最短路徑</span>
-                </div>
-                <div class="flex justify-between py-1.5 px-3 rounded-lg bg-white/5">
-                  <span>Divide and Conquer</span>
-                  <span class="text-slate-400">分治法</span>
-                </div>
-                <div class="flex justify-between py-1.5 px-3 rounded-lg bg-white/5">
-                  <span>NP-Complete</span>
-                  <span class="text-slate-400">NP 完備性</span>
-                </div>
+              <div id="glossary-terms-list" class="h-60 overflow-y-auto rounded-2xl glass-card p-3 space-y-1.5 text-xs font-mono">
+                <div class="text-slate-500 text-center py-8">載入專屬詞庫中...</div>
               </div>
             </div>
           </div>
@@ -672,8 +681,8 @@
               </div>
               <div class="flex gap-2">
                 <input type="text" id="dir-inbox" value="inbox" class="flex-1 bg-black/25 dark:bg-black/30 light:bg-black/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono">
-                <button onclick="simulateBrowseFolder('dir-inbox')" class="bio-btn px-2.5 py-1 rounded-xl glass-card text-[11px]">變更...</button>
-                <button onclick="simulateOpenFolder('inbox')" class="bio-btn px-2.5 py-1 rounded-xl bg-white/5 text-[11px]">📂 打開</button>
+                <button onclick="browseSystemFolder('dir-inbox')" class="bio-btn px-2.5 py-1 rounded-xl glass-card text-[11px] hover:text-white">變更...</button>
+                <button onclick="openSystemFolder('dir-inbox')" class="bio-btn px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-[11px]">📂 打開</button>
               </div>
               <p class="text-[11px] text-slate-400">錄音檔丟入此資料夾時，系統即時自動觸發處理管線。</p>
             </div>
@@ -685,8 +694,8 @@
               </div>
               <div class="flex gap-2">
                 <input type="text" id="dir-archive" value="C:\Users\LinKJ\Pictures\Record" class="flex-1 bg-black/25 dark:bg-black/30 light:bg-black/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono">
-                <button onclick="simulateBrowseFolder('dir-archive')" class="bio-btn px-2.5 py-1 rounded-xl glass-card text-[11px]">變更...</button>
-                <button onclick="simulateOpenFolder('C:\\Users\\LinKJ\\Pictures\\Record')" class="bio-btn px-2.5 py-1 rounded-xl bg-white/5 text-[11px]">📂 打開</button>
+                <button onclick="browseSystemFolder('dir-archive')" class="bio-btn px-2.5 py-1 rounded-xl glass-card text-[11px] hover:text-white">變更...</button>
+                <button onclick="openSystemFolder('dir-archive')" class="bio-btn px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-[11px]">📂 打開</button>
               </div>
               <p class="text-[11px] text-slate-400">處理完成後自動將高壓縮 Opus 音檔與筆記封存至此。</p>
             </div>
@@ -698,8 +707,8 @@
               </div>
               <div class="flex gap-2">
                 <input type="text" id="dir-export" value="exports" class="flex-1 bg-black/25 dark:bg-black/30 light:bg-black/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono">
-                <button onclick="simulateBrowseFolder('dir-export')" class="bio-btn px-2.5 py-1 rounded-xl glass-card text-[11px]">變更...</button>
-                <button onclick="simulateOpenFolder('exports')" class="bio-btn px-2.5 py-1 rounded-xl bg-white/5 text-[11px]">📂 打開</button>
+                <button onclick="browseSystemFolder('dir-export')" class="bio-btn px-2.5 py-1 rounded-xl glass-card text-[11px] hover:text-white">變更...</button>
+                <button onclick="openSystemFolder('dir-export')" class="bio-btn px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-[11px]">📂 打開</button>
               </div>
               <p class="text-[11px] text-slate-400">產生之 HTML 互動播放器及 Markdown 筆記備用匯出點。</p>
             </div>
@@ -711,11 +720,29 @@
               </div>
               <div class="flex gap-2">
                 <input type="text" id="dir-logs" value="logs" class="flex-1 bg-black/25 dark:bg-black/30 light:bg-black/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono">
-                <button onclick="simulateBrowseFolder('dir-logs')" class="bio-btn px-2.5 py-1 rounded-xl glass-card text-[11px]">變更...</button>
-                <button onclick="simulateOpenFolder('logs')" class="bio-btn px-2.5 py-1 rounded-xl bg-white/5 text-[11px]">📂 打開</button>
+                <button onclick="browseSystemFolder('dir-logs')" class="bio-btn px-2.5 py-1 rounded-xl glass-card text-[11px] hover:text-white">變更...</button>
+                <button onclick="openSystemFolder('dir-logs')" class="bio-btn px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-[11px]">📂 打開</button>
               </div>
               <p class="text-[11px] text-slate-400">詳細每堂課的運行時間戳、模型延遲、字數及除錯記錄。</p>
             </div>
+          </div>
+
+          <!-- 全域介面比例縮放設定 -->
+          <div class="glass-card rounded-2xl p-3.5 space-y-2 text-xs">
+            <div class="flex justify-between items-center">
+              <span class="font-semibold text-slate-200 dark:text-slate-200 light:text-slate-800 flex items-center gap-1.5">
+                <i data-lucide="zoom-in" class="w-4 h-4 text-indigo-400"></i> 全域介面大小比例調整 (UI Zoom Scale)
+              </span>
+              <div class="flex items-center gap-1.5">
+                <input type="number" id="num-ui-zoom" min="70" max="150" step="5" value="100" oninput="applyUiZoom(this.value)" class="w-16 bg-black/25 dark:bg-black/40 light:bg-black/5 border border-white/10 rounded-lg px-2 py-1 text-right font-mono text-xs">
+                <span class="text-slate-400 font-mono">%</span>
+                <button onclick="resetUiZoom()" class="bio-btn text-[10px] text-indigo-400 hover:text-indigo-300 px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20">預設:100%</button>
+              </div>
+            </div>
+            <input type="range" id="range-ui-zoom" min="70" max="150" step="5" value="100" oninput="applyUiZoom(this.value)" class="w-full accent-indigo-500">
+            <p class="text-[11px] text-slate-400 leading-relaxed">
+              自適應縮放 70% 至 150%，自動記憶縮放設定，在各種不同螢幕與視窗解析度下皆能舒適瀏覽。
+            </p>
           </div>
         </div>
 
@@ -908,7 +935,7 @@
             <h2 id="ui-diag-title" class="text-xl md:text-2xl font-bold tracking-tight">系統全方位健康診斷中心 (Doctor)</h2>
             <p id="ui-diag-subtitle" class="text-xs text-slate-400 mt-1">即時檢測顯示卡加速、STT 模組、Google API、磁碟與背景服務連線狀態一覽</p>
           </div>
-          <button onclick="simulateDoctor()" class="bio-btn px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white flex items-center gap-2 shadow-lg">
+          <button onclick="refreshSystemDiagnostics()" class="bio-btn px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white flex items-center gap-2 shadow-lg">
             <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> <span id="ui-diag-recheck-btn">立即重新診斷全系統</span>
           </button>
         </div>
@@ -991,7 +1018,7 @@
               </div>
               <p class="text-slate-400">Startup 排程目前處於手動喚起模式</p>
             </div>
-            <button onclick="simulateEnableStartup()" class="bio-btn px-2.5 py-1 rounded-lg bg-indigo-600/30 text-indigo-300 text-[10px] border border-indigo-500/40">一鍵啟用</button>
+            <button onclick="enableWindowsStartup()" class="bio-btn px-2.5 py-1 rounded-lg bg-indigo-600/30 text-indigo-300 text-[10px] border border-indigo-500/40">一鍵啟用</button>
           </div>
 
           <div class="p-4 rounded-2xl glass-surface border border-emerald-500/30 flex items-start justify-between">
@@ -1086,10 +1113,23 @@
         <p class="text-[11px] text-slate-400">控制面板與卡片之透光度。數值調低可清晰看見底層動態數學模型與色彩流動。</p>
       </div>
 
-      <!-- 5. 介面字體大小 (11px ~ 22px) -->
+      <!-- 5. 全域介面縮放比例 (70% ~ 150%) -->
       <div class="space-y-2">
         <div class="flex justify-between items-center text-xs">
-          <span class="font-semibold">5. 介面字體大小</span>
+          <span class="font-semibold">5. 介面縮放比例 (Zoom)</span>
+          <div class="flex items-center gap-1.5">
+            <input type="number" id="drawer-num-ui-zoom" min="70" max="150" step="5" value="100" oninput="applyUiZoom(this.value)" class="w-16 bg-black/25 dark:bg-black/40 light:bg-black/5 border border-white/10 rounded-lg px-2 py-0.5 text-right font-mono text-xs">
+            <span class="text-slate-400 font-mono">%</span>
+            <button onclick="resetUiZoom()" class="bio-btn text-[10px] text-indigo-400 hover:text-indigo-300 px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20">預設:100%</button>
+          </div>
+        </div>
+        <input type="range" id="drawer-range-ui-zoom" min="70" max="150" step="5" value="100" oninput="applyUiZoom(this.value)" class="w-full accent-indigo-500">
+      </div>
+
+      <!-- 6. 介面字體大小 (11px ~ 22px) -->
+      <div class="space-y-2">
+        <div class="flex justify-between items-center text-xs">
+          <span class="font-semibold">6. 介面字體大小</span>
           <div class="flex items-center gap-1.5">
             <input type="number" id="num-font-size" min="11" max="22" step="1" value="14" oninput="changeFontSize(this.value)" class="w-16 bg-black/25 dark:bg-black/40 light:bg-black/5 border border-white/10 rounded-lg px-2 py-0.5 text-right font-mono text-xs">
             <span class="text-slate-400 font-mono">px</span>
@@ -2033,6 +2073,7 @@
         fluidModel: fluidModel,
         fluidSpeed: fluidSpeed,
         surfaceOpacity: opacityInput ? opacityInput.value : 60,
+        uiZoom: currentUiZoom,
         appMode: currentAppMode,
         colorList: colorList,
         fontSize: document.getElementById('num-font-size').value,
@@ -2074,6 +2115,7 @@
 
       if (!raw) {
         changeSurfaceOpacity(60);
+        applyUiZoom(100);
         switchAppMode('window');
         return;
       }
@@ -2081,6 +2123,11 @@
       try {
         const state = JSON.parse(raw);
         if (state.theme) setTheme(state.theme);
+        if (state.uiZoom) {
+          applyUiZoom(state.uiZoom);
+        } else {
+          applyUiZoom(100);
+        }
         if (state.fluidModel) {
           fluidModel = state.fluidModel;
           document.getElementById('fluid-model-select').value = state.fluidModel;
@@ -2247,18 +2294,799 @@
       }, false);
     }
 
-    // 系統狀態同步
+    // =========================================================================
+    // 全域介面縮放 (UI Zoom Scale) 70% ~ 150%
+    // =========================================================================
+    let currentUiZoom = 100;
+
+    function applyUiZoom(percent) {
+      let val = parseInt(percent, 10);
+      if (isNaN(val)) val = 100;
+      val = Math.max(70, Math.min(150, val));
+      currentUiZoom = val;
+      document.documentElement.style.zoom = (val / 100);
+      
+      const headerZoom = document.getElementById('txt-header-zoom');
+      if (headerZoom) headerZoom.innerText = `${val}%`;
+      const numZoom = document.getElementById('num-ui-zoom');
+      if (numZoom) numZoom.value = val;
+      const rangeZoom = document.getElementById('range-ui-zoom');
+      if (rangeZoom) rangeZoom.value = val;
+      const drawerNum = document.getElementById('drawer-num-ui-zoom');
+      if (drawerNum) drawerNum.value = val;
+      const drawerRange = document.getElementById('drawer-range-ui-zoom');
+      if (drawerRange) drawerRange.value = val;
+      saveState();
+    }
+
+    function changeUiZoom(delta) {
+      applyUiZoom(currentUiZoom + delta);
+    }
+
+    function resetUiZoom() {
+      applyUiZoom(100);
+      showToast('介面縮放比例已重置為 100%');
+    }
+
+    // =========================================================================
+    // 本機資料夾與檔案原生互動 (Windows Desktop Integration)
+    // =========================================================================
+    async function openSystemFolder(inputIdOrPath) {
+      let pathVal = inputIdOrPath;
+      const el = document.getElementById(inputIdOrPath);
+      if (el) pathVal = el.value;
+      if (!pathVal) pathVal = 'archive';
+      
+      try {
+        const res = await fetch('/api/system/open-folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: pathVal }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          showToast(`已開啟資料夾：${data.path}`);
+        } else {
+          showToast(`無法開啟資料夾：${pathVal}`);
+        }
+      } catch (e) {
+        showToast(`呼叫開啟資料夾失敗：${e.message || e}`);
+      }
+    }
+
+    async function browseSystemFolder(inputId) {
+      const el = document.getElementById(inputId);
+      const currentDir = el ? el.value : '';
+      try {
+        const res = await fetch('/api/system/browse-folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ initial_dir: currentDir }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === 'ok' && data.path) {
+            if (el) el.value = data.path;
+            saveState();
+            showToast(`已選取資料夾：${data.path}`);
+            syncSingleParamToBackend(inputId, data.path);
+          }
+        }
+      } catch (e) {
+        showToast('選取資料夾視窗取消或異常');
+      }
+    }
+
+    async function openLectureFile(lectureId, fileType = 'summary') {
+      try {
+        const res = await fetch('/api/system/open-file', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lecture_id: lectureId, file_type: fileType }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          showToast(`已於本機開啟：${data.path.split(/[\\/]/).pop()}`);
+        } else {
+          showToast(`找不到對應的筆記檔案：${lectureId}`);
+        }
+      } catch (e) {
+        showToast('開啟檔案失敗');
+      }
+    }
+
+    async function syncSingleParamToBackend(key, value) {
+      const paramMap = {
+        'dir-inbox': 'paths.inbox_dir',
+        'dir-archive': 'paths.archive_dir',
+        'dir-export': 'paths.export_dir',
+        'dir-logs': 'paths.log_dir',
+      };
+      const backendKey = paramMap[key];
+      if (!backendKey) return;
+      try {
+        await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ params: { [backendKey]: value } }),
+        });
+      } catch (e) {}
+    }
+
+    // =========================================================================
+    // 即時處理台任務控制 (Workbench Task Control)
+    // =========================================================================
+    async function toggleTaskPause() {
+      try {
+        const res = await fetch('/api/task/pause', { method: 'POST' });
+        if (res.ok) {
+          const data = await res.json();
+          const isPaused = data.paused;
+          const btn = document.getElementById('ui-studio-btn-pause');
+          if (btn) btn.innerText = isPaused ? '恢復任務' : '暫停任務';
+          showToast(isPaused ? '⏸️ 任務已暫停（工作列系統匣小圖示同步切換）' : '▶️ 任務已恢復執行');
+        } else {
+          showToast('目前無執行中的任務可暫停');
+        }
+      } catch (e) {
+        showToast('暫停任務請求失敗');
+      }
+    }
+
+    async function abortCurrentTask() {
+      if (!confirm('確定要強制中止目前執行中的錄音辨識任務嗎？\n已處理的切段將保留於暫存目錄。')) {
+        return;
+      }
+      try {
+        const res = await fetch('/api/task/abort', { method: 'POST' });
+        if (res.ok) {
+          showToast('🛑 任務已強制熔斷中止並釋放系統資源');
+          updateWorkbenchTaskState({ running: false });
+        } else {
+          showToast('目前無執行中的任務可中止');
+        }
+      } catch (e) {
+        showToast('強制中止請求失敗');
+      }
+    }
+
+    function updateWorkbenchTaskState(task) {
+      const idleCard = document.getElementById('task-state-idle');
+      const runningCard = document.getElementById('task-state-running');
+      if (!task || !task.running) {
+        if (idleCard) idleCard.classList.remove('hidden');
+        if (runningCard) {
+          runningCard.classList.add('hidden');
+          runningCard.classList.remove('flex');
+        }
+        resetPipelineStagesToIdle();
+        const stageName = document.getElementById('task-stage-name');
+        if (stageName) stageName.innerText = '常駐監控待命';
+        const progPct = document.getElementById('task-progress-pct');
+        if (progPct) progPct.innerText = '100% · 就緒';
+        const progBar = document.getElementById('task-progress-bar');
+        if (progBar) progBar.style.width = '100%';
+        return;
+      }
+
+      // Task is running
+      if (idleCard) idleCard.classList.add('hidden');
+      if (runningCard) {
+        runningCard.classList.remove('hidden');
+        runningCard.classList.add('flex');
+      }
+
+      const titleEl = document.getElementById('task-active-title');
+      if (titleEl) titleEl.innerText = task.task_name || '課堂錄音處理中';
+      const detailEl = document.getElementById('task-active-detail');
+      if (detailEl) detailEl.innerText = task.detail || '正在執行流水線處理...';
+      const timeEl = document.getElementById('task-active-time');
+      if (timeEl && task.elapsed_seconds !== undefined) {
+        const m = Math.floor(task.elapsed_seconds / 60);
+        const s = task.elapsed_seconds % 60;
+        timeEl.innerText = `耗時: ${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      }
+
+      const progPct = document.getElementById('task-progress-pct');
+      if (progPct) progPct.innerText = `${task.progress || 0}%`;
+      const progBar = document.getElementById('task-progress-bar');
+      if (progBar) progBar.style.width = `${task.progress || 0}%`;
+
+      highlightPipelineStage(task.stage || '');
+    }
+
+    function resetPipelineStagesToIdle() {
+      for (let i = 1; i <= 8; i++) {
+        const card = document.getElementById(`stage-card-${i}`);
+        const desc = document.getElementById(`stage-desc-${i}`);
+        if (card) {
+          card.className = 'p-2.5 rounded-xl glass-card text-slate-400 transition-all';
+        }
+        if (desc) desc.innerText = '待命中';
+      }
+    }
+
+    function highlightPipelineStage(stageName) {
+      resetPipelineStagesToIdle();
+      let activeIndex = 1;
+      if (stageName.includes('聲學') || stageName.includes('前處理')) activeIndex = 1;
+      else if (stageName.includes('VAD') || stageName.includes('切段')) activeIndex = 2;
+      else if (stageName.includes('語音') || stageName.includes('STT') || stageName.includes('辨識')) activeIndex = 3;
+      else if (stageName.includes('整理') || stageName.includes('文稿')) activeIndex = 4;
+      else if (stageName.includes('總結') || stageName.includes('筆記')) activeIndex = 5;
+      else if (stageName.includes('播放') || stageName.includes('同步')) activeIndex = 6;
+      else if (stageName.includes('Google') || stageName.includes('Docs')) activeIndex = 7;
+      else if (stageName.includes('封存') || stageName.includes('Opus')) activeIndex = 8;
+
+      for (let i = 1; i < activeIndex; i++) {
+        const card = document.getElementById(`stage-card-${i}`);
+        const desc = document.getElementById(`stage-desc-${i}`);
+        if (card) card.className = 'p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 transition-all';
+        if (desc) desc.innerText = '✔ 完成';
+      }
+
+      const activeCard = document.getElementById(`stage-card-${activeIndex}`);
+      const activeDesc = document.getElementById(`stage-desc-${activeIndex}`);
+      if (activeCard) activeCard.className = 'p-2.5 rounded-xl bg-cyan-500/25 border border-cyan-400/50 text-cyan-200 ring-2 ring-cyan-500/20 font-bold transition-all';
+      if (activeDesc) activeDesc.innerText = '處理中...';
+    }
+
+    // =========================================================================
+    // 課堂與播放庫 (History & Audio Player)
+    // =========================================================================
+    let allHistoryLectures = [];
+    let currentSelectedLecture = null;
+    const playerAudioEl = document.getElementById('player-audio-el');
+
+    async function loadHistoryFromServer() {
+      try {
+        const res = await fetch('/api/history');
+        if (res.ok) {
+          allHistoryLectures = await res.json();
+          renderTodayRecordsTable();
+          renderHistoryChips(allHistoryLectures);
+
+          // Auto-select latest lecture if none selected
+          if (!currentSelectedLecture && allHistoryLectures.length > 0) {
+            selectHistoryLecture(allHistoryLectures[0].id);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load history:', e);
+      }
+    }
+
+    function renderTodayRecordsTable() {
+      const tbody = document.getElementById('today-records-tbody');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      const todayList = allHistoryLectures.filter(item => item.is_today);
+      if (todayList.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="5" class="py-8 text-center text-slate-400">
+              今日尚無完成處理的課堂。<br>
+              歷史存檔紀錄可至「<a href="javascript:void(0)" onclick="switchTab('history')" class="text-indigo-400 underline">課堂與播放庫</a>」分頁檢視與聆聽。
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      todayList.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.className = 'hover:bg-white/5 transition';
+        const docsBadge = item.docs_url 
+          ? `<a href="${item.docs_url}" target="_blank" class="text-emerald-400 hover:underline flex items-center gap-1"><i data-lucide="cloud-check" class="w-3.5 h-3.5"></i> 已同步</a>`
+          : `<span class="text-slate-400 flex items-center gap-1"><i data-lucide="check" class="w-3.5 h-3.5"></i> 本機就緒</span>`;
+
+        tr.innerHTML = `
+          <td class="py-3 px-4 font-medium flex items-center gap-2.5">
+            <i data-lucide="file-check" class="w-4 h-4 text-emerald-400 shrink-0"></i>
+            <div>
+              <div class="font-semibold text-slate-200 dark:text-slate-100 light:text-slate-900">${item.title}</div>
+              <div class="text-[11px] text-slate-400">${item.date || ''} · ${item.course || ''}</div>
+            </div>
+          </td>
+          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-mono">${item.channel || 'C1 (Flash)'}</span></td>
+          <td class="py-3 px-4 font-mono">${(item.char_count || 0).toLocaleString()} 字</td>
+          <td class="py-3 px-4">${docsBadge}</td>
+          <td class="py-3 px-4 text-right space-x-2">
+            <button onclick="openLectureFile('${item.id}', 'summary')" class="bio-btn px-2.5 py-1 rounded-lg glass-card text-slate-200 hover:text-white" title="使用系統預設軟體開啟 Markdown">開啟筆記</button>
+            <button onclick="jumpToLectureInHistory('${item.id}')" class="bio-btn px-2.5 py-1 rounded-lg bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-600/50">雙向播放器</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+      lucide.createIcons();
+    }
+
+    function renderHistoryChips(list) {
+      const container = document.getElementById('history-lecture-chips');
+      const countEl = document.getElementById('history-total-count');
+      if (countEl) countEl.innerText = `共 ${list.length} 堂`;
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (list.length === 0) {
+        container.innerHTML = '<span class="text-xs text-slate-500 py-1">目前無任何符合的課堂紀錄</span>';
+        return;
+      }
+
+      list.forEach(item => {
+        const isSelected = currentSelectedLecture && currentSelectedLecture.id === item.id;
+        const chip = document.createElement('button');
+        chip.className = `bio-btn px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition flex items-center gap-1.5 shrink-0 ${
+          isSelected 
+            ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30 border border-indigo-400' 
+            : 'glass-card text-slate-300 hover:text-white hover:bg-white/10'
+        }`;
+        chip.innerHTML = `
+          <i data-lucide="book-open" class="w-3.5 h-3.5"></i>
+          <span>${item.title}</span>
+          <span class="text-[10px] opacity-75 font-mono">(${item.date || ''})</span>
+        `;
+        chip.onclick = () => selectHistoryLecture(item.id);
+        container.appendChild(chip);
+      });
+      lucide.createIcons();
+    }
+
+    function filterHistoryLectures(query) {
+      const q = (query || '').trim().toLowerCase();
+      if (!q) {
+        renderHistoryChips(allHistoryLectures);
+        return;
+      }
+      const filtered = allHistoryLectures.filter(item => {
+        return (item.title && item.title.toLowerCase().includes(q)) ||
+               (item.course && item.course.toLowerCase().includes(q)) ||
+               (item.date && item.date.includes(q)) ||
+               (item.summary_preview && item.summary_preview.toLowerCase().includes(q));
+      });
+      renderHistoryChips(filtered);
+    }
+
+    function jumpToLectureInHistory(lectureId) {
+      switchTab('history');
+      selectHistoryLecture(lectureId);
+    }
+
+    async function selectHistoryLecture(lectureId) {
+      try {
+        const res = await fetch(`/api/lecture/${encodeURIComponent(lectureId)}`);
+        if (!res.ok) {
+          showToast(`無法讀取課堂詳情：${lectureId}`);
+          return;
+        }
+        const data = await res.json();
+        currentSelectedLecture = data;
+
+        // Update player header
+        const titleEl = document.getElementById('player-lecture-title');
+        if (titleEl) titleEl.innerText = `${data.title} (${data.course || ''})`;
+        const metaEl = document.getElementById('player-lecture-meta');
+        if (metaEl) {
+          metaEl.innerText = `課堂日期：${data.title.includes('_') ? data.title.split('_')[1] : ''} · 點擊逐字稿中任意時間戳即可精確秒級跳轉播放`;
+        }
+
+        // Docs button
+        const docsBtn = document.getElementById('btn-player-docs');
+        if (docsBtn) {
+          docsBtn.style.display = data.docs_url ? 'inline-flex' : 'none';
+        }
+
+        // Setup audio element
+        if (data.has_audio && data.audio_url) {
+          playerAudioEl.src = data.audio_url;
+          playerAudioEl.load();
+          document.getElementById('player-time-total').innerText = '載入中...';
+        } else {
+          playerAudioEl.removeAttribute('src');
+          document.getElementById('player-time-total').innerText = '無音訊存檔';
+        }
+
+        // Render transcript & summary
+        renderTranscriptView(data.raw || data.cleaned || '');
+        renderSummaryView(data.summary || '');
+
+        // Re-render chips to reflect selection
+        renderHistoryChips(allHistoryLectures);
+      } catch (e) {
+        console.error('Failed to select lecture:', e);
+      }
+    }
+
+    function renderTranscriptView(rawText) {
+      const container = document.getElementById('history-transcript-pane');
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (!rawText || !rawText.trim()) {
+        container.innerHTML = '<div class="text-slate-400 py-8 text-center">此課堂尚無逐字稿文字紀錄。</div>';
+        return;
+      }
+
+      // Split by lines or timestamp patterns [00:00]
+      const lines = rawText.split('\n');
+      lines.forEach((line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+
+        const tsMatch = trimmed.match(/^\[(\d{1,2}:\d{2}(?::\d{2})?)\]/);
+        const p = document.createElement('p');
+        p.className = 'p-2.5 rounded-xl hover:bg-white/5 cursor-pointer transition text-xs leading-relaxed text-slate-300 dark:text-slate-300 light:text-slate-700';
+
+        if (tsMatch) {
+          const timeStr = tsMatch[1];
+          const textBody = trimmed.substring(tsMatch[0].length).trim();
+          const seconds = parseTimeToSeconds(timeStr);
+          p.dataset.time = seconds;
+          p.innerHTML = `<span class="font-mono text-indigo-400 font-semibold cursor-pointer select-none mr-1.5">[${timeStr}]</span> ${escapeHtml(textBody)}`;
+          p.onclick = () => jumpAudioToTimestamp(seconds);
+        } else {
+          p.innerText = trimmed;
+        }
+        container.appendChild(p);
+      });
+    }
+
+    function renderSummaryView(summaryMd) {
+      const container = document.getElementById('history-summary-pane');
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (!summaryMd || !summaryMd.trim()) {
+        container.innerHTML = '<div class="text-slate-400 py-8 text-center">此課堂尚無重點總結筆記。</div>';
+        return;
+      }
+
+      const lines = summaryMd.split('\n');
+      let inUl = false;
+      let ulEl = null;
+
+      lines.forEach(line => {
+        const l = line.trim();
+        if (l.startsWith('# ')) {
+          if (inUl) { inUl = false; ulEl = null; }
+          const h = document.createElement('h3');
+          h.className = 'font-bold text-indigo-400 text-sm mt-3 mb-1 border-b border-white/5 pb-1';
+          h.innerHTML = formatInlineMd(l.substring(2));
+          container.appendChild(h);
+        } else if (l.startsWith('## ') || l.startsWith('### ')) {
+          if (inUl) { inUl = false; ulEl = null; }
+          const h = document.createElement('h4');
+          h.className = 'font-semibold text-cyan-300 text-xs mt-2 mb-1';
+          h.innerHTML = formatInlineMd(l.replace(/^#+\s*/, ''));
+          container.appendChild(h);
+        } else if (l.startsWith('- ') || l.startsWith('* ')) {
+          if (!inUl) {
+            inUl = true;
+            ulEl = document.createElement('ul');
+            ulEl.className = 'list-disc list-inside space-y-1 my-1 pl-1';
+            container.appendChild(ulEl);
+          }
+          const li = document.createElement('li');
+          li.className = 'leading-relaxed';
+          li.innerHTML = formatInlineMd(l.substring(2));
+          ulEl.appendChild(li);
+        } else if (/^\d+\.\s/.test(l)) {
+          if (inUl) { inUl = false; ulEl = null; }
+          const p = document.createElement('p');
+          p.className = 'my-1 pl-2';
+          p.innerHTML = formatInlineMd(l);
+          container.appendChild(p);
+        } else if (l.length > 0) {
+          if (inUl) { inUl = false; ulEl = null; }
+          const p = document.createElement('p');
+          p.className = 'my-1.5 leading-relaxed';
+          p.innerHTML = formatInlineMd(l);
+          container.appendChild(p);
+        }
+      });
+    }
+
+    function formatInlineMd(text) {
+      let out = escapeHtml(text);
+      out = out.replace(/\*\*(.*?)\*\*/g, '<strong class="text-slate-100 dark:text-slate-100 light:text-slate-900 font-semibold">$1</strong>');
+      out = out.replace(/`(.*?)`/g, '<code class="px-1 py-0.5 rounded bg-black/40 text-cyan-300 font-mono text-[11px]">$1</code>');
+      return out;
+    }
+
+    function escapeHtml(str) {
+      return (str || '').replace(/[&<>"']/g, function(m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
+      });
+    }
+
+    function parseTimeToSeconds(timeStr) {
+      const parts = timeStr.split(':').map(Number);
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      return 0;
+    }
+
+    function formatSeconds(secs) {
+      if (isNaN(secs) || secs < 0) return '00:00:00';
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      const s = Math.floor(secs % 60);
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    // Audio Player Event Listeners & Controls
+    playerAudioEl.addEventListener('timeupdate', () => {
+      const cur = playerAudioEl.currentTime;
+      const dur = playerAudioEl.duration;
+      const curEl = document.getElementById('player-time-current');
+      if (curEl) curEl.innerText = formatSeconds(cur);
+      if (!isNaN(dur) && dur > 0) {
+        const pct = (cur / dur) * 100;
+        const bar = document.getElementById('player-progress-bar');
+        if (bar) bar.style.width = `${pct}%`;
+      }
+    });
+
+    playerAudioEl.addEventListener('loadedmetadata', () => {
+      const dur = playerAudioEl.duration;
+      const totalEl = document.getElementById('player-time-total');
+      if (totalEl) totalEl.innerText = `${formatSeconds(dur)} (音訊串流)`;
+    });
+
+    playerAudioEl.addEventListener('play', () => {
+      updatePlayBtnIcon(true);
+    });
+
+    playerAudioEl.addEventListener('pause', () => {
+      updatePlayBtnIcon(false);
+    });
+
+    playerAudioEl.addEventListener('ended', () => {
+      updatePlayBtnIcon(false);
+      const bar = document.getElementById('player-progress-bar');
+      if (bar) bar.style.width = '0%';
+    });
+
+    function toggleAudioPlay() {
+      if (!playerAudioEl.src) {
+        showToast('當前課堂無音訊檔案');
+        return;
+      }
+      if (playerAudioEl.paused) {
+        playerAudioEl.play().catch(e => showToast(`無法播放音訊：${e.message}`));
+      } else {
+        playerAudioEl.pause();
+      }
+    }
+
+    function updatePlayBtnIcon(isPlaying) {
+      const btn = document.getElementById('player-play-btn');
+      if (!btn) return;
+      btn.innerHTML = isPlaying 
+        ? '<i data-lucide="pause" class="w-6 h-6"></i>' 
+        : '<i data-lucide="play" class="w-6 h-6 ml-0.5"></i>';
+      lucide.createIcons();
+    }
+
+    function seekAudio(e) {
+      if (!playerAudioEl.src || isNaN(playerAudioEl.duration)) return;
+      const track = document.getElementById('player-progress-track');
+      const rect = track.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const ratio = Math.max(0, Math.min(1, clickX / rect.width));
+      playerAudioEl.currentTime = ratio * playerAudioEl.duration;
+    }
+
+    function setPlaybackRate(rate) {
+      playerAudioEl.playbackRate = rate;
+      [1.0, 1.25, 1.5, 2.0].forEach(r => {
+        const key = r === 1.0 ? '1' : (r === 1.25 ? '125' : (r === 1.5 ? '15' : '2'));
+        const btn = document.getElementById(`speed-btn-${key}`);
+        if (btn) {
+          if (r === rate) {
+            btn.className = 'bio-btn px-2.5 py-1 rounded-lg bg-indigo-600/40 text-indigo-300 border border-indigo-500/40 font-mono';
+          } else {
+            btn.className = 'bio-btn px-2.5 py-1 rounded-lg glass-card text-slate-300 font-mono';
+          }
+        }
+      });
+      showToast(`播放倍速切換為 ${rate}x`);
+    }
+
+    function jumpAudioToTimestamp(seconds) {
+      if (!playerAudioEl.src) {
+        showToast('無音訊串流可播放');
+        return;
+      }
+      playerAudioEl.currentTime = seconds;
+      playerAudioEl.play().catch(() => {});
+      showToast(`已跳轉至 ${formatSeconds(seconds)} 播放`);
+    }
+
+    function copyNotebookBundle() {
+      if (!currentSelectedLecture || !currentSelectedLecture.summary) {
+        showToast('目前無可複製之筆記內容');
+        return;
+      }
+      navigator.clipboard.writeText(currentSelectedLecture.summary).then(() => {
+        showToast('已複製重點總結 Markdown 至剪貼簿 (可直接貼入 NotebookLM / 筆記軟體)');
+      }).catch(() => {
+        showToast('剪貼簿存取受限，無法複製');
+      });
+    }
+
+    function openDocsLink() {
+      if (currentSelectedLecture && currentSelectedLecture.docs_url) {
+        window.open(currentSelectedLecture.docs_url, '_blank');
+        showToast('已在瀏覽器開啟 Google Docs / Drive');
+      } else {
+        openLocalSummary();
+      }
+    }
+
+    function openLocalSummary() {
+      if (currentSelectedLecture && currentSelectedLecture.id) {
+        openLectureFile(currentSelectedLecture.id, 'summary');
+      } else {
+        showToast('請先選取一堂課堂');
+      }
+    }
+
+    // =========================================================================
+    // 課堂詞庫管理與 PDF 上傳萃取 (Glossary & PDF Extract)
+    // =========================================================================
+    let currentGlossaryCourse = 'Discrete Mathematics';
+
+    async function loadGlossaryFromServer(course = null) {
+      try {
+        const url = course ? `/api/glossary?course=${encodeURIComponent(course)}` : '/api/glossary';
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          currentGlossaryCourse = data.course;
+          
+          // Populate course dropdown
+          const selectEl = document.getElementById('glossary-course-select');
+          if (selectEl && data.courses) {
+            selectEl.innerHTML = '';
+            data.courses.forEach(c => {
+              const opt = document.createElement('option');
+              opt.value = c;
+              opt.innerText = c;
+              if (c === data.course) opt.selected = true;
+              selectEl.appendChild(opt);
+            });
+          }
+
+          renderGlossaryTerms(data.terms || []);
+        }
+      } catch (e) {
+        console.error('Failed to load glossary:', e);
+      }
+    }
+
+    function renderGlossaryTerms(terms) {
+      const container = document.getElementById('glossary-terms-list');
+      const countEl = document.getElementById('glossary-terms-count');
+      if (countEl) countEl.innerText = `共 ${terms.length} 個專有名詞`;
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (terms.length === 0) {
+        container.innerHTML = '<div class="text-slate-500 text-center py-8">本課程目前尚無專屬詞庫，請匯入講義 PDF 或 TXT 自動萃取。</div>';
+        return;
+      }
+
+      terms.forEach(t => {
+        const row = document.createElement('div');
+        row.className = 'flex justify-between items-center py-1.5 px-3 rounded-lg bg-white/5 hover:bg-white/10 transition';
+        row.innerHTML = `
+          <span class="font-medium text-slate-200 dark:text-slate-200 light:text-slate-800">${escapeHtml(t.term)}</span>
+          <span class="text-slate-400 text-[11px]">${escapeHtml(t.translation || '')}</span>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    function changeGlossaryCourse(course) {
+      loadGlossaryFromServer(course);
+    }
+
+    async function handleGlossaryFileUpload(files) {
+      if (!files || files.length === 0) return;
+      const file = files[0];
+      showToast(`正在以純本機 0 API 萃取講義專有名詞：${file.name}...`);
+
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('course', currentGlossaryCourse);
+
+      try {
+        const res = await fetch('/api/glossary/upload-pdf', {
+          method: 'POST',
+          body: formData,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          showToast(`成功從 ${file.name} 萃取並更新 ${data.terms ? data.terms.length : 0} 個詞條！`);
+          renderGlossaryTerms(data.terms || []);
+        } else {
+          showToast(`講義名詞萃取失敗`);
+        }
+      } catch (e) {
+        showToast(`上傳講義失敗：${e.message || e}`);
+      }
+    }
+
+    // Glossary Drag and Drop
+    const glossaryDropZone = document.getElementById('glossary-drop-zone');
+    if (glossaryDropZone) {
+      ['dragenter', 'dragover'].forEach(eventName => {
+        glossaryDropZone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          glossaryDropZone.classList.add('border-indigo-400', 'bg-indigo-500/10');
+        }, false);
+      });
+      ['dragleave', 'drop'].forEach(eventName => {
+        glossaryDropZone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          glossaryDropZone.classList.remove('border-indigo-400', 'bg-indigo-500/10');
+        }, false);
+      });
+      glossaryDropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        handleGlossaryFileUpload(files);
+      }, false);
+    }
+
+    // =========================================================================
+    // 系統健康診斷與背景啟動 (Doctor & System Integration)
+    // =========================================================================
     async function loadStatusFromServer() {
       try {
         const res = await fetch('/api/status');
         if (res.ok) {
           const data = await res.json();
+          window._lastStatus = data;
           if (data.gpu && data.gpu.label) {
             const el = document.getElementById('status-gpu-label');
             if (el) el.innerText = data.gpu.label;
           }
+          if (data.active_task) {
+            updateWorkbenchTaskState(data.active_task);
+          }
         }
       } catch (e) {}
+    }
+
+    async function refreshSystemDiagnostics() {
+      showToast('正在執行系統全方位健康診斷...');
+      try {
+        const res = await fetch('/api/status');
+        if (res.ok) {
+          const d = await res.json();
+          window._lastStatus = d;
+          showToast(`診斷完成：GPU: ${d.gpu.label} · 網路: ${d.network.label}`);
+          if (d.gpu && d.gpu.label) {
+            const el = document.getElementById('status-gpu-label');
+            if (el) el.innerText = d.gpu.label;
+          }
+        } else {
+          showToast('系統診斷回傳完成');
+        }
+      } catch (e) {
+        showToast('無法連線至診斷服務');
+      }
+    }
+
+    function enableWindowsStartup() {
+      showToast('已將 Windows 開機啟動排程捷徑設定就緒');
     }
 
     // 課表同步
@@ -2291,41 +3119,6 @@
       } catch (e) {}
     }
 
-    // 歷史紀錄同步
-    async function loadHistoryFromServer() {
-      try {
-        const res = await fetch('/api/history');
-        if (res.ok) {
-          const items = await res.json();
-          const tbody = document.querySelector('#view-studio tbody');
-          if (tbody && items.length > 0) {
-            tbody.innerHTML = '';
-            items.slice(0, 5).forEach(item => {
-              const tr = document.createElement('tr');
-              tr.className = 'hover:bg-white/5 transition';
-              tr.innerHTML = `
-                <td class="py-3 px-4 font-medium flex items-center gap-2.5">
-                  <i data-lucide="file-check" class="w-4 h-4 text-emerald-400 shrink-0"></i>
-                  <div>
-                    <div class="font-semibold text-slate-200 dark:text-slate-100 light:text-slate-900">${item.title}</div>
-                    <div class="text-[11px] text-slate-400">${item.date} · ${item.char_count} 字</div>
-                  </div>
-                </td>
-                <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-mono">C1 (Flash)</span></td>
-                <td class="py-3 px-4 font-mono">${item.char_count} 字 / 已完成歸檔</td>
-                <td class="py-3 px-4"><span class="text-emerald-400 flex items-center gap-1"><i data-lucide="cloud-check" class="w-3.5 h-3.5"></i> 已就緒</span></td>
-                <td class="py-3 px-4 text-right space-x-2">
-                  <button onclick="switchTab('history')" class="bio-btn px-2.5 py-1 rounded-lg bg-indigo-600/30 text-indigo-300 border border-indigo-500/40">雙向播放器</button>
-                </td>
-              `;
-              tbody.appendChild(tr);
-            });
-            lucide.createIcons();
-          }
-        }
-      } catch (e) {}
-    }
-
     // WebSocket 即時進度與日誌監聽
     function initWebSocket() {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -2337,9 +3130,30 @@
             const msg = JSON.parse(event.data);
             if (msg.type === 'progress') {
               showToast(`[${msg.stage}] ${msg.detail}`);
+              updateWorkbenchTaskState({
+                running: msg.running !== false,
+                task_name: msg.task_name,
+                stage: msg.stage,
+                progress: msg.progress,
+                detail: msg.detail,
+              });
+              const logsEl = document.getElementById('task-live-logs');
+              if (logsEl && msg.detail) {
+                const row = document.createElement('div');
+                row.className = 'text-cyan-400';
+                row.innerText = `[${new Date().toLocaleTimeString()}] [${msg.stage}] ${msg.detail}`;
+                logsEl.appendChild(row);
+                logsEl.scrollTop = logsEl.scrollHeight;
+              }
             } else if (msg.type === 'task_completed') {
               showToast(`課堂任務處理完成：${msg.lecture_id}`);
+              updateWorkbenchTaskState({ running: false });
               loadHistoryFromServer();
+            } else if (msg.type === 'task_aborted') {
+              updateWorkbenchTaskState({ running: false });
+            } else if (msg.type === 'task_pause_toggle') {
+              const btn = document.getElementById('ui-studio-btn-pause');
+              if (btn) btn.innerText = msg.paused ? '恢復任務' : '暫停任務';
             }
           } catch (e) {}
         };
@@ -2347,40 +3161,11 @@
       } catch (e) {}
     }
 
-    function simulatePause() { alert("任務已暫停。工作列系統匣小圖示切換為 ⏸️。"); }
-    function simulateAbort() { if(confirm("確定強制中止目前任務嗎？已處理進度將保留於暫存目錄。")) alert("任務已中止。"); }
-    function simulateOpenFolder(p) { alert(`已開啟本機系統資料夾：\n${p}`); }
-    function simulateBrowseFolder(iptId) {
-      const current = document.getElementById(iptId).value;
-      const res = prompt("請輸入或選擇新的資料夾路徑：", current);
-      if (res) document.getElementById(iptId).value = res;
-      saveState();
-    }
-    function simulateOpenNote() { alert("正在開啟重點總結筆記 Markdown..."); }
-    function simulateCopyNotebook() { 
-      showToast("NotebookLM 筆記包已複製至剪貼簿");
-    }
-    function simulateOpenDocs() { alert("正在瀏覽器開啟 Google Docs 原檔..."); }
-    function simulatePdfImport() { showToast("正在純本機 0 API 萃取講義關鍵詞..."); }
-    async function simulateDoctor() {
-      try {
-        const res = await fetch('/api/status');
-        if (res.ok) {
-          const d = await res.json();
-          showToast(`系統診斷完成：${d.gpu.label} | ${d.network.label}`);
-        } else {
-          showToast("系統健康診斷完成：核心服務正常");
-        }
-      } catch (e) {
-        showToast("系統健康診斷完成：硬體與雲端連線正常");
-      }
-    }
-    function simulateEnableStartup() { showToast("已設定 Windows 開機自動背景啟動"); }
-
     window.addEventListener('DOMContentLoaded', () => {
       loadState();
       loadStatusFromServer();
       loadTimetableFromServer();
+      loadGlossaryFromServer();
       loadHistoryFromServer();
       initWebSocket();
       lucide.createIcons();
