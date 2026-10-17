@@ -283,6 +283,14 @@ def scan_and_group_inbox(inbox_dir: Path | str) -> Dict[str, List[Path]]:
     return sorted_groups
 
 
+def _get_bridge():
+    try:
+        from lecture_pipeline.gui import bridge
+        return bridge
+    except Exception:
+        return None
+
+
 def run_pipeline_for_group(
     audio_files: List[Path],
     channel_id: str = "C1",
@@ -301,6 +309,16 @@ def run_pipeline_for_group(
     def check_aborted():
         if abort_event and abort_event.is_set():
             raise InterruptedError("任務已由使用者強制中止。")
+        b = _get_bridge()
+        if b:
+            g_abort = b.get_task_abort_event()
+            if g_abort and g_abort.is_set():
+                raise InterruptedError("任務已由使用者強制中止。")
+            p_pause = b.get_task_pause_event()
+            while p_pause and p_pause.is_set():
+                time.sleep(0.5)
+                if (abort_event and abort_event.is_set()) or (g_abort and g_abort.is_set()):
+                    raise InterruptedError("任務已由使用者強制中止。")
 
     start_total = time.time()
     primary_file = audio_files[0]
@@ -316,179 +334,205 @@ def run_pipeline_for_group(
     # Desktop Toast Notification: 開始解析
     notify_processing_started(primary_file.name)
 
-    if tray:
-        tray.update_status(
-            state="processing",
-            detail=parsed.display_tag,
-            progress="0% 準備處理",
-        )
-
-    check_aborted()
-
-    if len(audio_files) > 1:
-        console.print(f"📦 偵測到多段錄音分檔 (共 {len(audio_files)} 檔)，將自動合併：")
-        for f in audio_files:
-            console.print(f"   - {f.name}")
-
-    # 1. Preprocess
-    check_aborted()
-    if tray:
-        tray.update_status(state="processing", detail=parsed.display_tag, progress="15% 音訊前處理")
-    norm_audio = target_work_dir / "00_normalized.wav"
-    pre_opts = PreprocessOptions.from_cli_flags(pre_flags) if pre_flags else PreprocessOptions()
-    console.print("[dim]⏳ 執行音訊前處理與多段拼接...[/dim]")
-    preprocess_audio(audio_files, norm_audio, opts=pre_opts)
-
-    # 2. VAD Segmentation
-    check_aborted()
-    if tray:
-        tray.update_status(state="processing", detail=parsed.display_tag, progress="30% VAD 切段")
-    console.print("[dim]⏳ 執行 VAD 靜音切段...[/dim]")
-    chunks = segment_audio(norm_audio, target_work_dir / "chunks")
-
-    state = RunState(
-        source_filename=" + ".join(f.name for f in audio_files),
-        source_path=str(primary_file.resolve()),
-        course=parsed.course,
-        date=parsed.date,
-        pre_options=pre_opts,
-        seg_options=SegmentationOptions(),
-        chunks=chunks,
-    )
-    state.mark_stage("preprocess")
-    state.mark_stage("vad_segment")
-
-    # 3. STT Transcription (with offline fallback check)
-    check_aborted()
-    if tray:
-        tray.update_status(state="processing", detail=parsed.display_tag, progress="50% 語音轉錄")
-    
-    actual_channel_id = channel_id
-    if channel_id in ["C1", "C2"] and not is_internet_connected():
-        console.print(f"[yellow]📶 偵測到無網路連線，STT 自動降級至本地高效能 GPU 通道 C7...[/yellow]")
-        actual_channel_id = "C7"
-
-    console.print(f"[dim]⏳ 執行語音轉錄 (通道 {actual_channel_id})...[/dim]")
-    glossary = load_course_glossary(parsed.course) if parsed.course != "Unsorted" else []
-    channel = get_stt_channel(actual_channel_id)
-    transcription = channel.transcribe_all(
-        chunks,
-        course=parsed.course,
-        date=parsed.date,
-        glossary=glossary,
-        abort_event=abort_event,
-    )
-    save_stt_outputs(transcription, target_work_dir)
-    state.mark_stage("stt")
-
-    # 4. Cleanup
-    check_aborted()
-    if tray:
-        tray.update_status(state="processing", detail=parsed.display_tag, progress="70% 內文整理")
-    console.print(f"[dim]⏳ 執行 AI 內文整理 ({cleanup_model})...[/dim]")
-    cleaner = GeminiTextCleanupEngine(primary_model=cleanup_model)
-    clean_result = cleaner.clean(
-        transcription.full_text,
-        course=parsed.course,
-        date=parsed.date,
-        glossary=glossary,
-        abort_event=abort_event,
-    )
-    save_cleanup_outputs(clean_result, target_work_dir)
-    state.mark_stage("cleanup")
-
-    # 5. Summary
-    check_aborted()
-    if tray:
-        tray.update_status(state="processing", detail=parsed.display_tag, progress="85% 重點筆記")
-    console.print(f"[dim]⏳ 執行 AI 重點總結 ({summary_model})...[/dim]")
-    time.sleep(3.0)  # Rate limit cooldown buffer before summary call
-    check_aborted()
-    summarizer = GeminiLectureSummarizer(primary_model=summary_model)
-    summary_result = summarizer.summarize(clean_result.full_cleaned_text, course=parsed.course, date=parsed.date, glossary=glossary)
-    save_summary_outputs(summary_result, target_work_dir)
-    state.mark_stage("summarize")
-
-    # 6. Notebook Bundle & Exports
-    check_aborted()
-    console.print("[dim]⏳ 封裝重點總結筆記 Markdown 並同步至匯出目錄...[/dim]")
-    target_export = export_dir
-    if not target_export:
-        try:
-            from lecture_pipeline.state import load_config
-            c_cfg = load_config(Path("config.yaml"))
-            target_export = c_cfg.get("export", {}).get("export_dir", "exports")
-        except Exception:
-            target_export = "exports"
-
-    prepare_notebook_bundle(target_work_dir, export_dir=target_export)
-    state.mark_stage("export")
-
-    save_run_state(state, target_work_dir)
-
-    # 7. Google Drive Auto-Upload / Offline Queue
-    if upload_drive:
+    def report_progress(stage: str, progress: int, detail: str):
         if tray:
-            tray.update_status(state="uploading", detail=parsed.display_tag, progress="95% 上傳 Google Docs")
+            tray.update_status(
+                state="processing",
+                detail=parsed.display_tag,
+                progress=f"{progress}% {stage}",
+            )
+        b = _get_bridge()
+        if b:
+            b.update_task_progress(
+                stage=stage,
+                progress=progress,
+                detail=detail,
+                task_name=parsed.display_tag,
+                running=True,
+            )
 
-        has_creds = Path("credentials.json").is_file()
-        online = is_internet_connected()
+    report_progress("準備處理", 5, f"開始處理課堂：{parsed.display_tag} ({primary_file.name})")
 
-        if has_creds and online:
+    check_aborted()
+
+    try:
+        if len(audio_files) > 1:
+            console.print(f"📦 偵測到多段錄音分檔 (共 {len(audio_files)} 檔)，將自動合併：")
+            for f in audio_files:
+                console.print(f"   - {f.name}")
+
+        # 1. Preprocess
+        check_aborted()
+        report_progress("音訊前處理", 15, "執行 16kHz 單聲道標準化與多段拼接...")
+        norm_audio = target_work_dir / "00_normalized.wav"
+        pre_opts = PreprocessOptions.from_cli_flags(pre_flags) if pre_flags else PreprocessOptions()
+        console.print("[dim]⏳ 執行音訊前處理與多段拼接...[/dim]")
+        preprocess_audio(audio_files, norm_audio, opts=pre_opts)
+
+        # 2. VAD Segmentation
+        check_aborted()
+        report_progress("VAD 切段", 30, "執行 Silero VAD 靜音切段偵測...")
+        console.print("[dim]⏳ 執行 VAD 靜音切段...[/dim]")
+        chunks = segment_audio(norm_audio, target_work_dir / "chunks")
+
+        state = RunState(
+            source_filename=" + ".join(f.name for f in audio_files),
+            source_path=str(primary_file.resolve()),
+            course=parsed.course,
+            date=parsed.date,
+            pre_options=pre_opts,
+            seg_options=SegmentationOptions(),
+            chunks=chunks,
+        )
+        state.mark_stage("preprocess")
+        state.mark_stage("vad_segment")
+
+        # 3. STT Transcription (with offline fallback check)
+        check_aborted()
+        actual_channel_id = channel_id
+        if channel_id in ["C1", "C2"] and not is_internet_connected():
+            console.print(f"[yellow]📶 偵測到無網路連線，STT 自動降級至本地高效能 GPU 通道 C7...[/yellow]")
+            actual_channel_id = "C7"
+
+        report_progress("語音轉錄", 50, f"執行語音轉錄 (通道 {actual_channel_id})...")
+        console.print(f"[dim]⏳ 執行語音轉錄 (通道 {actual_channel_id})...[/dim]")
+        glossary = load_course_glossary(parsed.course) if parsed.course != "Unsorted" else []
+        channel = get_stt_channel(actual_channel_id)
+        transcription = channel.transcribe_all(
+            chunks,
+            course=parsed.course,
+            date=parsed.date,
+            glossary=glossary,
+            abort_event=abort_event,
+        )
+        save_stt_outputs(transcription, target_work_dir)
+        state.mark_stage("stt")
+
+        # 4. Cleanup
+        check_aborted()
+        report_progress("內文整理", 70, f"執行 AI 內文整理潤飾 ({cleanup_model})...")
+        console.print(f"[dim]⏳ 執行 AI 內文整理 ({cleanup_model})...[/dim]")
+        cleaner = GeminiTextCleanupEngine(primary_model=cleanup_model)
+        clean_result = cleaner.clean(
+            transcription.full_text,
+            course=parsed.course,
+            date=parsed.date,
+            glossary=glossary,
+            abort_event=abort_event,
+        )
+        save_cleanup_outputs(clean_result, target_work_dir)
+        state.mark_stage("cleanup")
+
+        # 5. Summary
+        check_aborted()
+        report_progress("重點筆記", 85, f"提煉 AI 重點結構筆記 ({summary_model})...")
+        console.print(f"[dim]⏳ 執行 AI 重點總結 ({summary_model})...[/dim]")
+        time.sleep(3.0)  # Rate limit cooldown buffer before summary call
+        check_aborted()
+        summarizer = GeminiLectureSummarizer(primary_model=summary_model)
+        summary_result = summarizer.summarize(clean_result.full_cleaned_text, course=parsed.course, date=parsed.date, glossary=glossary)
+        save_summary_outputs(summary_result, target_work_dir)
+        state.mark_stage("summarize")
+
+        # 6. Notebook Bundle & Exports
+        check_aborted()
+        console.print("[dim]⏳ 封裝重點總結筆記 Markdown 並同步至匯出目錄...[/dim]")
+        target_export = export_dir
+        if not target_export:
             try:
-                console.print("[dim]☁️ 正在自動上傳至 Google Drive 並轉為原生 Google Docs...[/dim]")
-                publisher = GoogleDrivePublisher(credentials_file=Path("credentials.json"))
-                pub_res = publisher.publish_lecture(target_work_dir)
-                console.print(f"[green]✔ Google Drive 資料夾：{pub_res.course_folder_link}[/green]")
-                log_watcher_event(f"已同步至 Google Drive：{pub_res.course_folder_link}")
-                notify_upload_success(primary_file.name, doc_url=pub_res.course_folder_link)
-            except Exception as e:
-                console.print(f"[yellow]⚠️ Google Drive 自動同步遇到問題 ({e})，排入離線待上傳佇列。[/yellow]")
+                from lecture_pipeline.state import load_config
+                c_cfg = load_config(Path("config.yaml"))
+                target_export = c_cfg.get("export", {}).get("export_dir", "exports")
+            except Exception:
+                target_export = "exports"
+
+        prepare_notebook_bundle(target_work_dir, export_dir=target_export)
+        state.mark_stage("export")
+
+        save_run_state(state, target_work_dir)
+
+        # 7. Google Drive Auto-Upload / Offline Queue
+        if upload_drive:
+            if tray:
+                tray.update_status(state="uploading", detail=parsed.display_tag, progress="95% 上傳 Google Docs")
+            b = _get_bridge()
+            if b:
+                b.update_task_progress(
+                    stage="上傳與封存",
+                    progress=95,
+                    detail="同步 Google Docs 與長期壓縮封存...",
+                    task_name=parsed.display_tag,
+                    running=True,
+                )
+
+            has_creds = Path("credentials.json").is_file()
+            online = is_internet_connected()
+
+            if has_creds and online:
+                try:
+                    console.print("[dim]☁️ 正在自動上傳至 Google Drive 並轉為原生 Google Docs...[/dim]")
+                    publisher = GoogleDrivePublisher(credentials_file=Path("credentials.json"))
+                    pub_res = publisher.publish_lecture(target_work_dir)
+                    console.print(f"[green]✔ Google Drive 資料夾：{pub_res.course_folder_link}[/green]")
+                    log_watcher_event(f"已同步至 Google Drive：{pub_res.course_folder_link}")
+                    notify_upload_success(primary_file.name, doc_url=pub_res.course_folder_link)
+                except Exception as e:
+                    console.print(f"[yellow]⚠️ Google Drive 自動同步遇到問題 ({e})，排入離線待上傳佇列。[/yellow]")
+                    if offline_queue:
+                        offline_queue.enqueue(target_work_dir, primary_file.name, parsed.course, parsed.date)
+                    else:
+                        notify_offline_pending(primary_file.name)
+            else:
+                if not online:
+                    console.print(f"[yellow]📶 目前無網路連線，將 {primary_file.name} 寫入離線排隊佇列。[/yellow]")
                 if offline_queue:
                     offline_queue.enqueue(target_work_dir, primary_file.name, parsed.course, parsed.date)
                 else:
                     notify_offline_pending(primary_file.name)
-        else:
-            if not online:
-                console.print(f"[yellow]📶 目前無網路連線，將 {primary_file.name} 寫入離線排隊佇列。[/yellow]")
-            if offline_queue:
-                offline_queue.enqueue(target_work_dir, primary_file.name, parsed.course, parsed.date)
-            else:
-                notify_offline_pending(primary_file.name)
 
-    # 8. Auto-Pruning & Long-Term Archival (Specification & User Request)
-    console.print("[dim]🧹 執行多餘產物修剪並封存至長期儲存區...[/dim]")
-    try:
-        prune_and_archive(
-            work_dir=target_work_dir,
-            course=parsed.course,
-            date=parsed.date,
-            record_base_dir=record_archive_base_dir,
-            delete_chunks=True,
-            delete_norm_wav=True,
-        )
-    except Exception as e:
-        console.print(f"[yellow]⚠️ 自動修剪與封存提示: {e}[/yellow]")
+        # 8. Auto-Pruning & Long-Term Archival (Specification & User Request)
+        console.print("[dim]🧹 執行多餘產物修剪並封存至長期儲存區...[/dim]")
+        try:
+            prune_and_archive(
+                work_dir=target_work_dir,
+                course=parsed.course,
+                date=parsed.date,
+                record_base_dir=record_archive_base_dir,
+                delete_chunks=True,
+                delete_norm_wav=True,
+            )
+        except Exception as e:
+            console.print(f"[yellow]⚠️ 自動修剪與封存提示: {e}[/yellow]")
 
-    # 9. Move original inbox audio files to archive to prevent duplicate scans
-    target_archive = Path(archive_dir).resolve() / parsed.course / parsed.date
-    target_archive.mkdir(parents=True, exist_ok=True)
-    for f in audio_files:
-        if f.is_file():
-            dest = target_archive / f.name
-            if dest.exists():
-                dest.unlink()
-            shutil.move(str(f), str(dest))
+        # 9. Move original inbox audio files to archive to prevent duplicate scans
+        target_archive = Path(archive_dir).resolve() / parsed.course / parsed.date
+        target_archive.mkdir(parents=True, exist_ok=True)
+        for f in audio_files:
+            if f.is_file():
+                dest = target_archive / f.name
+                if dest.exists():
+                    dest.unlink()
+                shutil.move(str(f), str(dest))
 
-    elapsed = round(time.time() - start_total, 2)
-    console.print(f"[bold green]✨ {parsed.display_tag} 處理完成！耗時 {elapsed} 秒，音檔已移至 archive/[/bold green]\n")
-    log_watcher_event(f"課堂 {parsed.display_tag} 處理完成，總耗時 {elapsed} 秒")
+        elapsed = round(time.time() - start_total, 2)
+        console.print(f"[bold green]✨ {parsed.display_tag} 處理完成！耗時 {elapsed} 秒，音檔已移至 archive/[/bold green]\n")
+        log_watcher_event(f"課堂 {parsed.display_tag} 處理完成，總耗時 {elapsed} 秒")
 
-    if tray:
-        tray.increment_processed()
-        tray.update_status(state="idle", detail="正在監看 Inbox", progress="等待音檔")
+        if tray:
+            tray.increment_processed()
+            tray.update_status(state="idle", detail="正在監看 Inbox", progress="等待音檔")
 
-    return target_work_dir
+        b = _get_bridge()
+        if b:
+            b.notify_task_completed(parsed.display_tag, detail=f"課堂 {parsed.display_tag} 處理完成！")
+
+        return target_work_dir
+
+    except Exception as exc:
+        b = _get_bridge()
+        if b:
+            b.notify_task_error(str(exc), task_name=parsed.display_tag)
+        raise
 
 
 def run_pipeline_with_timeout(
@@ -557,9 +601,26 @@ def watch_inbox(
         try:
             tray = WatcherTray(inbox_dir=inbox_path)
             tray.start()
+            b = _get_bridge()
+            if b:
+                b.set_global_tray(tray)
         except Exception as e:
             console.print(f"[dim]⚠️ 系統匣圖示啟動略過: {e}[/dim]")
             tray = None
+
+    # Ensure backend server running so tray web/window actions work seamlessly
+    try:
+        from lecture_pipeline.gui.launcher import is_port_in_use, run_uvicorn_server
+        if not is_port_in_use(8000):
+            th = threading.Thread(
+                target=run_uvicorn_server,
+                args=("127.0.0.1", 8000),
+                daemon=True,
+            )
+            th.start()
+            console.print("[dim]🌐 監看模式已於背景同步就緒 API / GUI 伺服器 (http://127.0.0.1:8000)[/dim]")
+    except Exception as se:
+        console.print(f"[dim]⚠️ 後端伺服器略過: {se}[/dim]")
 
     console.print(f"\n[bold blue]👀 啟動 Inbox 智慧監看服務：{inbox_path}[/bold blue]")
     console.print(f"📌 預設 STT 通道：[yellow]{channel_id}[/yellow] | 模式：{'單次掃描' if once else f'持續監看 (輪詢間隔 {poll_interval}s)'}")

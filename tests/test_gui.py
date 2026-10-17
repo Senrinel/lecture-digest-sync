@@ -520,3 +520,73 @@ def test_mode_switching_actions(isolated_gui_env: Path, monkeypatch: pytest.Monk
     res = client.post("/api/mode/switch", json={"mode": "both"})
     assert res.status_code == 200
     assert res.json()["mode"] == "both"
+
+
+def test_glossary_empty_state(isolated_gui_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that when all courses are deleted, glossary returns empty course, [] courses, [] terms without fallback to Discrete Mathematics."""
+    client = TestClient(app)
+
+    # Mock get_available_courses to return empty list
+    monkeypatch.setattr("lecture_pipeline.gui.server.get_available_courses", lambda: [])
+    monkeypatch.setattr("lecture_pipeline.gui.bridge.get_available_courses", lambda: [])
+
+    res = client.get("/api/glossary")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "ok"
+    assert data["course"] == ""
+    assert data["courses"] == []
+    assert data["terms"] == []
+    assert "Discrete Mathematics" not in str(data)
+
+
+def test_task_progress_and_completion_broadcast(isolated_gui_env: Path) -> None:
+    """Verify task progress reporting, task completion notification, and error notification."""
+    from lecture_pipeline.gui.bridge import (
+        update_task_progress,
+        notify_task_completed,
+        notify_task_error,
+        get_current_task_status,
+    )
+
+    # 1. Update progress
+    update_task_progress(
+        stage="音訊前處理",
+        progress=15,
+        detail="標準化音訊...",
+        task_name="演算法概論__20261017",
+        running=True,
+    )
+    status = get_current_task_status()
+    assert status["running"] is True
+    assert status["progress"] == 15
+    assert status["stage"] == "音訊前處理"
+    assert status["task_name"] == "演算法概論__20261017"
+
+    # 2. Complete task
+    notify_task_completed("演算法概論__20261017", detail="處理成功完成")
+    status = get_current_task_status()
+    assert status["running"] is False
+    assert status["progress"] == 100
+
+    # 3. Task error
+    notify_task_error("測試錯誤訊息", task_name="演算法概論__20261017")
+    status = get_current_task_status()
+    assert status["running"] is False
+    assert status["stage"] == "處理失敗"
+    assert "測試錯誤訊息" in status["detail"]
+
+
+def test_tray_backend_ensure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify tray._ensure_backend_running checks port status before attempting startup."""
+    from lecture_pipeline.automation.tray import WatcherTray
+
+    tray = WatcherTray()
+    # Mock is_port_in_use to return True (already running)
+    called = []
+    monkeypatch.setattr("lecture_pipeline.gui.launcher.is_port_in_use", lambda port, host="127.0.0.1": True)
+    monkeypatch.setattr("lecture_pipeline.gui.launcher.run_uvicorn_server", lambda h, p: called.append(p))
+
+    tray._ensure_backend_running()
+    assert len(called) == 0  # Should not attempt to re-bind
+

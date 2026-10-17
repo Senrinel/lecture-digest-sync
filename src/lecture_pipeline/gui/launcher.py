@@ -110,16 +110,34 @@ def launch_gui(
     except Exception as te:
         logger.warning(f"無法啟動系統匣小圖示: {te}")
 
-    # 2. Start Uvicorn ASGI server in background thread
-    server_thread = threading.Thread(
-        target=run_uvicorn_server,
-        args=(server_host, server_port),
-        daemon=True,
-    )
-    server_thread.start()
-    time.sleep(0.5)
+    # 2. Start Uvicorn ASGI server in background thread if not already running
+    if not is_port_in_use(server_port, server_host):
+        server_thread = threading.Thread(
+            target=run_uvicorn_server,
+            args=(server_host, server_port),
+            daemon=True,
+        )
+        server_thread.start()
+        time.sleep(0.5)
 
-    # 3. Handle execution modes
+    # 3. Start background inbox watcher thread so GUI is actively watching inbox
+    try:
+        from lecture_pipeline.automation.watcher import watch_inbox
+        watcher_thread = threading.Thread(
+            target=watch_inbox,
+            kwargs={
+                "inbox_dir": paths.get("inbox_dir", "inbox"),
+                "enable_tray": False,
+                "upload_drive": True,
+            },
+            daemon=True,
+        )
+        watcher_thread.start()
+        print("👀 背景收件夾 (Inbox) 即時監看服務已同步在背景運作中！")
+    except Exception as we:
+        logger.warning(f"無法啟動背景監看線程: {we}")
+
+    # 4. Handle execution modes
     desktop = DesktopWindow(
         url=url,
         title="Lecture Digest Sync - 課堂錄音辨識與筆記同步系統",

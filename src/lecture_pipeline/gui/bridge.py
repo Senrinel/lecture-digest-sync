@@ -822,6 +822,98 @@ def abort_processing_task() -> Dict[str, Any]:
     return {"status": "ok", "message": "任務已強制熔斷中止"}
 
 
+def get_task_abort_event() -> threading.Event:
+    return _task_abort_event
+
+
+def get_task_pause_event() -> threading.Event:
+    return _task_pause_event
+
+
+def update_task_progress(stage: str, progress: int, detail: str, task_name: str = "", running: bool = True) -> None:
+    """Update active task state and broadcast to all connected WebSocket GUI clients and tray."""
+    global _current_task_info
+    with _processing_lock:
+        if running and not _current_task_info.get("running"):
+            _current_task_info["start_time"] = time.time()
+        _current_task_info.update({
+            "running": running,
+            "stage": stage,
+            "progress": progress,
+            "detail": detail,
+        })
+        if task_name:
+            _current_task_info["task_name"] = task_name
+
+    current_name = _current_task_info.get("task_name", "")
+    if _tray_instance:
+        _tray_instance.update_status(
+            state="processing" if running else "idle",
+            detail=current_name if running else "準備就緒",
+            progress=f"{progress}% {stage}" if running else "等待音檔",
+        )
+
+    broadcaster.broadcast_sync({
+        "type": "progress",
+        "running": running,
+        "task_name": current_name,
+        "stage": stage,
+        "progress": progress,
+        "detail": detail,
+    })
+
+
+def notify_task_completed(lecture_id: str, detail: str = "") -> None:
+    """Mark task completed, notify tray, and broadcast completion event to GUI clients."""
+    global _current_task_info
+    with _processing_lock:
+        _current_task_info.update({
+            "running": False,
+            "stage": "常駐監控待命",
+            "progress": 100,
+            "detail": detail or f"課堂已成功歸檔至 {lecture_id}",
+        })
+
+    if _tray_instance:
+        _tray_instance.increment_processed()
+        _tray_instance.update_status(state="idle", detail="正在監看 Inbox", progress="等待音檔")
+
+    broadcaster.broadcast_sync({
+        "type": "progress",
+        "running": False,
+        "progress": 100,
+        "stage": "處理完成",
+        "detail": detail or f"課堂已成功歸檔至 {lecture_id}",
+    })
+    broadcaster.broadcast_sync({
+        "type": "task_completed",
+        "lecture_id": lecture_id,
+    })
+
+
+def notify_task_error(error_msg: str, task_name: str = "") -> None:
+    """Mark task failed and broadcast error to GUI clients."""
+    global _current_task_info
+    with _processing_lock:
+        _current_task_info.update({
+            "running": False,
+            "stage": "處理失敗",
+            "progress": 0,
+            "detail": f"管線執行異常：{error_msg}",
+        })
+
+    if _tray_instance:
+        _tray_instance.update_status(state="idle", detail="處理失敗", progress="等待音檔")
+
+    broadcaster.broadcast_sync({
+        "type": "progress",
+        "running": False,
+        "progress": 0,
+        "stage": "處理失敗",
+        "detail": f"管線執行異常：{error_msg}",
+    })
+
+
 def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bool:
     """Launch end-to-end lecture pipeline in background thread with WebSocket progress broadcasts."""
     global _current_task_info
@@ -849,23 +941,19 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
     def _worker():
         global _current_task_info
         try:
-            broadcaster.broadcast_sync({
-                "type": "progress",
-                "running": True,
-                "task_name": primary_name,
-                "progress": 5,
-                "stage": "準備前處理",
-                "detail": f"開始處理音訊檔案：{', '.join(file_names)}",
-            })
+            update_task_progress(
+                stage="準備前處理",
+                progress=5,
+                detail=f"開始處理音訊檔案：{', '.join(file_names)}",
+                task_name=primary_name,
+                running=True,
+            )
 
             cfg = get_current_config()
             paths = cfg.get("paths", {})
             archive_dir = paths.get("archive_dir", "archive")
             rec_archive = paths.get("record_archive_dir")
             export_dir = cfg.get("export", {}).get("export_dir", "exports")
-
-            if _tray_instance:
-                _tray_instance.update_status(state="processing", detail=primary_name, progress="開始處理")
 
             out_dir = run_pipeline_for_group(
                 audio_files=audio_files,
@@ -881,21 +969,10 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
                 export_dir=export_dir,
             )
 
-            if _tray_instance:
-                _tray_instance.increment_processed()
-                _tray_instance.update_status(state="idle", detail="準備就緒", progress="等待音檔")
-
-            broadcaster.broadcast_sync({
-                "type": "progress",
-                "running": False,
-                "progress": 100,
-                "stage": "處理完成",
-                "detail": f"課堂已成功歸檔至 {out_dir.name}",
-            })
-            broadcaster.broadcast_sync({
-                "type": "task_completed",
-                "lecture_id": out_dir.name,
-            })
+            notify_task_completed(
+                lecture_id=out_dir.name,
+                detail=f"課堂已成功歸檔至 {out_dir.name}",
+            )
 
         except InterruptedError as ie:
             if _tray_instance:
@@ -912,15 +989,7 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
                 "detail": str(ie),
             })
         except Exception as e:
-            if _tray_instance:
-                _tray_instance.update_status(state="idle", detail="處理失敗", progress="等待音檔")
-            broadcaster.broadcast_sync({
-                "type": "progress",
-                "running": False,
-                "progress": 0,
-                "stage": "處理失敗",
-                "detail": f"管線執行異常：{str(e)}",
-            })
+            notify_task_error(error_msg=str(e), task_name=primary_name)
         finally:
             with _processing_lock:
                 _current_task_info = {"running": False, "paused": False, "aborted": False}
@@ -934,19 +1003,13 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
 # Glossary Management & PDF Extraction
 # ---------------------------------------------------------------------------
 
-def get_course_glossary_terms(course: str = "Discrete Mathematics") -> List[Dict[str, Any]]:
-    """Load extracted terms for course or default list."""
+def get_course_glossary_terms(course: str = "") -> List[Dict[str, Any]]:
+    """Load extracted terms for course or empty list if no course specified/available."""
+    if not course or not course.strip():
+        return []
+
     from lecture_pipeline.glossary import load_course_glossary
-    terms = load_course_glossary(course)
-    if not terms:
-        courses_dir = Path("courses")
-        if courses_dir.is_dir():
-            for c_dir in courses_dir.iterdir():
-                if c_dir.is_dir():
-                    c_terms = load_course_glossary(c_dir.name)
-                    if c_terms:
-                        terms = c_terms
-                        break
+    terms = load_course_glossary(course.strip())
 
     result: List[Dict[str, Any]] = []
     for t in terms:
@@ -962,17 +1025,30 @@ def get_available_courses() -> List[str]:
     """Retrieve list of all courses configured under courses/ directory."""
     courses_dir = Path("courses")
     if not courses_dir.is_dir():
-        return ["Discrete Mathematics"]
+        return []
     courses = [p.name for p in courses_dir.iterdir() if p.is_dir() and not p.name.startswith(".")]
     courses.sort()
-    return courses or ["Discrete Mathematics"]
+    return courses
 
 
-def extract_terms_from_uploaded_file(file_content: bytes, filename: str, course: str = "Discrete Mathematics") -> List[Dict[str, Any]]:
+def extract_terms_from_uploaded_file(file_content: bytes, filename: str, course: str = "") -> List[Dict[str, Any]]:
     """Save temporary syllabus file, extract domain terms locally, and update course glossary."""
     from lecture_pipeline.glossary import extract_terms_from_file, update_course_glossary
 
-    temp_dir = Path("courses") / course
+    target_course = course.strip() or Path(filename).stem
+    temp_dir = Path("courses") / target_course
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_file = temp_dir / filename
+    temp_file.write_bytes(file_content)
+
+    try:
+        extracted = extract_terms_from_file(temp_file)
+        if extracted:
+            update_course_glossary(target_course, extracted)
+        return get_course_glossary_terms(target_course)
+    except Exception as e:
+        logging.getLogger("lecture_pipeline.gui").error(f"Failed to extract glossary from {filename}: {e}")
+        return get_course_glossary_terms(target_course)
     temp_dir.mkdir(parents=True, exist_ok=True)
     temp_file = temp_dir / filename
     temp_file.write_bytes(file_content)

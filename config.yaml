@@ -118,7 +118,7 @@ timetable:
 
 # GUI 雙軌介面設定 (Windows 原生視窗 / 網頁瀏覽器 / 同時使用)
 gui:
-  mode: "both"  # 記憶上次執行模式: window (Windows 獨立視窗) | web (瀏覽器) | both (雙軌同時使用)
+  mode: "window"  # 記憶上次執行模式: window (Windows 獨立視窗) | web (瀏覽器) | both (雙軌同時使用)
   host: "127.0.0.1"
   port: 8000
   auto_open_browser: true

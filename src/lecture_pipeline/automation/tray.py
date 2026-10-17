@@ -100,17 +100,38 @@ class WatcherTray:
         ]
         return "\n".join(lines)
 
+    def _ensure_backend_running(self) -> None:
+        """Ensure Uvicorn backend is running on 8000."""
+        try:
+            from lecture_pipeline.gui.launcher import is_port_in_use, run_uvicorn_server
+            if not is_port_in_use(8000):
+                th = threading.Thread(
+                    target=run_uvicorn_server,
+                    args=("127.0.0.1", 8000),
+                    daemon=True,
+                )
+                th.start()
+                time.sleep(0.5)
+        except Exception:
+            pass
+
     def _on_show_window(self, _icon, _item):
         """Right-click menu: 顯示桌面視窗."""
         try:
-            from lecture_pipeline.gui.window import show_desktop_window
-            show_desktop_window()
+            self._ensure_backend_running()
+            from lecture_pipeline.gui.window import get_desktop_window, show_desktop_window
+            win = get_desktop_window()
+            if win and win.window:
+                show_desktop_window()
+            else:
+                subprocess.Popen([sys.executable, "-m", "lecture_pipeline.cli", "gui", "--mode", "window"])
         except Exception:
             pass
 
     def _on_open_web(self, _icon, _item):
         """Right-click menu: 開啟網頁版."""
         try:
+            self._ensure_backend_running()
             import webbrowser
             webbrowser.open(self.server_url)
         except Exception:
@@ -119,10 +140,15 @@ class WatcherTray:
     def _on_both_modes(self, _icon, _item):
         """Right-click menu: 同時雙軌模式."""
         try:
-            from lecture_pipeline.gui.window import show_desktop_window
+            self._ensure_backend_running()
             import webbrowser
-            show_desktop_window()
             webbrowser.open(self.server_url)
+            from lecture_pipeline.gui.window import get_desktop_window, show_desktop_window
+            win = get_desktop_window()
+            if win and win.window:
+                show_desktop_window()
+            else:
+                subprocess.Popen([sys.executable, "-m", "lecture_pipeline.cli", "gui", "--mode", "window"])
         except Exception:
             pass
 
@@ -149,6 +175,12 @@ class WatcherTray:
         self._apply_state_to_icon()
         if icon:
             icon.update_menu()
+
+        try:
+            from lecture_pipeline.gui.bridge import set_watcher_paused
+            set_watcher_paused(self.is_paused)
+        except Exception:
+            pass
 
     def _on_view_log(self, _icon, _item):
         """Right-click menu: 查看今日紀錄."""

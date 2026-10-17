@@ -391,7 +391,9 @@ async def api_browse_file(req: BrowseFileRequest):
 async def api_get_glossary(course: Optional[str] = None):
     """Get domain terms for course along with list of all available courses."""
     courses = get_available_courses()
-    selected_course = course or (courses[0] if courses else "Discrete Mathematics")
+    if not courses:
+        return {"status": "ok", "course": "", "courses": [], "terms": []}
+    selected_course = course if (course and course in courses) else courses[0]
     terms = get_course_glossary_terms(selected_course)
     return {"status": "ok", "course": selected_course, "courses": courses, "terms": terms}
 
@@ -442,7 +444,7 @@ async def api_delete_term(req: TermDeleteRequest):
 
 
 @app.post("/api/glossary/upload-pdf")
-async def api_upload_pdf(file: UploadFile = File(...), course: str = Form("Discrete Mathematics")):
+async def api_upload_pdf(file: UploadFile = File(...), course: str = Form("")):
     """Upload syllabus PDF/TXT and extract technical glossary terms."""
     content = await file.read()
     terms = extract_terms_from_uploaded_file(content, file.filename, course=course)
