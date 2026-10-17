@@ -31,6 +31,8 @@ from lecture_pipeline.gui.bridge import (
     get_remembered_gui_mode,
     get_timetable_rules,
     is_watcher_paused,
+    open_file_in_desktop,
+    resolve_export_lecture_file,
     save_remembered_gui_mode,
     save_timetable_rules,
     set_watcher_paused,
@@ -589,4 +591,49 @@ def test_tray_backend_ensure(monkeypatch: pytest.MonkeyPatch) -> None:
 
     tray._ensure_backend_running()
     assert len(called) == 0  # Should not attempt to re-bind
+
+
+def test_resolve_export_lecture_file_and_open(isolated_gui_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that opening a lecture file resolves to the exports/ directory with fallback creation."""
+    client = TestClient(app)
+    work_dir = isolated_gui_env / "work"
+    lecture_dir = work_dir / "261017_資料結構"
+    lecture_dir.mkdir(parents=True, exist_ok=True)
+    (lecture_dir / "03_summary.md").write_text("# 資料結構考前重點總結", encoding="utf-8")
+
+    # 1. Test direct resolver function
+    resolved = resolve_export_lecture_file("261017_資料結構", file_type="summary")
+    assert resolved is not None
+    assert resolved.is_file()
+    assert "exports" in str(resolved).lower()
+    assert "資料結構" in resolved.name or "資料結構" in str(resolved.parent)
+    assert "# 資料結構考前重點總結" in resolved.read_text(encoding="utf-8")
+
+    # 2. Test /api/system/open-file endpoint
+    # Set LECTURE_PIPELINE_TEST_MODE to 1 so os.startfile is mocked
+    monkeypatch.setenv("LECTURE_PIPELINE_TEST_MODE", "1")
+    res = client.post("/api/system/open-file", json={"lecture_id": "261017_資料結構", "file_type": "summary"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "ok"
+    assert "exports" in data["path"].lower()
+
+
+def test_index_html_player_empty_state_and_button_text(isolated_gui_env: Path) -> None:
+    """Verify that index.html contains empty default states without demo placeholders and updated button label."""
+    client = TestClient(app)
+    res = client.get("/")
+    assert res.status_code == 200
+    html = res.text
+
+    # Button text updated to 本機開啟檔案
+    assert 'id="ui-player-open-note-btn">本機開啟檔案<' in html
+    # No DEMO placeholder text in panes
+    assert "請先從上方選取一堂課堂。" not in html
+    # Empty default panes and titles
+    assert 'id="history-transcript-pane" class="space-y-2 flex-1 overflow-y-auto pr-1"></div>' in html
+    assert 'id="history-summary-pane" class="space-y-3 flex-1 overflow-y-auto pr-1"></div>' in html
+    assert 'id="player-lecture-title" class="text-slate-100 dark:text-slate-100 light:text-slate-900"></span>' in html
+    assert 'id="player-lecture-meta" class="text-xs text-slate-400 mt-0.5"></p>' in html
+
 

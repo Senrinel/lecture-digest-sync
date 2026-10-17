@@ -519,19 +519,19 @@
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
             <div>
               <h3 class="font-bold text-base flex items-center gap-2">
-                <span id="player-lecture-title" class="text-slate-100 dark:text-slate-100 light:text-slate-900">未選取課堂</span>
+                <span id="player-lecture-title" class="text-slate-100 dark:text-slate-100 light:text-slate-900"></span>
               </h3>
-              <p id="player-lecture-meta" class="text-xs text-slate-400 mt-0.5">點擊文稿中任意段落或時間戳，音訊將即時秒級跳轉至該處開始播放</p>
+              <p id="player-lecture-meta" class="text-xs text-slate-400 mt-0.5"></p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
               <button onclick="copyNotebookBundle()" class="bio-btn px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs text-white font-medium flex items-center gap-1.5 shadow-md">
                 <i data-lucide="copy" class="w-3.5 h-3.5"></i> <span id="ui-player-copy-btn">複製筆記包</span>
               </button>
-              <button id="btn-player-docs" onclick="openDocsLink()" class="bio-btn px-3 py-1.5 rounded-xl glass-card text-xs flex items-center gap-1.5">
+              <button id="btn-player-docs" onclick="openDocsLink()" class="bio-btn px-3 py-1.5 rounded-xl glass-card text-xs flex items-center gap-1.5" style="display: none;">
                 <i data-lucide="external-link" class="w-3.5 h-3.5"></i> <span id="ui-player-docs-btn">Google Docs</span>
               </button>
               <button onclick="openLocalSummary()" class="bio-btn px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1.5">
-                <i data-lucide="file-text" class="w-3.5 h-3.5"></i> <span>本機開啟筆記</span>
+                <i data-lucide="file-text" class="w-3.5 h-3.5"></i> <span id="ui-player-open-note-btn">本機開啟檔案</span>
               </button>
               <button onclick="openCurrentLectureFolder()" title="在檔案總管開啟此課堂目錄" class="bio-btn px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs flex items-center gap-1.5">
                 <i data-lucide="folder" class="w-3.5 h-3.5 text-amber-400"></i> <span>開啟資料夾</span>
@@ -554,7 +554,7 @@
             <div class="flex-1 w-full space-y-1.5">
               <div class="flex justify-between text-xs font-mono text-slate-400">
                 <span id="player-time-current">00:00:00</span>
-                <span id="player-time-total">00:00:00 (音訊串流)</span>
+                <span id="player-time-total">00:00:00</span>
               </div>
               <div id="player-progress-track" onclick="seekAudio(event)" class="w-full bg-slate-800/80 dark:bg-slate-800/80 light:bg-slate-200 h-3 rounded-full cursor-pointer relative overflow-hidden border border-white/5">
                 <div id="player-progress-bar" class="bg-gradient-to-r from-indigo-500 to-cyan-400 h-full rounded-full pointer-events-none transition-all duration-100" style="width: 0%"></div>
@@ -577,9 +577,7 @@
                 <span>雙向同步逐字稿</span>
                 <span class="text-slate-500 text-[11px]">點擊時間戳立即跳轉聆聽</span>
               </div>
-              <div id="history-transcript-pane" class="space-y-2 flex-1 overflow-y-auto pr-1">
-                <div class="text-slate-400 py-8 text-center">請先從上方選取一堂課堂。</div>
-              </div>
+              <div id="history-transcript-pane" class="space-y-2 flex-1 overflow-y-auto pr-1"></div>
             </div>
 
             <!-- 右欄：重點筆記 -->
@@ -588,9 +586,7 @@
                 <span>重點總結筆記 (Markdown)</span>
                 <span id="player-summary-badge" class="text-emerald-400 text-[11px]">考點架構提煉</span>
               </div>
-              <div id="history-summary-pane" class="space-y-3 flex-1 overflow-y-auto pr-1">
-                <div class="text-slate-400 py-8 text-center">請先從上方選取一堂課堂。</div>
-              </div>
+              <div id="history-summary-pane" class="space-y-3 flex-1 overflow-y-auto pr-1"></div>
             </div>
           </div>
         </div>
@@ -1992,6 +1988,7 @@
       'ui-history-search': '搜尋課堂、專有名詞或日期...',
       'ui-player-copy-btn': '複製 NotebookLM 筆記包',
       'ui-player-docs-btn': 'Google Docs 原檔',
+      'ui-player-open-note-btn': '本機開啟檔案',
       'ui-glossary-title': '專屬課堂詞庫與課表智慧對齊',
       'ui-glossary-subtitle': '純本機零 API 萃取技術：直接拖入課堂 PPT/PDF 即刻解析關鍵詞；課表智慧排程無感自動辨識科目',
       'ui-glossary-import-btn': '匯入講義 PDF',
@@ -2029,6 +2026,7 @@
       'ui-history-search': '播放庫搜尋框提示',
       'ui-player-copy-btn': '播放器複製按鈕',
       'ui-player-docs-btn': '播放器 Docs 按鈕',
+      'ui-player-open-note-btn': '播放器本機開啟按鈕',
       'ui-glossary-title': '詞庫頁面標題',
       'ui-glossary-subtitle': '詞庫頁面說明',
       'ui-glossary-import-btn': '詞庫匯入 PDF 按鈕',
@@ -2583,6 +2581,33 @@
     let currentSelectedLecture = null;
     const playerAudioEl = document.getElementById('player-audio-el');
 
+    function clearPlayerAndPanes() {
+      currentSelectedLecture = null;
+      const titleEl = document.getElementById('player-lecture-title');
+      if (titleEl) titleEl.innerText = '';
+      const metaEl = document.getElementById('player-lecture-meta');
+      if (metaEl) metaEl.innerText = '';
+      const docsBtn = document.getElementById('btn-player-docs');
+      if (docsBtn) docsBtn.style.display = 'none';
+
+      if (playerAudioEl) {
+        playerAudioEl.pause();
+        playerAudioEl.removeAttribute('src');
+      }
+      const curEl = document.getElementById('player-time-current');
+      if (curEl) curEl.innerText = '00:00:00';
+      const totEl = document.getElementById('player-time-total');
+      if (totEl) totEl.innerText = '00:00:00';
+      const barEl = document.getElementById('player-progress-bar');
+      if (barEl) barEl.style.width = '0%';
+      updatePlayBtnIcon(false);
+
+      const transcriptPane = document.getElementById('history-transcript-pane');
+      if (transcriptPane) transcriptPane.innerHTML = '';
+      const summaryPane = document.getElementById('history-summary-pane');
+      if (summaryPane) summaryPane.innerHTML = '';
+    }
+
     async function loadHistoryFromServer() {
       try {
         const res = await fetch('/api/history');
@@ -2597,6 +2622,8 @@
             // Auto-select latest lecture if none selected
             if (!currentSelectedLecture && allHistoryLectures.length > 0) {
               selectHistoryLecture(allHistoryLectures[0].id);
+            } else if (allHistoryLectures.length === 0) {
+              clearPlayerAndPanes();
             }
           }
         }
@@ -2703,6 +2730,7 @@
     }
 
     async function selectHistoryLecture(lectureId) {
+      clearPlayerAndPanes();
       try {
         const res = await fetch(`/api/lecture/${encodeURIComponent(lectureId)}`);
         if (!res.ok) {
@@ -2717,7 +2745,8 @@
         if (titleEl) titleEl.innerText = `${data.title} (${data.course || ''})`;
         const metaEl = document.getElementById('player-lecture-meta');
         if (metaEl) {
-          metaEl.innerText = `課堂日期：${data.title.includes('_') ? data.title.split('_')[1] : ''} · 點擊逐字稿中任意時間戳即可精確秒級跳轉播放`;
+          const datePart = (data.title && data.title.includes('_')) ? data.title.split('_')[1] : (data.date || '');
+          metaEl.innerText = datePart ? `課堂日期：${datePart} · 點擊逐字稿時間戳即可精確秒級跳轉播放` : '';
         }
 
         // Docs button
@@ -2730,10 +2759,10 @@
         if (data.has_audio && data.audio_url) {
           playerAudioEl.src = data.audio_url;
           playerAudioEl.load();
-          document.getElementById('player-time-total').innerText = '載入中...';
+          document.getElementById('player-time-total').innerText = '00:00:00';
         } else {
           playerAudioEl.removeAttribute('src');
-          document.getElementById('player-time-total').innerText = '無音訊存檔';
+          document.getElementById('player-time-total').innerText = '00:00:00';
         }
 
         // Render transcript & summary
@@ -2753,7 +2782,6 @@
       container.innerHTML = '';
 
       if (!rawText || !rawText.trim()) {
-        container.innerHTML = '<div class="text-slate-400 py-8 text-center">此課堂尚無逐字稿文字紀錄。</div>';
         return;
       }
 
@@ -2787,7 +2815,6 @@
       container.innerHTML = '';
 
       if (!summaryMd || !summaryMd.trim()) {
-        container.innerHTML = '<div class="text-slate-400 py-8 text-center">此課堂尚無重點總結筆記。</div>';
         return;
       }
 
@@ -3045,10 +3072,8 @@
         const data = await res.json();
         if (res.ok) {
           showToast(data.message || '課堂已安全刪除');
-          currentSelectedLecture = null;
+          clearPlayerAndPanes();
           await loadHistoryFromServer();
-          const titleEl = document.getElementById('player-lecture-title');
-          if (titleEl) titleEl.innerText = '未選取課堂';
         } else {
           showToast(data.detail || '刪除課堂失敗');
         }

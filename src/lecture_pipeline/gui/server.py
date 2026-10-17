@@ -44,6 +44,7 @@ from lecture_pipeline.gui.bridge import (
     open_folder_in_desktop,
     pause_processing_task,
     rename_lecture,
+    resolve_export_lecture_file,
     save_remembered_gui_mode,
     save_timetable_rules,
     set_watcher_paused,
@@ -265,7 +266,13 @@ async def api_delete_lecture(lecture_id: str):
 
 @app.post("/api/lecture/{lecture_id}/open-folder")
 async def api_open_lecture_folder(lecture_id: str):
-    """Open lecture directory in Windows File Explorer."""
+    """Open lecture directory in Windows File Explorer (preferring Exports directory)."""
+    export_file = resolve_export_lecture_file(lecture_id, "summary")
+    if export_file and export_file.is_file():
+        ok = open_folder_in_desktop(export_file.parent)
+        if ok:
+            return {"status": "ok", "path": str(export_file.parent)}
+
     detail = get_lecture_content(lecture_id)
     if not detail or not detail.get("path"):
         raise HTTPException(status_code=404, detail="Lecture directory not found")
@@ -337,24 +344,26 @@ async def api_open_folder(req: OpenFolderRequest):
 
 @app.post("/api/system/open-file")
 async def api_open_file(req: OpenFileRequest):
-    """Open target note or summary file in default Windows application."""
+    """Open target note or summary file in default Windows application, directing to Exports directory."""
     target_path = None
     if req.path:
         target_path = Path(req.path)
     elif req.lecture_id:
-        detail = get_lecture_content(req.lecture_id)
-        if detail and detail.get("path"):
-            base_dir = Path(detail["path"])
-            if req.file_type == "summary":
-                target_path = base_dir / "03_summary.md"
-            elif req.file_type == "cleaned":
-                target_path = base_dir / "02_cleaned.txt"
-            elif req.file_type == "raw":
-                target_path = base_dir / "01_raw_timestamped.txt"
-                if not target_path.is_file():
-                    target_path = base_dir / "01_raw.txt"
-            else:
-                target_path = base_dir
+        target_path = resolve_export_lecture_file(req.lecture_id, req.file_type or "summary")
+        if not target_path or not target_path.exists():
+            detail = get_lecture_content(req.lecture_id)
+            if detail and detail.get("path"):
+                base_dir = Path(detail["path"])
+                if req.file_type == "summary":
+                    target_path = base_dir / "03_summary.md"
+                elif req.file_type == "cleaned":
+                    target_path = base_dir / "02_cleaned.txt"
+                elif req.file_type == "raw":
+                    target_path = base_dir / "01_raw_timestamped.txt"
+                    if not target_path.is_file():
+                        target_path = base_dir / "01_raw.txt"
+                else:
+                    target_path = base_dir
 
     if not target_path or not target_path.exists():
         raise HTTPException(status_code=404, detail="Target file or directory not found")

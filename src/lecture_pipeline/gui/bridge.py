@@ -401,16 +401,17 @@ def _get_drive_link_from_logs(course_or_id: str) -> Optional[str]:
 
 
 def get_archived_lectures() -> List[Dict[str, Any]]:
-    """Recursively scan archive, work, and record directories for processed lecture bundles."""
+    """Recursively scan exports, archive, work, and record directories for processed lecture bundles."""
     global _lecture_cache
     cfg = get_current_config()
     paths = cfg.get("paths", {})
     archive_dir = Path(paths.get("archive_dir", "archive"))
     work_dir = Path(paths.get("work_dir", "work"))
+    export_dir = Path(cfg.get("export", {}).get("export_dir", "exports")).resolve()
     rec_archive_str = paths.get("record_archive_dir")
     rec_archive = Path(rec_archive_str) if rec_archive_str else None
 
-    search_dirs = [work_dir, archive_dir]
+    search_dirs = [export_dir, work_dir, archive_dir]
     if rec_archive and rec_archive.is_dir():
         search_dirs.append(rec_archive)
 
@@ -430,11 +431,14 @@ def get_archived_lectures() -> List[Dict[str, Any]]:
             for p in base.rglob("*"):
                 if not p.is_dir():
                     continue
-                has_summary = (p / "03_summary.md").is_file()
-                has_cleaned = (p / "02_cleaned.txt").is_file()
-                has_raw = (p / "01_raw.txt").is_file()
+                if p.name.startswith(".") or p.name in ["chunks", "__pycache__", "node_modules", "static", "templates"]:
+                    continue
+                has_summary = (p / "03_summary.md").is_file() or any(f.is_file() for f in p.glob("*重點總結筆記.md")) or any(f.is_file() for f in p.glob("*筆記*.md"))
+                has_cleaned = (p / "02_cleaned.txt").is_file() or any(f.is_file() for f in p.glob("*完整課堂整理文稿.md"))
+                has_raw = (p / "01_raw.txt").is_file() or (p / "01_raw_timestamped.txt").is_file() or any(f.is_file() for f in p.glob("*原始時間戳對照.md"))
                 has_run = (p / "run.json").is_file()
-                if has_summary or has_cleaned or has_raw or has_run:
+                has_audio = any(f.is_file() for ext in [".mp3", ".opus", ".wav", ".flac", ".m4a"] for f in p.glob(f"*{ext}"))
+                if has_summary or has_cleaned or has_raw or has_run or has_audio:
                     canonical = str(p.resolve())
                     if canonical not in seen_dirs:
                         candidate_dirs.append(p)
@@ -447,7 +451,7 @@ def get_archived_lectures() -> List[Dict[str, Any]]:
 
         for item in candidate_dirs:
             parent_name = item.parent.name
-            if parent_name and parent_name not in ["work", "archive", base.name]:
+            if parent_name and parent_name not in ["work", "archive", "exports", base.name]:
                 lecture_id = f"{parent_name}_{item.name}"
             else:
                 lecture_id = item.name
@@ -458,9 +462,27 @@ def get_archived_lectures() -> List[Dict[str, Any]]:
             new_cache[item.name] = item
 
             summary_file = item / "03_summary.md"
+            if not summary_file.is_file():
+                for sf in list(item.glob("*重點總結筆記.md")) + list(item.glob("*筆記*.md")) + list(item.glob("*.md")):
+                    if sf.is_file():
+                        summary_file = sf
+                        break
+
             cleaned_file = item / "02_cleaned.txt"
+            if not cleaned_file.is_file():
+                for cf in list(item.glob("*完整課堂整理文稿.md")) + list(item.glob("*整理文稿*.md")):
+                    if cf.is_file():
+                        cleaned_file = cf
+                        break
+
             raw_file = item / "01_raw.txt"
             raw_ts_file = item / "01_raw_timestamped.txt"
+            if not raw_ts_file.is_file():
+                for rf in list(item.glob("*原始時間戳對照.md")) + list(item.glob("*.txt")):
+                    if rf.is_file():
+                        raw_ts_file = rf
+                        break
+
             run_json = item / "run.json"
 
             course_name = ""
@@ -480,7 +502,7 @@ def get_archived_lectures() -> List[Dict[str, Any]]:
                     pass
 
             if not course_name:
-                if parent_name and parent_name not in ["work", "archive", base.name]:
+                if parent_name and parent_name not in ["work", "archive", "exports", base.name]:
                     course_name = parent_name
                 else:
                     m = re.match(r"^(\d{6,8})_(.+)$", item.name)
@@ -511,12 +533,22 @@ def get_archived_lectures() -> List[Dict[str, Any]]:
                     audio_path = matched[0]
                     break
 
-            if not audio_path and course_name:
-                for base_arch in [archive_dir, work_dir]:
-                    matched = list(base_arch.glob(f"**/{course_name}*/*.*"))
-                    for mf in matched:
-                        if mf.suffix.lower() in [".mp3", ".opus", ".wav", ".flac", ".m4a"]:
-                            audio_path = mf
+            if not audio_path:
+                for base_arch in [archive_dir, work_dir, rec_archive]:
+                    if not base_arch or not base_arch.is_dir():
+                        continue
+                    patterns = []
+                    if course_name:
+                        patterns.append(f"**/*{course_name}*/*.*")
+                    if date_str:
+                        clean_d = date_str.replace("-", "")
+                        patterns.append(f"**/*{clean_d}*/*.*")
+                    for pat in patterns:
+                        for mf in base_arch.glob(pat):
+                            if mf.is_file() and mf.suffix.lower() in [".mp3", ".opus", ".wav", ".flac", ".m4a"]:
+                                audio_path = mf
+                                break
+                        if audio_path:
                             break
                     if audio_path:
                         break
@@ -567,8 +599,9 @@ def get_lecture_content(lecture_id: str) -> Optional[Dict[str, Any]]:
     if not target_dir or not target_dir.is_dir():
         cfg = get_current_config()
         paths = cfg.get("paths", {})
-        for base in [Path(paths.get("work_dir", "work")), Path(paths.get("archive_dir", "archive"))]:
-            for p in base.rglob(lecture_id):
+        export_dir = Path(cfg.get("export", {}).get("export_dir", "exports")).resolve()
+        for base in [export_dir, Path(paths.get("work_dir", "work")), Path(paths.get("archive_dir", "archive"))]:
+            for p in base.rglob(f"*{lecture_id}*"):
                 if p.is_dir():
                     target_dir = p
                     break
@@ -579,10 +612,30 @@ def get_lecture_content(lecture_id: str) -> Optional[Dict[str, Any]]:
         return None
 
     summary_file = target_dir / "03_summary.md"
+    if not summary_file.is_file():
+        for sf in list(target_dir.glob("*重點總結筆記.md")) + list(target_dir.glob("*筆記*.md")) + list(target_dir.glob("*.md")):
+            if sf.is_file():
+                summary_file = sf
+                break
+
     cleaned_file = target_dir / "02_cleaned.txt"
+    if not cleaned_file.is_file():
+        for cf in list(target_dir.glob("*完整課堂整理文稿.md")) + list(target_dir.glob("*整理文稿*.md")):
+            if cf.is_file():
+                cleaned_file = cf
+                break
+
     raw_file = target_dir / "01_raw.txt"
     raw_ts_file = target_dir / "01_raw_timestamped.txt"
-    run_json = target_dir / "run.json"
+    if not raw_ts_file.is_file():
+        for rf in list(target_dir.glob("*原始時間戳對照.md")) + list(target_dir.glob("*.txt")):
+            if rf.is_file():
+                raw_ts_file = rf
+                break
+
+    course_name = target_dir.parent.name if target_dir.parent.name not in ["work", "archive", "exports", "Record"] else target_dir.name
+    date_match = re.search(r"(20\d{6}|\d{6})", target_dir.name)
+    date_str = date_match.group(1) if date_match else ""
 
     audio_file = None
     for ext in [".flac", ".opus", ".mp3", ".wav", ".m4a"]:
@@ -592,7 +645,28 @@ def get_lecture_content(lecture_id: str) -> Optional[Dict[str, Any]]:
             audio_file = found[0]
             break
 
-    course_name = target_dir.parent.name if target_dir.parent.name not in ["work", "archive"] else target_dir.name
+    if not audio_file:
+        cfg = get_current_config()
+        paths = cfg.get("paths", {})
+        archive_dir = Path(paths.get("archive_dir", "archive"))
+        work_dir = Path(paths.get("work_dir", "work"))
+        rec_archive_str = paths.get("record_archive_dir")
+        rec_archive = Path(rec_archive_str) if rec_archive_str else None
+        for base_arch in [archive_dir, work_dir, rec_archive]:
+            if not base_arch or not base_arch.is_dir():
+                continue
+            for pat in [f"**/*{course_name}*/*.*", f"**/*{date_str}*/*.*" if date_str else ""]:
+                if not pat:
+                    continue
+                for mf in base_arch.glob(pat):
+                    if mf.is_file() and mf.suffix.lower() in [".mp3", ".opus", ".wav", ".flac", ".m4a"]:
+                        audio_file = mf
+                        break
+                if audio_file:
+                    break
+            if audio_file:
+                break
+
     docs_url = _get_drive_link_from_logs(course_name) or _get_drive_link_from_logs(target_dir.name)
 
     return {
@@ -608,6 +682,84 @@ def get_lecture_content(lecture_id: str) -> Optional[Dict[str, Any]]:
         "audio_path": str(audio_file.resolve()) if audio_file else None,
         "docs_url": docs_url,
     }
+
+
+def resolve_export_lecture_file(lecture_id: str, file_type: str = "summary") -> Optional[Path]:
+    """Resolve target note file directed to the Exports directory (筆記與播放器匯出目錄)."""
+    cfg = get_current_config()
+    export_dir = Path(cfg.get("export", {}).get("export_dir", "exports")).resolve()
+    export_dir.mkdir(parents=True, exist_ok=True)
+
+    detail = get_lecture_content(lecture_id)
+    course = (detail.get("course") if detail else "") or ""
+    title = (detail.get("title") if detail else "") or ""
+    date_match = re.search(r"(20\d{6}|\d{6})", f"{lecture_id}_{title}")
+    date_str = date_match.group(1) if date_match else ""
+
+    patterns = []
+    if file_type == "summary":
+        patterns = ["*重點總結筆記.md", "*重點筆記*.md", "*筆記*.md", "*summary*.md", "01_*.md", "*.md"]
+    elif file_type == "cleaned":
+        patterns = ["*完整課堂整理文稿.md", "*整理文稿*.md", "02_*.md", "*.txt"]
+    elif file_type == "raw":
+        patterns = ["*原始時間戳對照.md", "*時間戳*.md", "03_*.md", "*.txt"]
+    else:
+        patterns = ["*.md", "*.txt"]
+
+    # 1. Look in export_dir / course / date_str
+    if course and date_str:
+        c_dir = export_dir / course / date_str
+        if c_dir.is_dir():
+            for pat in patterns:
+                for f in c_dir.glob(pat):
+                    if f.is_file():
+                        return f
+
+    # 2. Look in export_dir / course
+    if course:
+        c_dir = export_dir / course
+        if c_dir.is_dir():
+            for pat in patterns:
+                for f in c_dir.rglob(pat):
+                    if f.is_file() and (not date_str or date_str in f.name or date_str in str(f.parent)):
+                        return f
+
+    # 3. Look in export_dir for matching lecture_id or date
+    for pat in patterns:
+        for f in export_dir.rglob(pat):
+            if f.is_file():
+                if course and course.lower() in str(f).lower():
+                    return f
+                if lecture_id and lecture_id.lower() in str(f).lower():
+                    return f
+
+    # 4. If detail is already an exported file, return it
+    if detail and detail.get("path"):
+        d_path = Path(detail["path"])
+        if str(export_dir).lower() in str(d_path).lower():
+            if file_type == "summary":
+                for sf in list(d_path.glob("*重點總結筆記.md")) + list(d_path.glob("*.md")):
+                    if sf.is_file():
+                        return sf
+
+    # 5. Copy or create note in export_dir / course / date_str
+    c_name = course or (lecture_id.split("_")[0] if "_" in lecture_id else "Lecture")
+    d_name = date_str or time.strftime("%Y%m%d")
+    target_exp_dir = export_dir / c_name / d_name
+    target_exp_dir.mkdir(parents=True, exist_ok=True)
+
+    dest_file = target_exp_dir / f"01_{c_name}_{d_name}_重點總結筆記.md"
+    summary_text = (detail.get("summary") if detail else "") or ""
+    if not summary_text and detail and detail.get("path"):
+        src_sum = Path(detail["path"]) / "03_summary.md"
+        if src_sum.is_file():
+            summary_text = src_sum.read_text(encoding="utf-8")
+
+    if not summary_text:
+        summary_text = f"# 【課堂考前重點總結筆記】{c_name} ({d_name})\n\n（尚未產生筆記或處理中）"
+
+    dest_file.write_text(summary_text, encoding="utf-8")
+    return dest_file
 
 
 # ---------------------------------------------------------------------------
@@ -637,7 +789,7 @@ def open_folder_in_desktop(folder_path: Path | str) -> bool:
 
 
 def open_file_in_desktop(file_path: Path | str) -> bool:
-    """Open target file using system default application."""
+    """Open target file using system default application, with Notepad fallback."""
     p = Path(file_path).resolve()
     if not p.is_file():
         return False
@@ -645,8 +797,12 @@ def open_file_in_desktop(file_path: Path | str) -> bool:
         return True
     try:
         if sys.platform == "win32":
-            os.startfile(str(p))
-            return True
+            try:
+                os.startfile(str(p))
+                return True
+            except OSError:
+                subprocess.Popen(["notepad.exe", str(p)])
+                return True
         elif sys.platform == "darwin":
             subprocess.run(["open", str(p)])
             return True
@@ -655,6 +811,12 @@ def open_file_in_desktop(file_path: Path | str) -> bool:
             return True
     except Exception as e:
         logging.getLogger("lecture_pipeline.gui").error(f"Failed to open file {p}: {e}")
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(["notepad.exe", str(p)])
+                return True
+        except Exception:
+            pass
         return False
 
 
