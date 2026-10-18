@@ -40,6 +40,9 @@ Name: "autostart"; Description: "開機自動於系統列啟動背景監控服�
 Source: "dist\LecturePipeline\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "icon.png"; DestDir: "{app}"; Flags: ignoreversion
+Source: ".env"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "credentials.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "token.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{autodesktop}\課堂錄音自動化系統"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; IconFilename: "{app}\icon.ico"; Comment: "啟動課堂錄音自動化系統 (支援拖曳音檔整理)"

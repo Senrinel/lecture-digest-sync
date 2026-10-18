@@ -95,7 +95,6 @@ def run_pyinstaller_packaging() -> Path:
         "--exclude-module=tcl",
         "--exclude-module=tk",
         "--exclude-module=pytest",
-        "--exclude-module=unittest",
         "--exclude-module=scipy",
         "--exclude-module=matplotlib",
         "--exclude-module=IPython",
@@ -138,10 +137,13 @@ def run_pyinstaller_packaging() -> Path:
         "--hidden-import=pypdf",
         "--hidden-import=rich",
         "--hidden-import=typer",
+        "--hidden-import=unittest",
         "--collect-all=opencc",
         "--collect-all=webview",
         "--collect-all=win11toast",
         "--collect-all=pystray",
+        "--collect-all=googleapiclient",
+        "--collect-all=google_auth_oauthlib",
     ]
 
     cmd = [
@@ -181,10 +183,35 @@ def run_pyinstaller_packaging() -> Path:
     if (ROOT / "prompts").is_dir() and not prompts_dst.is_dir():
         shutil.copytree(ROOT / "prompts", prompts_dst)
 
+    # Copy user environment and credential files if present
+    for cred_file in [".env", "credentials.json", "token.json"]:
+        src_cred = ROOT / cred_file
+        if src_cred.is_file():
+            shutil.copy2(src_cred, dist_dir / cred_file)
+            print(f"  [憑證同步] 已複製 {cred_file} 至發布執行目錄")
+
+    # Ensure unittest is present in _internal (required by googleapiclient / httplib2 / pyparsing)
+    import unittest
+    unittest_src = Path(unittest.__file__).resolve().parent
+    unittest_dst = dist_dir / "_internal" / "unittest"
+    if not unittest_dst.is_dir():
+        shutil.copytree(unittest_src, unittest_dst)
+        print("  [相依補強] 已直接補充 unittest 至 _internal/ 目錄")
+
     for folder in ["inbox", "exports", "archive"]:
         (dist_dir / folder).mkdir(exist_ok=True)
 
     print(f"✔ PyInstaller 打包完成！執行檔位於: {dist_dir / 'LecturePipeline.exe'}")
+
+    # Verify the compiled exe
+    exe_file = dist_dir / "LecturePipeline.exe"
+    print("🔍 正在驗證建置後的執行檔相容性...")
+    res = subprocess.run([str(exe_file), "--test-import"], capture_output=True, text=True, cwd=str(dist_dir))
+    if "[TEST_OK]" in res.stdout or res.returncode == 0:
+        print("✔ 執行檔核心模組導入驗證通過 (無缺少模組或崩潰)！")
+    else:
+        print("❌ 執行檔驗證輸出：", res.stdout, res.stderr)
+
     return dist_dir
 
 

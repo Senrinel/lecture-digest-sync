@@ -55,6 +55,15 @@ else:
     if str(SRC_DIR) not in sys.path:
         sys.path.insert(0, str(SRC_DIR))
 
+# Proactively load .env from PROJECT_ROOT
+env_file = PROJECT_ROOT / ".env"
+if env_file.is_file():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path=env_file)
+    except Exception:
+        pass
+
 
 def setup_desktop_shortcuts() -> None:
     """Create Windows Desktop shortcut and SendTo context menu shortcut."""
@@ -137,6 +146,14 @@ def main() -> None:
     # Case 1: Setup shortcuts
     if len(args) == 1 and args[0] in ("--setup", "--setup-shortcuts", "-s"):
         setup_desktop_shortcuts()
+        return
+
+    # Case 1.5: Test module imports (used for packaging verification)
+    if len(args) == 1 and args[0] in ("--test-import", "-ti"):
+        from lecture_pipeline.export import drive_publisher
+        from lecture_pipeline.gui import launcher
+        from lecture_pipeline.automation import watcher
+        print("[TEST_OK] All critical modules imported successfully without errors!")
         return
 
     # Case 2: No arguments or explicit GUI trigger -> Launch full GUI + Tray + Watcher
