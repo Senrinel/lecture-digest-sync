@@ -48,7 +48,12 @@ def step2_prepare_build_directory() -> None:
             dest_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(item, dest_path)
 
-    print(f"  [OK] 完整原始檔結構已同步至: {OBF_SRC_DIR}")
+    # Also copy main.py entry point
+    main_py = PROJECT_ROOT / "main.py"
+    if main_py.is_file():
+        shutil.copy2(main_py, OBF_SRC_DIR.parent / "main.py")
+
+    print(f"  [OK] 完整原始檔結構已同步至: {OBF_SRC_DIR.parent}")
 
 
 def step3_layer_b_cython_compilation() -> None:
@@ -111,8 +116,8 @@ def step4_layer_a_ast_obfuscation() -> None:
     print("--- [階段 4/4] 執行層級 A：AST 變數混淆與 Bytecode 深度精簡 ---")
     obfuscated_count = 0
 
-    for py_file in OBF_SRC_DIR.rglob("*.py"):
-        rel_path = py_file.relative_to(OBF_SRC_DIR)
+    for py_file in OBF_SRC_DIR.parent.rglob("*.py"):
+        rel_path = py_file.relative_to(OBF_SRC_DIR.parent)
         with open(py_file, "r", encoding="utf-8") as f:
             code = f.read()
 
