@@ -28,22 +28,18 @@ if sys.platform == "win32":
             import ctypes
             if ctypes.windll.kernel32.AttachConsole(-1):
                 if sys.stdout is None:
-                    sys.stdout = open("CONOUT$", "w", encoding="utf-8")
+                    sys.stdout = open("CONOUT$", "w", encoding="utf-8", errors="replace")
                 if sys.stderr is None:
-                    sys.stderr = open("CONOUT$", "w", encoding="utf-8")
+                    sys.stderr = open("CONOUT$", "w", encoding="utf-8", errors="replace")
         except Exception:
             pass
 
-    if sys.stdout is not None:
-        try:
-            sys.stdout.reconfigure(encoding="utf-8")
-        except Exception:
-            pass
-    if sys.stderr is not None:
-        try:
-            sys.stderr.reconfigure(encoding="utf-8")
-        except Exception:
-            pass
+    for _s in (sys.stdout, sys.stderr):
+        if _s is not None:
+            try:
+                _s.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 
 # Ensure 'src' is in sys.path and handle frozen executable
 if getattr(sys, "frozen", False):
@@ -94,7 +90,7 @@ def setup_desktop_shortcuts() -> None:
     $s1.Description = '啟動課堂錄音 ASR 系統 (支援雙擊開啟 GUI / 拖曳音檔整理)';
     $s1.IconLocation = $iconPath;
     $s1.Save();
-    Write-Host '[✔] 桌面捷徑已建立：' $deskLnk -ForegroundColor Green;
+    Write-Host '[OK] 桌面捷徑已建立：' $deskLnk -ForegroundColor Green;
 
     $sendTo = Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'Microsoft\\Windows\\SendTo\\課堂錄音自動整理.lnk';
     $s2 = $WshShell.CreateShortcut($sendTo);
@@ -103,7 +99,7 @@ def setup_desktop_shortcuts() -> None:
     $s2.Description = '傳送至課堂錄音自動整理管線';
     $s2.IconLocation = $iconPath;
     $s2.Save();
-    Write-Host '[✔] 右鍵選單 (傳送到 / SendTo) 已建立：' $sendTo -ForegroundColor Green;
+    Write-Host '[OK] 右鍵選單 (傳送到 / SendTo) 已建立：' $sendTo -ForegroundColor Green;
     """
 
     try:
@@ -115,7 +111,7 @@ def setup_desktop_shortcuts() -> None:
         print("  3. 在任何音檔或資料夾上【按右鍵 ➜ 傳送到 ➜ 課堂錄音自動整理】。")
         print("==============================================================================\n")
     except Exception as e:
-        print(f"❌ 建立捷徑失敗: {e}")
+        print(f"[ERROR] 建立捷徑失敗: {e}")
 
 
 def main() -> None:
@@ -140,7 +136,7 @@ def main() -> None:
         cfg["paths"]["courses_dir"] = courses_dir
         with open(cfg_file, "w", encoding="utf-8") as f:
             yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
-        print(f"[✔] 設定檔已成功初始化分區路徑：\n  Inbox: {inbox_dir}\n  Exports: {exports_dir}\n  Courses: {courses_dir}")
+        print(f"[OK] 設定檔已成功初始化分區路徑：\n  Inbox: {inbox_dir}\n  Exports: {exports_dir}\n  Courses: {courses_dir}")
         return
 
     # Case 1: Setup shortcuts
