@@ -50,9 +50,11 @@ def isolated_gui_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generat
     inbox_dir = tmp_path / "inbox"
     work_dir = tmp_path / "work"
     archive_dir = tmp_path / "archive"
+    export_dir = tmp_path / "exports"
     inbox_dir.mkdir(parents=True, exist_ok=True)
     work_dir.mkdir(parents=True, exist_ok=True)
     archive_dir.mkdir(parents=True, exist_ok=True)
+    export_dir.mkdir(parents=True, exist_ok=True)
 
     initial_config = {
         "pipeline": {
@@ -62,6 +64,9 @@ def isolated_gui_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Generat
             "inbox_dir": str(inbox_dir),
             "work_dir": str(work_dir),
             "archive_dir": str(archive_dir),
+        },
+        "export": {
+            "export_dir": str(export_dir),
         },
         "timetable": {
             "enabled": True,
@@ -181,19 +186,33 @@ def test_watcher_toggle_and_status(isolated_gui_env: Path) -> None:
 # ===========================================================================
 
 def test_history_scanning_and_detail(isolated_gui_env: Path) -> None:
-    """Verify archived lecture folder discovery and file streaming."""
+    """Verify export notes discovery, archive exclusion, and audio cross-lookup."""
+    export_dir = isolated_gui_env / "exports"
     archive_dir = isolated_gui_env / "archive"
-    lecture_folder = archive_dir / "261017_計算機網路"
+    
+    # 1. Export directory lecture
+    lecture_folder = export_dir / "261017_計算機網路"
     lecture_folder.mkdir(parents=True, exist_ok=True)
-
     (lecture_folder / "01_raw.txt").write_text("這是逐字稿生稿", encoding="utf-8")
     (lecture_folder / "02_cleaned.txt").write_text("這是 AI 整理後的逐字稿", encoding="utf-8")
     (lecture_folder / "03_summary.md").write_text("# 摘要\n重點一：網路七層架構", encoding="utf-8")
-    (lecture_folder / "audio.opus").write_bytes(b"OggS\x00dummyopusdata")
+    
+    # 2. Archive-only directory (MUST NOT be displayed in history)
+    archive_only_folder = archive_dir / "261018_數位信號"
+    archive_only_folder.mkdir(parents=True, exist_ok=True)
+    (archive_only_folder / "03_summary.md").write_text("# 數位信號筆記", encoding="utf-8")
+
+    # 3. Audio file stored in archive for the export lecture
+    arch_audio_dir = archive_dir / "計算機網路" / "261017"
+    arch_audio_dir.mkdir(parents=True, exist_ok=True)
+    (arch_audio_dir / "audio.opus").write_bytes(b"OggS\x00dummyopusdata")
 
     # Test get_archived_lectures
     lectures = get_archived_lectures()
-    assert len(lectures) >= 1
+    lecture_ids = [l["id"] for l in lectures]
+    assert "261017_計算機網路" in lecture_ids
+    assert "261018_數位信號" not in lecture_ids  # Strictly excluded!
+
     matched = next((l for l in lectures if l["id"] == "261017_計算機網路"), None)
     assert matched is not None
     assert matched["title"] == "計算機網路"
@@ -416,8 +435,8 @@ def test_lecture_management_crud(isolated_gui_env: Path, monkeypatch: pytest.Mon
     """Verify lecture renaming, folder opening, alias endpoint, and safe deletion."""
     client = TestClient(app)
 
-    # Setup dummy lecture bundle
-    lecture_dir = isolated_gui_env / "archive" / "OperatingSystems" / "20261017"
+    # Setup dummy lecture bundle in exports/
+    lecture_dir = isolated_gui_env / "exports" / "OperatingSystems" / "20261017"
     lecture_dir.mkdir(parents=True, exist_ok=True)
     (lecture_dir / "03_summary.md").write_text("# 【課堂考前重點總結筆記】作業系統 (2026-10-17)", encoding="utf-8")
     (lecture_dir / "02_cleaned.txt").write_text("課堂文字內容", encoding="utf-8")
@@ -442,11 +461,21 @@ def test_lecture_management_crud(isolated_gui_env: Path, monkeypatch: pytest.Mon
     assert res.status_code == 200
     assert res.json()["status"] == "ok"
 
-    # 4. Delete lecture
+    # 4. Delete lecture (safely deletes from exports/)
     res = client.delete("/api/lecture/OperatingSystems_20261017")
     assert res.status_code == 200
     assert res.json()["status"] == "ok"
     assert not lecture_dir.exists()
+
+    # 5. Safety guard: attempting to delete an item outside exports is blocked
+    from lecture_pipeline.gui.bridge import _lecture_cache, delete_lecture
+    outside_dir = isolated_gui_env / "archive" / "SecretAudio"
+    outside_dir.mkdir(parents=True, exist_ok=True)
+    _lecture_cache["SecretAudio"] = outside_dir
+    safe_res = delete_lecture("SecretAudio")
+    assert safe_res["status"] == "error"
+    assert "安全防護限制" in safe_res["message"]
+    assert outside_dir.exists()  # Kept completely safe!
 
 
 def test_glossary_management_crud(isolated_gui_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -401,7 +401,11 @@ def _get_drive_link_from_logs(course_or_id: str) -> Optional[str]:
 
 
 def get_archived_lectures() -> List[Dict[str, Any]]:
-    """Recursively scan exports, archive, work, and record directories for processed lecture bundles."""
+    """Recursively scan exports directory for processed lecture note bundles.
+    
+    Specification: 課堂與播放庫顯示的檔案是筆記匯出目錄 (export_dir)，
+    嚴格禁止顯示長期封存庫 (archive_dir, record_archive_dir)。
+    """
     global _lecture_cache
     cfg = get_current_config()
     paths = cfg.get("paths", {})
@@ -411,9 +415,8 @@ def get_archived_lectures() -> List[Dict[str, Any]]:
     rec_archive_str = paths.get("record_archive_dir")
     rec_archive = Path(rec_archive_str) if rec_archive_str else None
 
-    search_dirs = [export_dir, work_dir, archive_dir]
-    if rec_archive and rec_archive.is_dir():
-        search_dirs.append(rec_archive)
+    # 課堂與播放庫顯示的檔案是筆記匯出目錄，禁止顯示長期封存庫
+    search_dirs = [export_dir]
 
     lectures: List[Dict[str, Any]] = []
     seen_dirs: Set[str] = set()
@@ -534,22 +537,16 @@ def get_archived_lectures() -> List[Dict[str, Any]]:
                     break
 
             if not audio_path:
+                clean_d = date_str.replace("-", "") if date_str else ""
                 for base_arch in [archive_dir, work_dir, rec_archive]:
                     if not base_arch or not base_arch.is_dir():
                         continue
-                    patterns = []
-                    if course_name:
-                        patterns.append(f"**/*{course_name}*/*.*")
-                    if date_str:
-                        clean_d = date_str.replace("-", "")
-                        patterns.append(f"**/*{clean_d}*/*.*")
-                    for pat in patterns:
-                        for mf in base_arch.glob(pat):
-                            if mf.is_file() and mf.suffix.lower() in [".mp3", ".opus", ".wav", ".flac", ".m4a"]:
+                    for mf in base_arch.rglob("*.*"):
+                        if mf.is_file() and mf.suffix.lower() in [".mp3", ".opus", ".wav", ".flac", ".m4a"]:
+                            mf_str = str(mf).lower()
+                            if (course_name and course_name.lower() in mf_str) or (clean_d and clean_d in mf_str):
                                 audio_path = mf
                                 break
-                        if audio_path:
-                            break
                     if audio_path:
                         break
 
@@ -598,14 +595,10 @@ def get_lecture_content(lecture_id: str) -> Optional[Dict[str, Any]]:
 
     if not target_dir or not target_dir.is_dir():
         cfg = get_current_config()
-        paths = cfg.get("paths", {})
         export_dir = Path(cfg.get("export", {}).get("export_dir", "exports")).resolve()
-        for base in [export_dir, Path(paths.get("work_dir", "work")), Path(paths.get("archive_dir", "archive"))]:
-            for p in base.rglob(f"*{lecture_id}*"):
-                if p.is_dir():
-                    target_dir = p
-                    break
-            if target_dir:
+        for p in export_dir.rglob(f"*{lecture_id}*"):
+            if p.is_dir():
+                target_dir = p
                 break
 
     if not target_dir or not target_dir.is_dir():
@@ -652,18 +645,16 @@ def get_lecture_content(lecture_id: str) -> Optional[Dict[str, Any]]:
         work_dir = Path(paths.get("work_dir", "work"))
         rec_archive_str = paths.get("record_archive_dir")
         rec_archive = Path(rec_archive_str) if rec_archive_str else None
+        clean_d = date_str.replace("-", "") if date_str else ""
         for base_arch in [archive_dir, work_dir, rec_archive]:
             if not base_arch or not base_arch.is_dir():
                 continue
-            for pat in [f"**/*{course_name}*/*.*", f"**/*{date_str}*/*.*" if date_str else ""]:
-                if not pat:
-                    continue
-                for mf in base_arch.glob(pat):
-                    if mf.is_file() and mf.suffix.lower() in [".mp3", ".opus", ".wav", ".flac", ".m4a"]:
+            for mf in base_arch.rglob("*.*"):
+                if mf.is_file() and mf.suffix.lower() in [".mp3", ".opus", ".wav", ".flac", ".m4a"]:
+                    mf_str = str(mf).lower()
+                    if (course_name and course_name.lower() in mf_str) or (clean_d and clean_d in mf_str):
                         audio_file = mf
                         break
-                if audio_file:
-                    break
             if audio_file:
                 break
 
@@ -695,6 +686,17 @@ def resolve_export_lecture_file(lecture_id: str, file_type: str = "summary") -> 
     title = (detail.get("title") if detail else "") or ""
     date_match = re.search(r"(20\d{6}|\d{6})", f"{lecture_id}_{title}")
     date_str = date_match.group(1) if date_match else ""
+
+    if not course:
+        m = re.match(r"^(\d{6,8})_(.+)$", lecture_id)
+        if m:
+            course = m.group(2)
+        else:
+            m2 = re.match(r"^(.+)_(\d{6,8})$", lecture_id)
+            if m2:
+                course = m2.group(1)
+            else:
+                course = lecture_id
 
     patterns = []
     if file_type == "summary":
@@ -743,17 +745,26 @@ def resolve_export_lecture_file(lecture_id: str, file_type: str = "summary") -> 
                         return sf
 
     # 5. Copy or create note in export_dir / course / date_str
-    c_name = course or (lecture_id.split("_")[0] if "_" in lecture_id else "Lecture")
+    c_name = course or "Lecture"
     d_name = date_str or time.strftime("%Y%m%d")
     target_exp_dir = export_dir / c_name / d_name
     target_exp_dir.mkdir(parents=True, exist_ok=True)
 
     dest_file = target_exp_dir / f"01_{c_name}_{d_name}_重點總結筆記.md"
     summary_text = (detail.get("summary") if detail else "") or ""
-    if not summary_text and detail and detail.get("path"):
-        src_sum = Path(detail["path"]) / "03_summary.md"
-        if src_sum.is_file():
-            summary_text = src_sum.read_text(encoding="utf-8")
+    if not summary_text:
+        paths = cfg.get("paths", {})
+        for base_dir in [Path(paths.get("work_dir", "work")), Path(paths.get("archive_dir", "archive"))]:
+            if not base_dir.is_dir():
+                continue
+            for p in base_dir.rglob(f"*{lecture_id}*"):
+                if p.is_dir():
+                    s_file = p / "03_summary.md"
+                    if s_file.is_file():
+                        summary_text = s_file.read_text(encoding="utf-8")
+                        break
+            if summary_text:
+                break
 
     if not summary_text:
         summary_text = f"# 【課堂考前重點總結筆記】{c_name} ({d_name})\n\n（尚未產生筆記或處理中）"
@@ -1271,7 +1282,7 @@ def rename_lecture(lecture_id: str, new_course: str = "", new_title: str = "") -
 
 
 def delete_lecture(lecture_id: str) -> Dict[str, Any]:
-    """Safely delete archived lecture directory and cache."""
+    """Safely delete lecture directory in exports and cache."""
     global _lecture_cache
     if not _lecture_cache:
         get_archived_lectures()
@@ -1280,11 +1291,22 @@ def delete_lecture(lecture_id: str) -> Dict[str, Any]:
     if not target_dir or not target_dir.is_dir():
         return {"status": "error", "message": f"找不到指定課堂目錄：{lecture_id}"}
 
+    cfg = get_current_config()
+    export_dir = Path(cfg.get("export", {}).get("export_dir", "exports")).resolve()
+    # 嚴格安全限制：僅允許刪除筆記匯出目錄 (Exports) 中的產物，絕對禁止刪除長期封存庫或原始資料夾
+    try:
+        target_dir.resolve().relative_to(export_dir)
+    except ValueError:
+        return {
+            "status": "error",
+            "message": "安全防護限制：僅允許刪除筆記匯出目錄 (Exports) 中的產物，禁止刪除長期封存庫或原始錄音資料夾。",
+        }
+
     try:
         shutil.rmtree(str(target_dir))
         _lecture_cache.pop(lecture_id, None)
         _lecture_cache.clear()
-        return {"status": "ok", "message": "課堂紀錄與相關產物已安全刪除"}
+        return {"status": "ok", "message": "課堂筆記產物已安全刪除"}
     except Exception as e:
         return {"status": "error", "message": f"刪除課堂目錄失敗：{e}"}
 
