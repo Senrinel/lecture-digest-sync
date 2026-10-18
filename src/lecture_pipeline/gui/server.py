@@ -162,10 +162,6 @@ class TermDeleteRequest(BaseModel):
 async def serve_index():
     index_file = TEMPLATES_DIR / "index.html"
     if not index_file.is_file():
-        # Fallback to root gui_preview.html if templates/index.html not created yet
-        root_preview = Path("gui_preview.html")
-        if root_preview.is_file():
-            return HTMLResponse(content=root_preview.read_text(encoding="utf-8"))
         raise HTTPException(status_code=404, detail="Index template not found")
     return HTMLResponse(content=index_file.read_text(encoding="utf-8"))
 
