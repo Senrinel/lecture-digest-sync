@@ -183,10 +183,6 @@ def live_server_and_chrome():
     config_path = Path("config.yaml")
     orig_config_bytes = config_path.read_bytes() if config_path.exists() else None
 
-    courses_backup = tempfile.mkdtemp(prefix="courses_backup_")
-    if Path("courses").is_dir():
-        shutil.copytree("courses", Path(courses_backup) / "courses", dirs_exist_ok=True)
-
     # 1. Start Uvicorn in daemon thread
     server_config = uvicorn.Config(
         app=app,
@@ -260,9 +256,6 @@ def live_server_and_chrome():
         server.should_exit = True
         if orig_config_bytes is not None:
             config_path.write_bytes(orig_config_bytes)
-        if (Path(courses_backup) / "courses").is_dir():
-            shutil.copytree(Path(courses_backup) / "courses", "courses", dirs_exist_ok=True)
-        shutil.rmtree(courses_backup, ignore_errors=True)
 
 
 @pytest.mark.asyncio

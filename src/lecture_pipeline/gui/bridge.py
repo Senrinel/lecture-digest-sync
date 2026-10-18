@@ -1176,13 +1176,40 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
 # Glossary Management & PDF Extraction
 # ---------------------------------------------------------------------------
 
+def get_courses_base_dir() -> Path:
+    """Retrieve absolute path to courses directory based on config or project root."""
+    try:
+        cfg = get_current_config()
+        paths = cfg.get("paths", {})
+        raw_dir = paths.get("courses_dir", "courses")
+    except Exception:
+        raw_dir = "courses"
+    p = Path(raw_dir)
+    if not p.is_absolute():
+        project_root = Path(__file__).resolve().parents[3]
+        p = (project_root / p).resolve()
+    return p
+
+
+def _extract_term_name(line: str) -> str:
+    """Extract raw term name from a glossary entry line (ignoring comments and translations)."""
+    cleaned = line.split("#", 1)[0].strip()
+    if not cleaned:
+        return ""
+    m = re.match(r"^([^\(（\r\n]+?)\s*[\(（](.+?)[\)）]$", cleaned)
+    if m:
+        return m.group(1).strip()
+    return cleaned
+
+
 def get_course_glossary_terms(course: str = "") -> List[Dict[str, Any]]:
     """Load extracted terms for course or empty list if no course specified/available."""
     if not course or not course.strip():
         return []
 
     from lecture_pipeline.glossary import load_course_glossary
-    terms = load_course_glossary(course.strip())
+    courses_dir = get_courses_base_dir()
+    terms = load_course_glossary(course.strip(), courses_dir=courses_dir)
 
     result: List[Dict[str, Any]] = []
     for t in terms:
@@ -1196,7 +1223,7 @@ def get_course_glossary_terms(course: str = "") -> List[Dict[str, Any]]:
 
 def get_available_courses() -> List[str]:
     """Retrieve list of all courses configured under courses/ directory."""
-    courses_dir = Path("courses")
+    courses_dir = get_courses_base_dir()
     if not courses_dir.is_dir():
         return []
     courses = [p.name for p in courses_dir.iterdir() if p.is_dir() and not p.name.startswith(".")]
@@ -1208,8 +1235,9 @@ def extract_terms_from_uploaded_file(file_content: bytes, filename: str, course:
     """Save temporary syllabus file, extract domain terms locally, and update course glossary."""
     from lecture_pipeline.glossary import extract_terms_from_file, update_course_glossary
 
+    courses_dir = get_courses_base_dir()
     target_course = course.strip() or Path(filename).stem
-    temp_dir = Path("courses") / target_course
+    temp_dir = courses_dir / target_course
     temp_dir.mkdir(parents=True, exist_ok=True)
     temp_file = temp_dir / filename
     temp_file.write_bytes(file_content)
@@ -1217,23 +1245,11 @@ def extract_terms_from_uploaded_file(file_content: bytes, filename: str, course:
     try:
         extracted = extract_terms_from_file(temp_file)
         if extracted:
-            update_course_glossary(target_course, extracted)
+            update_course_glossary(target_course, extracted, courses_dir=courses_dir)
         return get_course_glossary_terms(target_course)
     except Exception as e:
         logging.getLogger("lecture_pipeline.gui").error(f"Failed to extract glossary from {filename}: {e}")
         return get_course_glossary_terms(target_course)
-    temp_dir.mkdir(parents=True, exist_ok=True)
-    temp_file = temp_dir / filename
-    temp_file.write_bytes(file_content)
-
-    try:
-        extracted = extract_terms_from_file(temp_file)
-        if extracted:
-            update_course_glossary(course, extracted)
-        return get_course_glossary_terms(course)
-    except Exception as e:
-        logging.getLogger("lecture_pipeline.gui").error(f"Failed to extract glossary from {filename}: {e}")
-        return get_course_glossary_terms(course)
 
 
 # ---------------------------------------------------------------------------
@@ -1317,7 +1333,8 @@ def add_course(course: str) -> Dict[str, Any]:
     if not clean_course:
         return {"status": "error", "message": "科目名稱不可為空"}
 
-    course_dir = Path("courses") / clean_course
+    courses_dir = get_courses_base_dir()
+    course_dir = courses_dir / clean_course
     course_dir.mkdir(parents=True, exist_ok=True)
     glossary_file = course_dir / "glossary.txt"
     if not glossary_file.is_file():
@@ -1333,7 +1350,8 @@ def add_course(course: str) -> Dict[str, Any]:
 
 def delete_course(course: str) -> Dict[str, Any]:
     """Delete a course directory and its glossary."""
-    course_dir = Path("courses") / course
+    courses_dir = get_courses_base_dir()
+    course_dir = courses_dir / course
     if not course_dir.is_dir():
         return {"status": "error", "message": f"找不到科目：{course}"}
 
@@ -1349,16 +1367,29 @@ def delete_course(course: str) -> Dict[str, Any]:
 
 
 def add_glossary_term(course: str, term: str, translation: str = "") -> Dict[str, Any]:
-    """Add a domain term to course glossary."""
+    """Add a domain term to course glossary (with deduplication)."""
     clean_term = term.strip()
     if not clean_term:
         return {"status": "error", "message": "名詞不可為空"}
 
-    course_dir = Path("courses") / course
+    courses_dir = get_courses_base_dir()
+    course_dir = courses_dir / course
     course_dir.mkdir(parents=True, exist_ok=True)
     glossary_file = course_dir / "glossary.txt"
 
     entry = f"{clean_term} ({translation.strip()})" if translation.strip() else clean_term
+
+    # Avoid duplicate lines
+    existing_lines = glossary_file.read_text(encoding="utf-8").splitlines() if glossary_file.is_file() else []
+    target = clean_term.lower()
+    for el in existing_lines:
+        if _extract_term_name(el).lower() == target:
+            return {
+                "status": "ok",
+                "course": course,
+                "terms": get_course_glossary_terms(course),
+                "message": f"專有名詞「{clean_term}」已存在於詞庫中",
+            }
 
     with open(glossary_file, "a", encoding="utf-8") as f:
         f.write(f"\n{entry}\n")
@@ -1372,8 +1403,9 @@ def add_glossary_term(course: str, term: str, translation: str = "") -> Dict[str
 
 
 def edit_glossary_term(course: str, old_term: str, new_term: str, new_translation: str = "") -> Dict[str, Any]:
-    """Edit an existing term in course glossary."""
-    course_dir = Path("courses") / course
+    """Edit an existing term in course glossary using exact term name matching."""
+    courses_dir = get_courses_base_dir()
+    course_dir = courses_dir / course
     glossary_file = course_dir / "glossary.txt"
     if not glossary_file.is_file():
         return {"status": "error", "message": "詞庫檔不存在"}
@@ -1383,10 +1415,13 @@ def edit_glossary_term(course: str, old_term: str, new_term: str, new_translatio
     replaced = False
 
     new_entry = f"{new_term.strip()} ({new_translation.strip()})" if new_translation.strip() else new_term.strip()
+    old_target = old_term.strip().lower()
 
     for line in lines:
         stripped = line.strip()
-        if not stripped.startswith("#") and old_term.strip().lower() in stripped.lower() and not replaced:
+        if stripped.startswith("#"):
+            updated_lines.append(line)
+        elif not replaced and _extract_term_name(stripped).lower() == old_target:
             updated_lines.append(new_entry)
             replaced = True
         else:
@@ -1406,8 +1441,9 @@ def edit_glossary_term(course: str, old_term: str, new_term: str, new_translatio
 
 
 def delete_glossary_term(course: str, term: str) -> Dict[str, Any]:
-    """Delete a domain term from course glossary."""
-    course_dir = Path("courses") / course
+    """Delete a domain term from course glossary using exact term name matching."""
+    courses_dir = get_courses_base_dir()
+    course_dir = courses_dir / course
     glossary_file = course_dir / "glossary.txt"
     if not glossary_file.is_file():
         return {"status": "error", "message": "詞庫檔不存在"}
@@ -1420,7 +1456,7 @@ def delete_glossary_term(course: str, term: str) -> Dict[str, Any]:
         stripped = line.strip()
         if stripped.startswith("#"):
             updated_lines.append(line)
-        elif target in stripped.lower():
+        elif _extract_term_name(stripped).lower() == target:
             continue
         else:
             updated_lines.append(line)
