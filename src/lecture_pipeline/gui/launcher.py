@@ -21,6 +21,14 @@ from typing import Optional
 
 import uvicorn
 
+if sys.platform == "win32":
+    for _s in (sys.stdout, sys.stderr):
+        if _s is not None:
+            try:
+                _s.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
 from lecture_pipeline.automation.tray import WatcherTray
 from lecture_pipeline.gui.bridge import (
     get_current_config,
@@ -90,10 +98,10 @@ def launch_gui(
     print(f"\n========================================================")
     print(f"  Lecture Digest Sync - 課堂錄音辨識與筆記同步系統 (GUI)")
     print(f"========================================================")
-    print(f"📌 當前執行模式：[{active_mode.upper()}] (已記憶至 config.yaml)")
-    print(f"🌐 本機網址：{url}")
+    print(f"[模式] 當前執行模式：[{active_mode.upper()}] (已記憶至 config.yaml)")
+    print(f"[網址] 本機網址：{url}")
     if lan_ip != "127.0.0.1":
-        print(f"📱 區網跨裝置網址：http://{lan_ip}:{server_port}")
+        print(f"[區網] 區網跨裝置網址：http://{lan_ip}:{server_port}")
     print(f"========================================================\n")
 
     # 1. Initialize and start Windows System Tray Icon
@@ -107,7 +115,7 @@ def launch_gui(
         )
         tray.start()
         set_global_tray(tray)
-        print("🔔 工作列系統匣小圖示 (System Tray) 已成功啟動！")
+        print("[系統匣] 工作列系統匣小圖示 (System Tray) 已成功啟動！")
     except Exception as te:
         logger.warning(f"無法啟動系統匣小圖示: {te}")
 
@@ -134,7 +142,7 @@ def launch_gui(
             daemon=True,
         )
         watcher_thread.start()
-        print("👀 背景收件夾 (Inbox) 即時監看服務已同步在背景運作中！")
+        print("[監看] 背景收件夾 (Inbox) 即時監看服務已同步在背景運作中！")
     except Exception as we:
         logger.warning(f"無法啟動背景監看線程: {we}")
 
@@ -148,25 +156,25 @@ def launch_gui(
 
     try:
         if active_mode == "web":
-            print(f"🌐 網頁模式啟用：正在以預設瀏覽器開啟 {url}...")
+            print(f"[啟動] 網頁模式啟用：正在以預設瀏覽器開啟 {url}...")
             webbrowser.open(url)
             desktop.create(hidden=True)
             desktop.start(debug=debug)
         elif active_mode == "both":
-            print(f"✨ 同時模式啟用：正在以預設瀏覽器開啟 {url} 並啟動原生視窗...")
+            print(f"[啟動] 同時模式啟用：正在以預設瀏覽器開啟 {url} 並啟動原生視窗...")
             webbrowser.open(url)
             desktop.create(hidden=False)
-            print("🖥️ 啟動 Windows 10/11 原生獨立視窗 (Microsoft Edge WebView2)...")
+            print("[視窗] 啟動 Windows 10/11 原生獨立視窗 (Microsoft Edge WebView2)...")
             desktop.start(debug=debug)
         else:
             # window mode
             desktop.create(hidden=False)
-            print("🖥️ 啟動 Windows 10/11 原生獨立視窗 (Microsoft Edge WebView2)...")
+            print("[視窗] 啟動 Windows 10/11 原生獨立視窗 (Microsoft Edge WebView2)...")
             desktop.start(debug=debug)
 
     except KeyboardInterrupt:
-        print("\n🛑 收到終止訊號，系統正在結束...")
+        print("\n[結束] 收到終止訊號，系統正在結束...")
     finally:
         if tray:
             tray.stop()
-        print("🛑 系統服務已順利退出。")
+        print("[退出] 系統服務已順利退出。")

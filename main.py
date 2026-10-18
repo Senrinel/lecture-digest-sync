@@ -21,6 +21,36 @@ import subprocess
 import sys
 from pathlib import Path
 
+class SafeWriter:
+    """Stream wrapper that guarantees UnicodeEncodeError is NEVER raised on Windows."""
+    def __init__(self, target):
+        self._target = target
+
+    def write(self, s: str):
+        if not s or self._target is None:
+            return 0
+        try:
+            return self._target.write(s)
+        except (UnicodeEncodeError, UnicodeError):
+            try:
+                safe_s = s.encode("ascii", errors="backslashreplace").decode("ascii")
+                return self._target.write(safe_s)
+            except Exception:
+                return len(s)
+        except Exception:
+            return len(s)
+
+    def flush(self):
+        try:
+            if self._target is not None:
+                self._target.flush()
+        except Exception:
+            pass
+
+    def __getattr__(self, name):
+        return getattr(self._target, name)
+
+
 # Fix stdout/stderr encoding on Windows and attach console if invoked from CLI
 if sys.platform == "win32":
     if sys.stdout is None or sys.stderr is None:
@@ -34,12 +64,14 @@ if sys.platform == "win32":
         except Exception:
             pass
 
-    for _s in (sys.stdout, sys.stderr):
-        if _s is not None:
+    for _s_name in ("stdout", "stderr"):
+        _cur = getattr(sys, _s_name, None)
+        if _cur is not None:
             try:
-                _s.reconfigure(encoding="utf-8", errors="replace")
+                _cur.reconfigure(encoding="utf-8", errors="replace")
             except Exception:
                 pass
+            setattr(sys, _s_name, SafeWriter(_cur))
 
 # Ensure 'src' is in sys.path and handle frozen executable
 if getattr(sys, "frozen", False):

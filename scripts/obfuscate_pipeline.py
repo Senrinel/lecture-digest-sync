@@ -150,6 +150,15 @@ def verify_obfuscated_build() -> None:
 
     test_script = f"""
 import sys
+import os
+if sys.platform == "win32":
+    for _s in (sys.stdout, sys.stderr):
+        if _s is not None:
+            try:
+                _s.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
 from pathlib import Path
 obf_root = r"{str(BUILD_ROOT / 'obfuscated_src')}"
 sys.path.insert(0, obf_root)
@@ -180,6 +189,8 @@ print("\\n[SUCCESS] 雙層混淆 (AST Obfuscation + Cython Native Binary) 全數
         [sys.executable, "-c", test_script],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=str(PROJECT_ROOT),
     )
 
@@ -189,7 +200,8 @@ print("\\n[SUCCESS] 雙層混淆 (AST Obfuscation + Cython Native Binary) 全數
         print(result.stderr)
         raise RuntimeError("Obfuscated build verification failed!")
 
-    print(result.stdout.strip())
+    if result.stdout:
+        print(result.stdout.strip())
 
 
 def main() -> None:
