@@ -26,7 +26,10 @@ console = Console()
 
 def find_backend_python(backend_name: str = "fasterwhisper") -> Path:
     """Locate the Python executable of an isolated backend virtual environment."""
-    root = Path(__file__).resolve().parents[3]
+    if getattr(sys, "frozen", False):
+        root = Path(sys.executable).resolve().parent
+    else:
+        root = Path(__file__).resolve().parents[3]
     backend_dir = root / "backends" / backend_name / ".venv"
 
     if sys.platform == "win32":

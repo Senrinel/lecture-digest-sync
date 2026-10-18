@@ -27,7 +27,15 @@ from lecture_pipeline.automation.offline_queue import is_internet_connected
 from lecture_pipeline.automation.watcher import check_disk_space, run_pipeline_for_group
 
 
-CONFIG_FILE_PATH = Path("config.yaml")
+def get_config_file_path() -> Path:
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        if (exe_dir / "config.yaml").is_file():
+            return exe_dir / "config.yaml"
+    return Path("config.yaml")
+
+
+CONFIG_FILE_PATH = get_config_file_path()
 
 
 class EventBroadcaster:
@@ -1186,7 +1194,10 @@ def get_courses_base_dir() -> Path:
         raw_dir = "courses"
     p = Path(raw_dir)
     if not p.is_absolute():
-        project_root = Path(__file__).resolve().parents[3]
+        if getattr(sys, "frozen", False):
+            project_root = Path(sys.executable).resolve().parent
+        else:
+            project_root = Path(__file__).resolve().parents[3]
         p = (project_root / p).resolve()
     return p
 

@@ -58,6 +58,22 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
 
+if not STATIC_DIR.is_dir() and getattr(sys, "frozen", False):
+    mei_pass = getattr(sys, "_MEIPASS", None)
+    if mei_pass:
+        alt_static = Path(mei_pass) / "lecture_pipeline" / "gui" / "static"
+        alt_tpl = Path(mei_pass) / "lecture_pipeline" / "gui" / "templates"
+        if alt_static.is_dir():
+            STATIC_DIR = alt_static
+            TEMPLATES_DIR = alt_tpl
+    if not STATIC_DIR.is_dir():
+        exe_dir = Path(sys.executable).resolve().parent
+        alt_static = exe_dir / "static"
+        alt_tpl = exe_dir / "templates"
+        if alt_static.is_dir():
+            STATIC_DIR = alt_static
+            TEMPLATES_DIR = alt_tpl
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

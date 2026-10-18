@@ -21,16 +21,39 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Fix stdout/stderr encoding on Windows
+# Fix stdout/stderr encoding on Windows and attach console if invoked from CLI
 if sys.platform == "win32":
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+    if sys.stdout is None or sys.stderr is None:
+        try:
+            import ctypes
+            if ctypes.windll.kernel32.AttachConsole(-1):
+                if sys.stdout is None:
+                    sys.stdout = open("CONOUT$", "w", encoding="utf-8")
+                if sys.stderr is None:
+                    sys.stderr = open("CONOUT$", "w", encoding="utf-8")
+        except Exception:
+            pass
 
-# Ensure 'src' is in sys.path
-PROJECT_ROOT = Path(__file__).resolve().parent
-SRC_DIR = PROJECT_ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+    if sys.stdout is not None:
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+    if sys.stderr is not None:
+        try:
+            sys.stderr.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
+# Ensure 'src' is in sys.path and handle frozen executable
+if getattr(sys, "frozen", False):
+    PROJECT_ROOT = Path(sys.executable).resolve().parent
+    os.chdir(PROJECT_ROOT)
+else:
+    PROJECT_ROOT = Path(__file__).resolve().parent
+    SRC_DIR = PROJECT_ROOT / "src"
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
 
 
 def setup_desktop_shortcuts() -> None:
@@ -39,17 +62,20 @@ def setup_desktop_shortcuts() -> None:
     print("  正在建立【課堂錄音自動化 ASR 與重點筆記系統】桌面捷徑與右鍵 SendTo 選單...")
     print("==============================================================================")
 
-    # Use 啟動系統.bat as the target
-    target_bat = PROJECT_ROOT / "啟動系統.bat"
-    if not target_bat.is_file():
-        # Fallback to python main.py
-        target_bat = PROJECT_ROOT / "main.py"
+    if getattr(sys, "frozen", False):
+        target_path = Path(sys.executable)
+        icon_path = str(target_path)
+    else:
+        target_bat = PROJECT_ROOT / "啟動系統.bat"
+        target_path = target_bat if target_bat.is_file() else (PROJECT_ROOT / "main.py")
+        ico_file = PROJECT_ROOT / "icon.ico"
+        icon_path = str(ico_file) if ico_file.is_file() else str(PROJECT_ROOT / "icon.png")
 
     ps_command = f"""
     $WshShell = New-Object -ComObject WScript.Shell;
-    $target = '{str(target_bat)}';
+    $target = '{str(target_path)}';
     $workDir = '{str(PROJECT_ROOT)}';
-    $iconPath = Join-Path $workDir 'icon.png';
+    $iconPath = '{icon_path}';
     if (-not (Test-Path $iconPath)) {{ $iconPath = 'shell32.dll,220'; }}
 
     $deskLnk = Join-Path ([Environment]::GetFolderPath('Desktop')) '課堂錄音自動化系統.lnk';
@@ -85,6 +111,28 @@ def setup_desktop_shortcuts() -> None:
 
 def main() -> None:
     args = sys.argv[1:]
+
+    # Case 0: Initialize partitioned directories (used by Inno Setup installer)
+    if len(args) >= 4 and args[0] in ("--init-paths", "-ip"):
+        inbox_dir = args[1]
+        exports_dir = args[2]
+        courses_dir = args[3]
+        from lecture_pipeline.gui.bridge import get_config_file_path
+        cfg_file = get_config_file_path()
+        import yaml
+        cfg = {}
+        if cfg_file.is_file():
+            with open(cfg_file, "r", encoding="utf-8") as f:
+                cfg = yaml.safe_load(f) or {}
+        if "paths" not in cfg:
+            cfg["paths"] = {}
+        cfg["paths"]["inbox_dir"] = inbox_dir
+        cfg["paths"]["exports_dir"] = exports_dir
+        cfg["paths"]["courses_dir"] = courses_dir
+        with open(cfg_file, "w", encoding="utf-8") as f:
+            yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
+        print(f"[✔] 設定檔已成功初始化分區路徑：\n  Inbox: {inbox_dir}\n  Exports: {exports_dir}\n  Courses: {courses_dir}")
+        return
 
     # Case 1: Setup shortcuts
     if len(args) == 1 and args[0] in ("--setup", "--setup-shortcuts", "-s"):

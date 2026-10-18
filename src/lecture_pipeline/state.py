@@ -6,6 +6,7 @@ Maintains reproducible run records (run.json) and typed configuration models.
 from __future__ import annotations
 
 import json
+import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -125,7 +126,14 @@ def load_config(config_path: Path | str = "config.yaml") -> Dict[str, Any]:
     """Load configuration from YAML file."""
     path = Path(config_path)
     if not path.is_file():
-        return {}
+        if getattr(sys, "frozen", False):
+            candidate = Path(sys.executable).resolve().parent / config_path
+            if candidate.is_file():
+                path = candidate
+            else:
+                return {}
+        else:
+            return {}
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
