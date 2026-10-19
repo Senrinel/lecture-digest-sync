@@ -41,6 +41,7 @@ from lecture_pipeline.gui.bridge import (
     is_processing_active,
     is_watcher_paused,
     open_file_in_desktop,
+    open_file_in_vscode_preview,
     open_folder_in_desktop,
     pause_processing_task,
     rename_lecture,
@@ -316,10 +317,12 @@ async def api_stream_audio(lecture_id: str):
 
     cfg = get_current_config()
     paths = cfg.get("paths", {})
-    search_dirs = [
-        Path(paths.get("archive_dir", "archive")),
-        Path(paths.get("work_dir", "work")),
-    ]
+    rec_archive_str = paths.get("record_archive_dir")
+    search_dirs = []
+    if rec_archive_str and Path(rec_archive_str).is_dir():
+        search_dirs.append(Path(rec_archive_str))
+    search_dirs.append(Path(paths.get("archive_dir", "archive")))
+    search_dirs.append(Path(paths.get("work_dir", "work")))
 
     for base in search_dirs:
         for p in base.rglob(f"*{lecture_id}*"):
@@ -383,7 +386,10 @@ async def api_open_file(req: OpenFileRequest):
     if target_path.is_dir():
         ok = open_folder_in_desktop(target_path)
     else:
-        ok = open_file_in_desktop(target_path)
+        if target_path.suffix.lower() == ".md" or req.file_type == "summary":
+            ok = open_file_in_vscode_preview(target_path)
+        else:
+            ok = open_file_in_desktop(target_path)
 
     if not ok:
         raise HTTPException(status_code=500, detail=f"Cannot open: {target_path}")

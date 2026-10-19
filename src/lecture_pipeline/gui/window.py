@@ -35,6 +35,7 @@ class DesktopWindow:
         self.min_width = min_width
         self.min_height = min_height
         self.window: Optional[webview.Window] = None
+        self._force_close: bool = False
 
     def create(self, hidden: bool = False) -> webview.Window:
         """Create and configure the desktop window."""
@@ -49,8 +50,26 @@ class DesktopWindow:
             confirm_close=False,
             hidden=hidden,
         )
+
+        def on_closing():
+            """Intercept user clicking top-right X to keep background watcher active."""
+            if not self._force_close:
+                self.hide()
+                return False  # Cancels window destruction, stays alive in tray
+            return True
+
+        self.window.events.closing += on_closing
         set_desktop_window(self)
         return self.window
+
+    def destroy(self) -> None:
+        """Permanently destroy window on application exit."""
+        self._force_close = True
+        if self.window:
+            try:
+                self.window.destroy()
+            except Exception as e:
+                logger.warning(f"Error destroying window: {e}")
 
     def show(self) -> None:
         """Show and bring window to front."""

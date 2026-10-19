@@ -251,7 +251,7 @@ class WatcherTray:
     def start(self) -> None:
         """Launch the system tray icon detached in background thread."""
         menu = pystray.Menu(
-            pystray.MenuItem("顯示桌面視窗", self._on_show_window),
+            pystray.MenuItem("顯示桌面視窗", self._on_show_window, default=True),
             pystray.MenuItem("開啟瀏覽器網頁", self._on_open_web),
             pystray.MenuItem("同時模式", self._on_both_modes),
             pystray.Menu.SEPARATOR,

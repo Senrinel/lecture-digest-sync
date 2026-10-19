@@ -409,6 +409,116 @@ def _get_drive_link_from_logs(course_or_id: str) -> Optional[str]:
     return None
 
 
+def resolve_lecture_audio_path(
+    target_dir: Path,
+    course_name: Optional[str] = None,
+    date_str: Optional[str] = None,
+) -> Optional[Path]:
+    """Precisely resolve the audio file associated with a lecture.
+
+    Prevents cross-lecture audio contamination by strictly matching both course
+    and date, prioritizing long-term archives (Record) and original archives before work directory.
+    """
+    # 1. Direct audio inside target_dir or recorded pointer
+    meta_json = target_dir / "audio_source.json"
+    if meta_json.is_file():
+        try:
+            with open(meta_json, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            p_str = data.get("audio_path")
+            if p_str and Path(p_str).is_file():
+                return Path(p_str).resolve()
+        except Exception:
+            pass
+
+    for ext in [".opus", ".m4a", ".mp3", ".wav", ".flac"]:
+        matched = [f for f in target_dir.glob(f"*{ext}") if not f.name.startswith("chunk")]
+        if matched:
+            matched.sort(key=lambda f: (not f.name.endswith(".opus"), not f.name.endswith(".m4a"), f.name.startswith("00_normalized")))
+            return matched[0].resolve()
+
+    cfg = get_current_config()
+    paths = cfg.get("paths", {})
+    rec_archive_str = paths.get("record_archive_dir")
+    rec_archive = Path(rec_archive_str).resolve() if rec_archive_str else None
+    archive_dir = Path(paths.get("archive_dir", "archive")).resolve()
+    work_dir = Path(paths.get("work_dir", "work")).resolve()
+
+    if course_name:
+        m_course = re.match(r"^(\d{6,8})_(.+)$", course_name)
+        if m_course:
+            course_name = m_course.group(2)
+            if not date_str:
+                date_str = m_course.group(1)
+
+    if not date_str:
+        dm = re.search(r"(20\d{6}|\d{6})", target_dir.name)
+        if dm:
+            date_str = dm.group(1)
+
+    clean_d = date_str.replace("-", "") if date_str else ""
+    date_variants: List[str] = []
+    if clean_d:
+        date_variants.append(clean_d)
+        if len(clean_d) == 8:
+            date_variants.append(clean_d[2:])
+        elif len(clean_d) == 6:
+            date_variants.append(f"20{clean_d}")
+    if date_str and date_str not in date_variants:
+        date_variants.append(date_str)
+
+    def _find_audio_in_dir(d: Path) -> Optional[Path]:
+        if not d.is_dir():
+            return None
+        audio_files = []
+        for ext in [".opus", ".m4a", ".mp3", ".wav", ".flac"]:
+            for f in d.glob(f"*{ext}"):
+                if f.is_file() and not f.name.startswith("chunk"):
+                    audio_files.append(f)
+        if audio_files:
+            audio_files.sort(key=lambda f: (
+                not f.name.endswith(".opus"),
+                not f.name.endswith(".m4a"),
+                not f.name.endswith(".mp3"),
+                f.name.startswith("00_normalized"),
+            ))
+            return audio_files[0].resolve()
+        return None
+
+    # 2. Check Record Long-Term Archive (highest priority for completed lectures)
+    if rec_archive and rec_archive.is_dir():
+        if course_name:
+            for dv in date_variants:
+                found = _find_audio_in_dir(rec_archive / course_name / dv)
+                if found:
+                    return found
+            found = _find_audio_in_dir(rec_archive / course_name)
+            if found:
+                return found
+
+    # 3. Check Original Archive (inbox archive)
+    if archive_dir and archive_dir.is_dir():
+        if course_name:
+            for dv in date_variants:
+                found = _find_audio_in_dir(archive_dir / course_name / dv)
+                if found:
+                    return found
+            found = _find_audio_in_dir(archive_dir / course_name)
+            if found:
+                return found
+
+    # 4. Check Work Directory ONLY if course_name and date_str match precisely
+    # Never fall back to global rglob which grabs whatever is currently in work/
+    if work_dir and work_dir.is_dir() and course_name:
+        for dv in date_variants:
+            found = _find_audio_in_dir(work_dir / course_name / dv)
+            if found:
+                return found
+
+    return None
+
+
+
 def get_archived_lectures() -> List[Dict[str, Any]]:
     """Recursively scan exports directory for processed lecture note bundles.
     
@@ -537,27 +647,7 @@ def get_archived_lectures() -> List[Dict[str, Any]]:
             if not docs_url:
                 docs_url = _get_drive_link_from_logs(course_name)
 
-            audio_path = None
-            for ext in [".flac", ".opus", ".mp3", ".wav", ".m4a"]:
-                matched = list(item.glob(f"*{ext}"))
-                if matched:
-                    matched.sort(key=lambda f: (not f.name.startswith("00_normalized"), f.name.startswith("chunk"), len(f.name)))
-                    audio_path = matched[0]
-                    break
-
-            if not audio_path:
-                clean_d = date_str.replace("-", "") if date_str else ""
-                for base_arch in [archive_dir, work_dir, rec_archive]:
-                    if not base_arch or not base_arch.is_dir():
-                        continue
-                    for mf in base_arch.rglob("*.*"):
-                        if mf.is_file() and mf.suffix.lower() in [".mp3", ".opus", ".wav", ".flac", ".m4a"]:
-                            mf_str = str(mf).lower()
-                            if (course_name and course_name.lower() in mf_str) or (clean_d and clean_d in mf_str):
-                                audio_path = mf
-                                break
-                    if audio_path:
-                        break
+            audio_path = resolve_lecture_audio_path(item, course_name, date_str)
 
             summary_text = summary_file.read_text(encoding="utf-8") if summary_file.is_file() else ""
             cleaned_text = cleaned_file.read_text(encoding="utf-8") if cleaned_file.is_file() else ""
@@ -635,37 +725,33 @@ def get_lecture_content(lecture_id: str) -> Optional[Dict[str, Any]]:
                 raw_ts_file = rf
                 break
 
-    course_name = target_dir.parent.name if target_dir.parent.name not in ["work", "archive", "exports", "Record"] else target_dir.name
-    date_match = re.search(r"(20\d{6}|\d{6})", target_dir.name)
-    date_str = date_match.group(1) if date_match else ""
+    run_json = target_dir / "run.json"
+    course_name = ""
+    date_str = ""
+    if run_json.is_file():
+        try:
+            with open(run_json, "r", encoding="utf-8") as rf:
+                rdata = json.load(rf)
+                course_name = rdata.get("course", "")
+                date_str = str(rdata.get("date", ""))
+        except Exception:
+            pass
 
-    audio_file = None
-    for ext in [".flac", ".opus", ".mp3", ".wav", ".m4a"]:
-        found = list(target_dir.glob(f"*{ext}"))
-        if found:
-            found.sort(key=lambda f: (not f.name.startswith("00_normalized"), f.name.startswith("chunk"), len(f.name)))
-            audio_file = found[0]
-            break
+    if not course_name:
+        if target_dir.parent.name and target_dir.parent.name not in ["work", "archive", "exports", "Record"]:
+            course_name = target_dir.parent.name
+        else:
+            m = re.match(r"^(\d{6,8})_(.+)$", target_dir.name)
+            if m:
+                course_name = m.group(2)
+            else:
+                course_name = target_dir.name
 
-    if not audio_file:
-        cfg = get_current_config()
-        paths = cfg.get("paths", {})
-        archive_dir = Path(paths.get("archive_dir", "archive"))
-        work_dir = Path(paths.get("work_dir", "work"))
-        rec_archive_str = paths.get("record_archive_dir")
-        rec_archive = Path(rec_archive_str) if rec_archive_str else None
-        clean_d = date_str.replace("-", "") if date_str else ""
-        for base_arch in [archive_dir, work_dir, rec_archive]:
-            if not base_arch or not base_arch.is_dir():
-                continue
-            for mf in base_arch.rglob("*.*"):
-                if mf.is_file() and mf.suffix.lower() in [".mp3", ".opus", ".wav", ".flac", ".m4a"]:
-                    mf_str = str(mf).lower()
-                    if (course_name and course_name.lower() in mf_str) or (clean_d and clean_d in mf_str):
-                        audio_file = mf
-                        break
-            if audio_file:
-                break
+    if not date_str:
+        date_match = re.search(r"(20\d{6}|\d{6})", target_dir.name)
+        date_str = date_match.group(1) if date_match else ""
+
+    audio_file = resolve_lecture_audio_path(target_dir, course_name, date_str)
 
     docs_url = _get_drive_link_from_logs(course_name) or _get_drive_link_from_logs(target_dir.name)
 
@@ -838,6 +924,59 @@ def open_file_in_desktop(file_path: Path | str) -> bool:
         except Exception:
             pass
         return False
+
+
+def open_file_in_vscode_preview(file_path: Path | str) -> bool:
+    """Open a Markdown note file directly in VS Code's Markdown Preview mode."""
+    p = Path(file_path).resolve()
+    if not p.is_file():
+        return False
+    if os.environ.get("LECTURE_PIPELINE_TEST_MODE") == "1":
+        return True
+
+    # 1. Resolve VS Code executable binary
+    code_bin = shutil.which("code") or shutil.which("code.cmd")
+    if not code_bin and sys.platform == "win32":
+        local_app_data = os.environ.get("LOCALAPPDATA", "")
+        if local_app_data:
+            candidate = Path(local_app_data) / "Programs" / "Microsoft VS Code" / "bin" / "code.cmd"
+            if candidate.is_file():
+                code_bin = str(candidate)
+        if not code_bin:
+            prog_files = os.environ.get("ProgramFiles", "C:\\Program Files")
+            candidate2 = Path(prog_files) / "Microsoft VS Code" / "bin" / "code.cmd"
+            if candidate2.is_file():
+                code_bin = str(candidate2)
+
+    if not code_bin:
+        # Fall back to default desktop open
+        return open_file_in_desktop(p)
+
+    try:
+        cmd = [code_bin, "-r", str(p)]
+        if sys.platform == "win32":
+            subprocess.Popen(cmd, shell=True)
+
+            def _trigger_preview():
+                time.sleep(0.7)
+                try:
+                    ps_cmd = 'Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait("^+v")'
+                    subprocess.run(
+                        ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
+                        timeout=3,
+                        creationflags=0x08000000,
+                    )
+                except Exception:
+                    pass
+
+            threading.Thread(target=_trigger_preview, daemon=True).start()
+        else:
+            subprocess.Popen(cmd)
+        return True
+    except Exception as e:
+        logging.getLogger("lecture_pipeline.gui").warning(f"Failed to open in VS Code: {e}")
+        return open_file_in_desktop(p)
+
 
 
 def browse_folder_dialog(initial_dir: Optional[str] = None) -> Optional[str]:
@@ -1178,7 +1317,29 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
                 "detail": str(ie),
             })
         except Exception as e:
-            notify_task_error(error_msg=str(e), task_name=primary_name)
+            from lecture_pipeline.automation.watcher import is_quota_or_rate_limit_error
+            if is_quota_or_rate_limit_error(e):
+                from lecture_pipeline.automation.quota import QuotaManager
+                qm = QuotaManager()
+                next_reset = qm.mark_quota_exhausted(reason=str(e))
+                reset_str = next_reset.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                msg = f"API 配額已達限制，進度已保留，已延遲至隔日重試（重置時間：{reset_str}）"
+                with _processing_lock:
+                    _current_task_info.update({
+                        "running": False,
+                        "stage": "配額限制延遲",
+                        "progress": 0,
+                        "detail": msg,
+                    })
+                broadcaster.broadcast_sync({
+                    "type": "progress",
+                    "running": False,
+                    "progress": 0,
+                    "stage": "配額限制延遲",
+                    "detail": msg,
+                })
+            else:
+                notify_task_error(error_msg=str(e), task_name=primary_name)
         finally:
             with _processing_lock:
                 _current_task_info = {"running": False, "paused": False, "aborted": False}

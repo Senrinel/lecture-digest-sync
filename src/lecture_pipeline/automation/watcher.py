@@ -19,20 +19,28 @@ import json
 import os
 import shutil
 import sys
+import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 from rich.console import Console
 
 from lecture_pipeline.naming import parse_filename
 from lecture_pipeline.preprocess import preprocess_audio
-from lecture_pipeline.state import PreprocessOptions, RunState, SegmentationOptions, save_run_state
+from lecture_pipeline.state import (
+    ChunkInfo,
+    PreprocessOptions,
+    RunState,
+    SegmentationOptions,
+    save_run_state,
+)
 from lecture_pipeline.stt import get_stt_channel, save_stt_outputs
+from lecture_pipeline.stt.base import FullTranscription
 from lecture_pipeline.vad_segment import segment_audio
 from lecture_pipeline.cleanup.text_cleanup import GeminiTextCleanupEngine
-from lecture_pipeline.cleanup.base import save_cleanup_outputs
+from lecture_pipeline.cleanup.base import CleanupResult, save_cleanup_outputs
 from lecture_pipeline.summary.summarizer import GeminiLectureSummarizer
-from lecture_pipeline.summary.base import save_summary_outputs
+from lecture_pipeline.summary.base import SummaryResult, save_summary_outputs
 from lecture_pipeline.export.notebook_bundle import prepare_notebook_bundle
 from lecture_pipeline.export.drive_publisher import GoogleDrivePublisher
 from lecture_pipeline.glossary import load_course_glossary
@@ -41,6 +49,7 @@ from lecture_pipeline.automation.notifier import (
     notify_offline_pending,
     notify_processing_started,
     notify_upload_success,
+    send_notification,
 )
 from lecture_pipeline.automation.offline_queue import (
     OfflineUploadQueue,
@@ -51,6 +60,47 @@ from lecture_pipeline.automation.quota import QuotaManager
 from lecture_pipeline.automation.tray import WatcherTray
 
 console = Console(legacy_windows=False)
+
+_active_files_lock = threading.Lock()
+_active_processing_files: Set[str] = set()
+
+
+def acquire_processing_files(audio_files: List[Path]) -> bool:
+    """Attempt to acquire exclusive processing lock for a group of files."""
+    with _active_files_lock:
+        names = {f.name for f in audio_files}
+        if _active_processing_files.intersection(names):
+            return False
+        _active_processing_files.update(names)
+        return True
+
+
+def release_processing_files(audio_files: List[Path]) -> None:
+    """Release exclusive processing lock for a group of files."""
+    with _active_files_lock:
+        for f in audio_files:
+            _active_processing_files.discard(f.name)
+
+
+def is_quota_or_rate_limit_error(exc: Exception) -> bool:
+    """Detect if an exception is caused by API rate limiting or quota exhaustion."""
+    err_str = str(exc).lower()
+    quota_signatures = [
+        "resource_exhausted",
+        "resourceexhausted",
+        "429",
+        "quota exceeded",
+        "quota_exceeded",
+        "exceeded your current quota",
+        "rate limit",
+        "ratelimit",
+        "too many requests",
+        "daily limit",
+        "rpd limit",
+        "tpm limit",
+    ]
+    return any(sig in err_str for sig in quota_signatures)
+
 
 SUPPORTED_AUDIO_EXTENSIONS = {
     ".wav",
@@ -320,10 +370,15 @@ def run_pipeline_for_group(
                 if (abort_event and abort_event.is_set()) or (g_abort and g_abort.is_set()):
                     raise InterruptedError("任務已中止。")
 
-    start_total = time.time()
     primary_file = audio_files[0]
     parsed = parse_filename(primary_file)
 
+    acquired = acquire_processing_files(audio_files)
+    if not acquired:
+        console.print(f"[yellow]檔案已由另一任務處理中，略過重疊執行：{primary_file.name}[/yellow]")
+        return parsed.work_dir
+
+    start_total = time.time()
     target_work_dir = parsed.work_dir
     target_work_dir.mkdir(parents=True, exist_ok=True)
 
@@ -363,17 +418,48 @@ def run_pipeline_for_group(
 
         # 1. Preprocess
         check_aborted()
-        report_progress("音訊前處理", 15, "執行 16kHz 單聲道轉換與多段合併...")
         norm_audio = target_work_dir / "00_normalized.wav"
         pre_opts = PreprocessOptions.from_cli_flags(pre_flags) if pre_flags else PreprocessOptions()
-        console.print("[dim]執行音訊前處理與多段合併...[/dim]")
-        preprocess_audio(audio_files, norm_audio, opts=pre_opts)
+        if norm_audio.is_file() and norm_audio.stat().st_size > 0:
+            console.print("[green][OK] 偵測到既有 00_normalized.wav，沿用並略過前處理[/green]")
+            report_progress("音訊前處理", 20, "沿用既有前處理音檔...")
+        else:
+            report_progress("音訊前處理", 15, "執行 16kHz 單聲道轉換與多段合併...")
+            console.print("[dim]執行音訊前處理與多段合併...[/dim]")
+            preprocess_audio(audio_files, norm_audio, opts=pre_opts)
 
         # 2. VAD Segmentation
         check_aborted()
-        report_progress("VAD 切段", 30, "執行 Silero VAD 靜音切段...")
-        console.print("[dim]執行 VAD 靜音切段...[/dim]")
-        chunks = segment_audio(norm_audio, target_work_dir / "chunks")
+        chunks_dir = target_work_dir / "chunks"
+        existing_chunks = sorted(list(chunks_dir.glob("*.wav"))) if chunks_dir.is_dir() else []
+        if existing_chunks:
+            console.print(f"[green][OK] 偵測到既有 VAD 切段 (共 {len(existing_chunks)} 檔)，沿用並略過切段[/green]")
+            report_progress("VAD 切段", 35, f"沿用既有 {len(existing_chunks)} 個切段...")
+            manifest_file = chunks_dir / "manifest.json"
+            chunks: List[ChunkInfo] = []
+            if manifest_file.is_file():
+                try:
+                    with open(manifest_file, "r", encoding="utf-8") as f:
+                        manifest_data = json.load(f)
+                        chunks = [ChunkInfo(**item) for item in manifest_data]
+                except Exception:
+                    chunks = []
+            if not chunks:
+                for idx, cp in enumerate(existing_chunks):
+                    chunks.append(
+                        ChunkInfo(
+                            index=idx + 1,
+                            filename=cp.name,
+                            filepath=str(cp.resolve()),
+                            start_sec=0.0,
+                            end_sec=0.0,
+                            duration_sec=0.0,
+                        )
+                    )
+        else:
+            report_progress("VAD 切段", 30, "執行 Silero VAD 靜音切段...")
+            console.print("[dim]執行 VAD 靜音切段...[/dim]")
+            chunks = segment_audio(norm_audio, chunks_dir)
 
         state = RunState(
             source_filename=" + ".join(f.name for f in audio_files),
@@ -387,52 +473,96 @@ def run_pipeline_for_group(
         state.mark_stage("preprocess")
         state.mark_stage("vad_segment")
 
-        # 3. STT Transcription (with offline fallback check)
+        # 3. STT Transcription (Stage Checkpoint: resume if raw transcription exists)
         check_aborted()
-        actual_channel_id = channel_id
-        if channel_id in ["C1", "C2"] and not is_internet_connected():
-            console.print(f"[yellow]無網路連線，STT 切換至本機 GPU 通道 C7...[/yellow]")
-            actual_channel_id = "C7"
+        raw_json_file = target_work_dir / "01_raw.json"
+        raw_txt_file = target_work_dir / "01_raw.txt"
+        transcription: Optional[FullTranscription] = None
+        if raw_json_file.is_file() and raw_json_file.stat().st_size > 0:
+            try:
+                transcription = FullTranscription.model_validate_json(raw_json_file.read_text(encoding="utf-8"))
+            except Exception:
+                transcription = None
 
-        report_progress("語音轉錄", 50, f"執行語音轉錄 (通道 {actual_channel_id})...")
-        console.print(f"[dim]執行語音轉錄 (通道 {actual_channel_id})...[/dim]")
+        if transcription and transcription.full_text.strip():
+            console.print(f"[bold green][OK] 偵測到既有逐字稿 ({len(transcription.full_text)} 字)，直接接續，略過 STT 階段[/bold green]")
+            report_progress("語音轉錄", 60, "沿用既有轉錄文字...")
+            state.mark_stage("stt")
+        else:
+            actual_channel_id = channel_id
+            if channel_id in ["C1", "C2"] and not is_internet_connected():
+                console.print(f"[yellow]無網路連線，STT 切換至本機 GPU 通道 C7...[/yellow]")
+                actual_channel_id = "C7"
+
+            report_progress("語音轉錄", 50, f"執行語音轉錄 (通道 {actual_channel_id})...")
+            console.print(f"[dim]執行語音轉錄 (通道 {actual_channel_id})...[/dim]")
+            glossary = load_course_glossary(parsed.course) if parsed.course != "Unsorted" else []
+            channel = get_stt_channel(actual_channel_id)
+            transcription = channel.transcribe_all(
+                chunks,
+                course=parsed.course,
+                date=parsed.date,
+                glossary=glossary,
+                abort_event=abort_event,
+            )
+            save_stt_outputs(transcription, target_work_dir)
+            state.mark_stage("stt")
+
         glossary = load_course_glossary(parsed.course) if parsed.course != "Unsorted" else []
-        channel = get_stt_channel(actual_channel_id)
-        transcription = channel.transcribe_all(
-            chunks,
-            course=parsed.course,
-            date=parsed.date,
-            glossary=glossary,
-            abort_event=abort_event,
-        )
-        save_stt_outputs(transcription, target_work_dir)
-        state.mark_stage("stt")
 
-        # 4. Cleanup
+        # 4. Cleanup (Stage Checkpoint: resume if cleaned text exists)
         check_aborted()
-        report_progress("內文整理", 70, f"執行內文整理 ({cleanup_model})...")
-        console.print(f"[dim]執行內文整理 ({cleanup_model})...[/dim]")
-        cleaner = GeminiTextCleanupEngine(primary_model=cleanup_model)
-        clean_result = cleaner.clean(
-            transcription.full_text,
-            course=parsed.course,
-            date=parsed.date,
-            glossary=glossary,
-            abort_event=abort_event,
-        )
-        save_cleanup_outputs(clean_result, target_work_dir)
-        state.mark_stage("cleanup")
+        clean_json_file = target_work_dir / "02_cleaned.json"
+        clean_txt_file = target_work_dir / "02_cleaned.txt"
+        clean_result: Optional[CleanupResult] = None
+        if clean_json_file.is_file() and clean_json_file.stat().st_size > 0:
+            try:
+                clean_result = CleanupResult.model_validate_json(clean_json_file.read_text(encoding="utf-8"))
+            except Exception:
+                clean_result = None
 
-        # 5. Summary
+        if clean_result and clean_result.full_cleaned_text.strip():
+            console.print(f"[bold green][OK] 偵測到既有內文整理 ({len(clean_result.full_cleaned_text)} 字)，直接接續，略過整理階段[/bold green]")
+            report_progress("內文整理", 80, "沿用既有整理文稿...")
+            state.mark_stage("cleanup")
+        else:
+            report_progress("內文整理", 70, f"執行內文整理 ({cleanup_model})...")
+            console.print(f"[dim]執行內文整理 ({cleanup_model})...[/dim]")
+            cleaner = GeminiTextCleanupEngine(primary_model=cleanup_model)
+            clean_result = cleaner.clean(
+                transcription.full_text,
+                course=parsed.course,
+                date=parsed.date,
+                glossary=glossary,
+                abort_event=abort_event,
+            )
+            save_cleanup_outputs(clean_result, target_work_dir)
+            state.mark_stage("cleanup")
+
+        # 5. Summary (Stage Checkpoint: resume if summary exists)
         check_aborted()
-        report_progress("重點筆記", 85, f"產生重點筆記 ({summary_model})...")
-        console.print(f"[dim]產生重點筆記 ({summary_model})...[/dim]")
-        time.sleep(3.0)  # Rate limit cooldown buffer before summary call
-        check_aborted()
-        summarizer = GeminiLectureSummarizer(primary_model=summary_model)
-        summary_result = summarizer.summarize(clean_result.full_cleaned_text, course=parsed.course, date=parsed.date, glossary=glossary)
-        save_summary_outputs(summary_result, target_work_dir)
-        state.mark_stage("summarize")
+        summary_json_file = target_work_dir / "03_summary.json"
+        summary_md_file = target_work_dir / "03_summary.md"
+        summary_result: Optional[SummaryResult] = None
+        if summary_json_file.is_file() and summary_json_file.stat().st_size > 0:
+            try:
+                summary_result = SummaryResult.model_validate_json(summary_json_file.read_text(encoding="utf-8"))
+            except Exception:
+                summary_result = None
+
+        if summary_result and summary_result.full_summary_md.strip():
+            console.print(f"[bold green][OK] 偵測到既有重點筆記 ({len(summary_result.full_summary_md)} 字)，直接接續[/bold green]")
+            report_progress("重點筆記", 90, "沿用既有重點筆記...")
+            state.mark_stage("summarize")
+        else:
+            report_progress("重點筆記", 85, f"產生重點筆記 ({summary_model})...")
+            console.print(f"[dim]產生重點筆記 ({summary_model})...[/dim]")
+            time.sleep(3.0)  # Rate limit cooldown buffer before summary call
+            check_aborted()
+            summarizer = GeminiLectureSummarizer(primary_model=summary_model)
+            summary_result = summarizer.summarize(clean_result.full_cleaned_text, course=parsed.course, date=parsed.date, glossary=glossary)
+            save_summary_outputs(summary_result, target_work_dir)
+            state.mark_stage("summarize")
 
         # 6. Notebook Bundle & Exports
         check_aborted()
@@ -531,8 +661,22 @@ def run_pipeline_for_group(
     except Exception as exc:
         b = _get_bridge()
         if b:
-            b.notify_task_error(str(exc), task_name=parsed.display_tag)
+            if is_quota_or_rate_limit_error(exc):
+                qm = QuotaManager()
+                reset_t = qm.mark_quota_exhausted(reason=str(exc))
+                reset_str = reset_t.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                b.update_task_progress(
+                    stage="配額限制延遲",
+                    progress=0,
+                    detail=f"API 配額已滿，進度已保留，已延遲至重置時間重試（{reset_str}）",
+                    task_name=parsed.display_tag,
+                    running=False,
+                )
+            else:
+                b.notify_task_error(str(exc), task_name=parsed.display_tag)
         raise
+    finally:
+        release_processing_files(audio_files)
 
 
 def run_pipeline_with_timeout(
@@ -660,10 +804,11 @@ def watch_inbox(
 
                 # 2. Check quota lock status
                 is_locked, locked_until = quota_manager.is_quota_locked()
-                if is_locked and channel_id in ["C1", "C2"]:
-                    effective_channel = "C7"
-                else:
-                    effective_channel = channel_id
+                if is_locked:
+                    time.sleep(poll_interval)
+                    continue
+
+                effective_channel = channel_id
 
                 # 3. Scan inbox for audio groups
                 groups = scan_and_group_inbox(inbox_path)
@@ -688,9 +833,20 @@ def watch_inbox(
                                 log_watcher_event(f"任務處理逾時 ({g_key}): {te}", level="ERROR")
                                 dead_letter.record_failure(files)
                             except Exception as e:
-                                console.print(f"[bold red][ERROR] 處理 {g_key} 發生錯誤: {e}[/bold red]")
-                                log_watcher_event(f"處理失敗 ({g_key}): {e}", level="ERROR")
-                                dead_letter.record_failure(files)
+                                if is_quota_or_rate_limit_error(e):
+                                    next_reset = quota_manager.mark_quota_exhausted(reason=str(e))
+                                    local_reset_str = next_reset.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                                    msg = f"課堂 {g_key} 遇 API 配額限制，已延遲至隔日自動重試（重置時間：{local_reset_str}）"
+                                    console.print(f"[bold yellow][配額延遲] {msg}[/bold yellow]")
+                                    log_watcher_event(msg, level="WARNING")
+                                    send_notification(
+                                        title="API 配額已達限制",
+                                        message=f"{g_key} 已延遲至隔日重試",
+                                    )
+                                else:
+                                    console.print(f"[bold red][ERROR] 處理 {g_key} 發生錯誤: {e}[/bold red]")
+                                    log_watcher_event(f"處理失敗 ({g_key}): {e}", level="ERROR")
+                                    dead_letter.record_failure(files)
                         else:
                             console.print(f"[yellow]偵測到新錄音正在寫入中，等待寫入完成：{g_key}[/yellow]")
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -12,12 +13,16 @@ logger = logging.getLogger("lecture_pipeline.notifier")
 # Find default icon if present
 DEFAULT_ICON_PATH = Path("icon.png").resolve()
 
+_last_notifications: dict[tuple[str, str], float] = {}
+_notification_lock = threading.Lock()
+
 
 def send_notification(
     title: str,
     message: str,
     icon_path: Optional[Path | str] = None,
     sync: bool = False,
+    debounce_sec: float = 15.0,
 ) -> None:
     """Send a native Windows 10/11 desktop toast notification.
 
@@ -26,7 +31,17 @@ def send_notification(
         message: Notification body text.
         icon_path: Optional path to icon image.
         sync: If True, wait for notification; if False (default), run in daemon thread.
+        debounce_sec: Time window to suppress duplicate notifications (default 15s).
     """
+    now = time.time()
+    key = (title, message)
+    with _notification_lock:
+        last_t = _last_notifications.get(key, 0.0)
+        if now - last_t < debounce_sec:
+            logger.debug(f"Suppressed duplicate notification: {title} - {message}")
+            return
+        _last_notifications[key] = now
+
     def _do_send():
         try:
             # Check for win11toast
