@@ -15,11 +15,12 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Dict, Optional
 import yaml
 from rich.console import Console
+
+from lecture_pipeline.utils import resolve_binary, silent_run
 
 console = Console(legacy_windows=False)
 
@@ -60,8 +61,9 @@ def compress_audio_to_opus(
         raise FileNotFoundError(f"Source audio file not found: {src}")
 
     # 1. Attempt libopus (highest efficiency for speech)
+    real_ffmpeg = resolve_binary("ffmpeg")
     cmd = [
-        "ffmpeg",
+        real_ffmpeg,
         "-y",
         "-i",
         str(src),
@@ -73,14 +75,14 @@ def compress_audio_to_opus(
         "error",
         str(dst),
     ]
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    res = silent_run(cmd, capture_output=True, text=True)
     if res.returncode == 0 and dst.is_file() and dst.stat().st_size > 0:
         return dst
 
     # 2. Fallback to AAC if libopus fails
     aac_dst = dst.with_suffix(".m4a")
     cmd_fallback = [
-        "ffmpeg",
+        real_ffmpeg,
         "-y",
         "-i",
         str(src),
@@ -92,7 +94,7 @@ def compress_audio_to_opus(
         "error",
         str(aac_dst),
     ]
-    res_fallback = subprocess.run(cmd_fallback, capture_output=True, text=True)
+    res_fallback = silent_run(cmd_fallback, capture_output=True, text=True)
     if res_fallback.returncode == 0 and aac_dst.is_file() and aac_dst.stat().st_size > 0:
         return aac_dst
 

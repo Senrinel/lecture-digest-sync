@@ -135,7 +135,12 @@ def setup_desktop_shortcuts() -> None:
     """
 
     try:
-        subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_command], check=True)
+        no_win = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_command],
+            check=True,
+            creationflags=no_win,
+        )
         print("\n==============================================================================")
         print("  設置完成！您現在可以：")
         print("  1. 雙擊桌面上的「課堂錄音自動化系統」開啟操作介面與背景服務。")

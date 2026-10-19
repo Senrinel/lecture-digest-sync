@@ -6,10 +6,11 @@ to shorten audio and eliminate Whisper repetition/loop hallucinations.
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Optional
 from rich.console import Console
+
+from lecture_pipeline.utils import silent_run
 
 console = Console()
 
@@ -43,7 +44,7 @@ def apply_vad_trim(
         "--vadtrim",
     ]
 
-    res = subprocess.run(
+    res = silent_run(
         cmd,
         capture_output=True,
         text=True,

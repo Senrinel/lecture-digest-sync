@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import List, Optional
 from rich.console import Console
 
+from lecture_pipeline.utils import resolve_binary, silent_run
+
 from lecture_pipeline.bench.cer import compute_cer, compute_term_recall
 from lecture_pipeline.cleanup.text_cleanup import GeminiTextCleanupEngine
 from lecture_pipeline.glossary import load_course_glossary
@@ -65,8 +67,9 @@ def extract_test_clip(
 ) -> Path:
     """Extract a standardized evaluation clip from the lecture audio using FFmpeg."""
     output_wav.parent.mkdir(parents=True, exist_ok=True)
+    real_ffmpeg = resolve_binary("ffmpeg")
     cmd = [
-        "ffmpeg",
+        real_ffmpeg,
         "-y",
         "-ss",
         str(start_sec),
@@ -82,7 +85,7 @@ def extract_test_clip(
         "pcm_s16le",
         str(output_wav),
     ]
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    silent_run(cmd, capture_output=True, check=True)
     return output_wav
 
 

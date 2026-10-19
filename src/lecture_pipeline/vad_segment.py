@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 from pathlib import Path
 from typing import List, Optional, Tuple
 from rich.console import Console
 
 from lecture_pipeline.state import ChunkInfo, SegmentationOptions
+from lecture_pipeline.utils import resolve_binary, silent_run
 
 console = Console()
 
@@ -38,8 +38,9 @@ def get_audio_duration(audio_path: Path | str, ffprobe_bin: str = "ffprobe") -> 
     if not path.is_file():
         raise FileNotFoundError(f"找不到音訊檔案：{path}")
 
+    real_ffprobe = resolve_binary(ffprobe_bin)
     cmd = [
-        ffprobe_bin,
+        real_ffprobe,
         "-v",
         "error",
         "-show_entries",
@@ -50,7 +51,7 @@ def get_audio_duration(audio_path: Path | str, ffprobe_bin: str = "ffprobe") -> 
     ]
 
     try:
-        res = subprocess.run(
+        res = silent_run(
             cmd,
             capture_output=True,
             text=True,
@@ -81,8 +82,9 @@ def detect_silence_intervals(
         List of (silence_start, silence_end) in seconds.
     """
     path = Path(audio_path).resolve()
+    real_ffmpeg = resolve_binary(ffmpeg_bin)
     cmd = [
-        ffmpeg_bin,
+        real_ffmpeg,
         "-hide_banner",
         "-i",
         str(path),
@@ -94,7 +96,7 @@ def detect_silence_intervals(
     ]
 
     try:
-        res = subprocess.run(
+        res = silent_run(
             cmd,
             capture_output=True,
             text=True,
@@ -253,8 +255,9 @@ def segment_audio(
         chunk_path = out_dir / chunk_filename
 
         # Extract chunk using stream copy (lossless, instant)
+        real_ffmpeg = resolve_binary(ffmpeg_bin)
         cmd = [
-            ffmpeg_bin,
+            real_ffmpeg,
             "-y",
             "-hide_banner",
             "-loglevel",
@@ -271,9 +274,10 @@ def segment_audio(
         ]
 
         try:
-            subprocess.run(cmd, check=True, capture_output=True)
-        except subprocess.CalledProcessError as e:
-            err = e.stderr.decode("utf-8", errors="ignore") if e.stderr else str(e)
+            silent_run(cmd, check=True, capture_output=True)
+        except Exception as e:
+            raw_err = getattr(e, "stderr", None)
+            err = raw_err.decode("utf-8", errors="ignore") if isinstance(raw_err, bytes) else str(raw_err or e)
             raise RuntimeError(f"切割片段 {chunk_filename} 失敗: {err}") from e
 
         chunks.append(

@@ -138,6 +138,8 @@ def run_pyinstaller_packaging() -> Path:
         "--hidden-import=rich",
         "--hidden-import=typer",
         "--hidden-import=unittest",
+        "--hidden-import=lecture_pipeline.utils",
+        "--hidden-import=lecture_pipeline.utils.process",
         "--collect-all=opencc",
         "--collect-all=webview",
         "--collect-all=win11toast",

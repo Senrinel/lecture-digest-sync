@@ -20,6 +20,7 @@ from rich.console import Console
 
 from lecture_pipeline.state import ChunkInfo
 from lecture_pipeline.stt.base import BaseSTTChannel, ChunkTranscription
+from lecture_pipeline.utils import silent_run
 
 console = Console()
 
@@ -149,7 +150,7 @@ class FasterWhisperChannelBase(BaseSTTChannel):
         sub_env["PYTHONIOENCODING"] = "utf-8"
 
         try:
-            result = subprocess.run(
+            result = silent_run(
                 cmd,
                 capture_output=True,
                 text=True,

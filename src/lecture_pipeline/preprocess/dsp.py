@@ -12,12 +12,12 @@ Implements modular DSP audio filters tailored for SONY ICD-PX470 desk recordings
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import List, Optional, Sequence
 from rich.console import Console
 
 from lecture_pipeline.state import PreprocessOptions
+from lecture_pipeline.utils import resolve_binary, silent_run
 
 console = Console()
 
@@ -84,8 +84,10 @@ def run_ffmpeg_dsp(
     filters = build_ffmpeg_audio_filters(opts)
     filter_str = ",".join(filters) if filters else None
 
+    real_ffmpeg = resolve_binary(ffmpeg_bin)
+
     cmd = [
-        ffmpeg_bin,
+        real_ffmpeg,
         "-y",
         "-hide_banner",
         "-loglevel",
@@ -113,7 +115,7 @@ def run_ffmpeg_dsp(
     ])
 
     try:
-        subprocess.run(
+        silent_run(
             cmd,
             capture_output=True,
             text=True,
@@ -121,11 +123,12 @@ def run_ffmpeg_dsp(
             errors="replace",
             check=True,
         )
-    except subprocess.CalledProcessError as e:
-        err_msg = e.stderr.strip() if e.stderr else str(e)
-        raise RuntimeError(f"FFmpeg 前處理執行失敗: {err_msg}") from e
-    except FileNotFoundError as e:
-        raise FileNotFoundError(f"找不到 FFmpeg 執行檔 '{ffmpeg_bin}'，請確認是否安裝於系統 PATH 中。") from e
+    except Exception as e:
+        err_msg = getattr(e, "stderr", None)
+        err_text = err_msg.strip() if err_msg else str(e)
+        if isinstance(e, FileNotFoundError):
+            raise FileNotFoundError(f"找不到 FFmpeg 執行檔 '{ffmpeg_bin}'，請確認是否安裝於系統 PATH 中。") from e
+        raise RuntimeError(f"FFmpeg 前處理執行失敗: {err_text}") from e
 
     if not output_wav.is_file() or output_wav.stat().st_size == 0:
         raise RuntimeError(f"FFmpeg 輸出檔案為空或未生成: {output_wav}")
@@ -145,8 +148,9 @@ def convert_wav_to_flac(
     else:
         flac_p = Path(flac_path).resolve()
 
+    real_ffmpeg = resolve_binary(ffmpeg_bin)
     cmd = [
-        ffmpeg_bin,
+        real_ffmpeg,
         "-y",
         "-hide_banner",
         "-loglevel",
@@ -157,7 +161,7 @@ def convert_wav_to_flac(
     ]
 
     try:
-        subprocess.run(
+        silent_run(
             cmd,
             capture_output=True,
             text=True,

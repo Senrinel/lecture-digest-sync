@@ -23,6 +23,7 @@ import yaml
 from starlette.websockets import WebSocket, WebSocketState
 
 from lecture_pipeline.state import load_config
+from lecture_pipeline.utils import silent_popen, silent_run
 from lecture_pipeline.automation.offline_queue import is_internet_connected
 from lecture_pipeline.automation.watcher import check_disk_space, run_pipeline_for_group
 
@@ -312,7 +313,7 @@ def get_full_system_status() -> Dict[str, Any]:
     gpu_driver = "未知"
     gpu_ok = False
     try:
-        smi = subprocess.run(
+        smi = silent_run(
             ["nvidia-smi", "--query-gpu=gpu_name,memory.free,driver_version", "--format=csv,noheader,nounits"],
             capture_output=True,
             text=True,
@@ -865,7 +866,7 @@ def browse_folder_dialog(initial_dir: Optional[str] = None) -> Optional[str]:
             "$dlg.Description = '請選擇資料夾路徑';"
             "if($dlg.ShowDialog() -eq 'OK'){$dlg.SelectedPath}"
         )
-        res = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=20)
+        res = silent_run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=20)
         if res.returncode == 0 and res.stdout.strip():
             return res.stdout.strip()
     except Exception:
@@ -906,7 +907,7 @@ def browse_file_dialog(initial_dir: Optional[str] = None, file_types: Optional[L
             "$dlg.Title = '請選擇檔案';"
             "if($dlg.ShowDialog() -eq 'OK'){$dlg.FileName}"
         )
-        res = subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=20)
+        res = silent_run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=20)
         if res.returncode == 0 and res.stdout.strip():
             return res.stdout.strip()
     except Exception:
@@ -1136,10 +1137,17 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
             rec_archive = paths.get("record_archive_dir")
             export_dir = cfg.get("export", {}).get("export_dir", "exports")
 
+            pre_cfg = cfg.get("preprocessing", {})
+            if isinstance(pre_cfg, dict):
+                pre_flags_list = [f"{k}={v}" for k, v in pre_cfg.items()]
+                pre_flags_val = ",".join(pre_flags_list) if pre_flags_list else "hp=100Hz,loud=-19LUFS"
+            else:
+                pre_flags_val = str(pre_cfg) or "hp=100Hz,loud=-19LUFS"
+
             out_dir = run_pipeline_for_group(
                 audio_files=audio_files,
                 channel_id=channel_id,
-                pre_flags=cfg.get("preprocessing", {}).get("hp", "100Hz"),
+                pre_flags=pre_flags_val,
                 cleanup_model=cfg.get("cleanup", {}).get("model", "gemini-3.5-flash-lite"),
                 summary_model=cfg.get("summarize", {}).get("model", "gemini-3.5-flash-lite"),
                 archive_dir=archive_dir,

@@ -6,9 +6,11 @@ Weighted Prediction Error (NARA-WPE).
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
+from typing import Optional
 from rich.console import Console
+
+from lecture_pipeline.utils import silent_run
 
 console = Console()
 
@@ -42,7 +44,7 @@ def apply_wpe_dereverb(
         "--wpe",
     ]
 
-    res = subprocess.run(
+    res = silent_run(
         cmd,
         capture_output=True,
         text=True,

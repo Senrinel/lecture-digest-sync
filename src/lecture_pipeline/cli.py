@@ -27,6 +27,7 @@ from lecture_pipeline.summary import (
 from lecture_pipeline.glossary import load_course_glossary
 from lecture_pipeline.naming import parse_filename
 from lecture_pipeline.preprocess import preprocess_audio
+from lecture_pipeline.utils import resolve_binary, silent_run
 from lecture_pipeline.state import (
     PreprocessOptions,
     RunState,
@@ -1099,7 +1100,7 @@ def doctor_command() -> None:
     gpu_status = "[bold red]未偵測[/bold red]"
     gpu_detail = "無法取得 GPU 資訊"
     try:
-        smi_out = subprocess.run(
+        smi_out = silent_run(
             ["nvidia-smi", "--query-gpu=gpu_name,memory.total,memory.free,driver_version", "--format=csv,noheader"],
             capture_output=True,
             text=True,
@@ -1117,7 +1118,7 @@ def doctor_command() -> None:
     backend_py = Path("backends/fasterwhisper/.venv/Scripts/python.exe")
     if backend_py.is_file():
         try:
-            res = subprocess.run(
+            res = silent_run(
                 [str(backend_py), "-c", "import ctranslate2; print(ctranslate2.get_cuda_device_count())"],
                 capture_output=True,
                 text=True,
@@ -1134,15 +1135,16 @@ def doctor_command() -> None:
     # 4. FFmpeg & Codecs
     ffmpeg_status = "[bold red]遺失[/bold red]"
     ffmpeg_detail = "系統 PATH 中找不到 ffmpeg.exe"
-    if shutil.which("ffmpeg"):
-        try:
-            codec_res = subprocess.run(["ffmpeg", "-codecs"], capture_output=True, text=True)
+    real_ffmpeg = resolve_binary("ffmpeg")
+    try:
+        codec_res = silent_run([real_ffmpeg, "-codecs"], capture_output=True, text=True)
+        if codec_res.returncode == 0:
             has_opus = "libopus" in codec_res.stdout or "opus" in codec_res.stdout
             has_aac = "aac" in codec_res.stdout
             ffmpeg_status = "[bold green]正常[/bold green]"
             ffmpeg_detail = f"FFmpeg 已安裝 (支援 Opus: {has_opus}, AAC: {has_aac})"
-        except Exception:
-            ffmpeg_detail = "FFmpeg 已就緒"
+    except Exception:
+        pass
     table.add_row("音訊處理工具 (FFmpeg)", ffmpeg_status, ffmpeg_detail)
 
     # 5. Gemini API Key & Latency
