@@ -68,8 +68,8 @@ def _run_local_server_with_display(
     success_html = (
         "<html><head><meta charset='utf-8'><title>Google Drive 授權成功</title></head>"
         "<body style='font-family: sans-serif; text-align: center; padding: 40px; background: #0f172a; color: #f8fafc;'>"
-        "<h2 style='color: #34d399;'>🎉 Google Drive 授權成功！</h2>"
-        "<p style='color: #94a3b8; font-size: 16px;'>已成功取得存取權杖，您可以關閉此分頁並返回終端機繼續執行。</p>"
+        "<h2 style='color: #34d399;'>Google Drive 授權成功</h2>"
+        "<p style='color: #94a3b8; font-size: 16px;'>已取得存取權杖，請關閉此分頁並返回程式繼續執行。</p>"
         "</body></html>"
     )
     wsgi_app = _RedirectWSGIApp(success_html)
@@ -85,7 +85,7 @@ def _run_local_server_with_display(
         auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
 
         console.print("\n" + "=" * 70)
-        console.print("[bold yellow]👉 請點擊以下授權連結進行 Google 帳號授權：[/bold yellow]")
+        console.print("[bold yellow]請點擊以下授權連結進行 Google 帳號授權：[/bold yellow]")
         console.print(f"[bold underline cyan]{auth_url}[/bold underline cyan]")
         console.print("=" * 70 + "\n")
         sys.stdout.flush()
@@ -147,34 +147,34 @@ class GoogleDrivePublisher:
             try:
                 creds = Credentials.from_authorized_user_file(str(self.token_file), self.scopes)
             except Exception as e:
-                console.print(f"[yellow]⚠️ 讀取現有 token.json 失敗 ({e})，重新啟動授權流程...[/yellow]")
+                console.print(f"[yellow][WARN] 讀取現有 token.json 失敗 ({e})，重新啟動授權流程...[/yellow]")
                 creds = None
 
         # If there are no (valid) credentials available, let the user log in.
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 try:
-                    console.print("[dim]🔄 正在靜默更新 Google Drive 存取權杖 (Refresh Token)...[/dim]")
+                    console.print("[dim]正在更新 Google Drive 存取權杖 (Refresh Token)...[/dim]")
                     creds.refresh(Request())
                 except Exception as e:
-                    console.print(f"[yellow]⚠️ Refresh Token 更新失敗 ({e})，需要重新登入。[/yellow]")
+                    console.print(f"[yellow][WARN] Refresh Token 更新失敗 ({e})，需要重新登入。[/yellow]")
                     creds = None
 
             if not creds:
                 if not self.credentials_file.is_file():
                     raise FileNotFoundError(
                         f"找不到 Google OAuth 用戶端憑證：{self.credentials_file}。\n"
-                        f"請依指引自 Google Cloud Console 下載憑證並命名為 'credentials.json' 放置於專案根目錄。"
+                        f"請自 Google Cloud Console 下載憑證並命名為 'credentials.json' 放置於程式目錄。"
                     )
 
-                console.print(f"\n[bold cyan]🔐 啟動 Google OAuth 2.0 桌面授權流程...[/bold cyan]")
+                console.print(f"\n[bold cyan]啟動 Google OAuth 2.0 授權流程...[/bold cyan]")
                 flow = InstalledAppFlow.from_client_secrets_file(str(self.credentials_file), self.scopes)
                 creds = _run_local_server_with_display(flow, port=8080)
 
             # Save the credentials for subsequent automated executions
             with open(self.token_file, "w", encoding="utf-8") as token:
                 token.write(creds.to_json())
-            console.print(f"[green]✔ Google Drive 授權成功！憑證已快取至：{self.token_file}[/green]\n")
+            console.print(f"[green][OK] Google Drive 授權完成，憑證已儲存至：{self.token_file}[/green]\n")
 
         import socket
         socket.setdefaulttimeout(180)
@@ -299,7 +299,7 @@ class GoogleDrivePublisher:
                 )
             except Exception as e:
                 last_err = e
-                console.print(f"[yellow]⚠️ Google Docs 轉檔上傳遭遇暫時性中斷 ({e})，正在重試 ({attempt + 1}/3)...[/yellow]")
+                console.print(f"[yellow][WARN] Google Docs 上傳中斷 ({e})，正在重試 ({attempt + 1}/3)...[/yellow]")
                 time.sleep(2.0)
 
         raise last_err
@@ -325,42 +325,42 @@ class GoogleDrivePublisher:
         # Ensure NotebookLM bundle files exist
         bundle = prepare_notebook_bundle(target_work_dir)
 
-        console.print(f"\n[bold cyan]☁️ 啟動 Google Drive 雲端發布：{course} ({date_str})[/bold cyan]")
+        console.print(f"\n[bold cyan]啟動 Google Drive 上傳：{course} ({date_str})[/bold cyan]")
 
         # 1. Establish Folder Structure: LectureNotes/<Course>
         root_folder_id = self.get_or_create_folder("LectureNotes")
         course_folder_id = self.get_or_create_folder(course, parent_id=root_folder_id)
         course_folder_link = f"https://drive.google.com/drive/folders/{course_folder_id}"
 
-        console.print(f"📂 雲端硬碟目標資料夾：[bold]LectureNotes/{course}[/bold]")
-        console.print(f"🔗 資料夾連結：[dim]{course_folder_link}[/dim]")
+        console.print(f"Google Drive 目標資料夾：[bold]LectureNotes/{course}[/bold]")
+        console.print(f"資料夾連結：[dim]{course_folder_link}[/dim]")
 
         docs_info: List[DriveDocInfo] = []
 
         # 2. Upload Phase 4: Lecture Summary Notes
         summary_title = f"{course}_{formatted_date}_重點總結筆記"
-        console.print(f"   ⏳ 正在上傳並轉換考前重點筆記 ➜ Google Docs...")
+        console.print(f"   正在上傳並轉換重點筆記 -> Google Docs...")
         doc_summary = self.upload_or_update_doc(
             local_filepath=bundle.summary_file,
             doc_title=summary_title,
             parent_folder_id=course_folder_id,
         )
         status_tag = "[green]新建立[/green]" if doc_summary.status == "CREATED" else "[cyan]更新既有[/cyan]"
-        console.print(f"   ✔ 重點總結筆記 ({status_tag})：{doc_summary.web_link}")
+        console.print(f"   [OK] 重點筆記 ({status_tag})：{doc_summary.web_link}")
         docs_info.append(doc_summary)
 
         time.sleep(2.0)  # Conservative pause between Drive uploads
 
         # 3. Upload Phase 3: Cleaned Full Transcript
         cleaned_title = f"{course}_{formatted_date}_完整課堂整理文稿"
-        console.print(f"   ⏳ 正在上傳並轉換完整課堂整理文稿 ➜ Google Docs...")
+        console.print(f"   正在上傳並轉換完整課堂文稿 -> Google Docs...")
         doc_cleaned = self.upload_or_update_doc(
             local_filepath=bundle.cleaned_file,
             doc_title=cleaned_title,
             parent_folder_id=course_folder_id,
         )
         status_tag = "[green]新建立[/green]" if doc_cleaned.status == "CREATED" else "[cyan]更新既有[/cyan]"
-        console.print(f"   ✔ 完整整理文稿 ({status_tag})：{doc_cleaned.web_link}")
+        console.print(f"   [OK] 完整整理文稿 ({status_tag})：{doc_cleaned.web_link}")
         docs_info.append(doc_cleaned)
 
         # 4. Update Run State Metadata

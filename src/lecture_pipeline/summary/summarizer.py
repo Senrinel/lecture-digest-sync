@@ -77,18 +77,18 @@ class GeminiLectureSummarizer(BaseSummarizer):
                 with open(actual_template, "r", encoding="utf-8") as f:
                     return f.read()
             except Exception as e:
-                console.print(f"[yellow]⚠️ 無法讀取總結範本 {actual_template}: {e}，使用內建標準範本。[/yellow]")
+                console.print(f"[yellow][WARN] 無法讀取筆記範本 {actual_template}: {e}，使用預設範本。[/yellow]")
 
         return (
             "# 角色與目標\n"
-            "你是一位頂尖的大學課程助教與筆記架構師。請依據提供的課堂整理文稿，產出一份結構嚴謹、重點清晰、便於複習與匯入 NotebookLM 的結構化課程筆記。\n\n"
+            "請依據提供的課堂整理文稿，產出一份結構清楚、便於複習與匯入 NotebookLM 的課程重點筆記。\n\n"
             "# 規範區塊\n"
             "1. 【課程主旨】：1~3 句話概括核心重點。\n"
             "2. 【章節大綱】：條列主要段落與進度。\n"
-            "3. 【核心概念與定義】：重要概念的精確定義（中英對照）。\n"
-            "4. 【方法流程與公式推導】：清晰整理演算法步驟、數學證明與公式推導。\n"
-            "5. 【課堂案例與生活應用】：記錄講師舉出的代表性例題或生活故事。\n"
-            "6. 【講師強調重點與考前注意點】：標註考試常考或容易混淆的關鍵。\n"
+            "3. 【核心概念與定義】：重要概念的定義（中英對照）。\n"
+            "4. 【方法流程與公式推導】：整理演算法步驟、數學證明與公式推導。\n"
+            "5. 【課堂案例與應用】：記錄講師舉出的例題或案例。\n"
+            "6. 【課程重點與注意事項】：標註常考或容易混淆的重點。\n"
             "7. 【關鍵詞彙對照表】：整理專有名詞與縮寫。\n"
             "使用標準台灣繁體中文，直接輸出 Markdown 內容。"
         )
@@ -119,7 +119,7 @@ class GeminiLectureSummarizer(BaseSummarizer):
             f"--- 以下為整理後之完整課堂文稿 ---\n"
             f"{cleaned_text}\n"
             f"--- 課堂文稿結束 ---\n\n"
-            f"請依據上述範本規範，產出結構完整、格式精美的 Markdown 課堂重點總結筆記："
+            f"請依據上述範本規範，產出 Markdown 課堂重點筆記："
         )
         return full_prompt
 
@@ -137,7 +137,7 @@ class GeminiLectureSummarizer(BaseSummarizer):
 
         if not cleaned_text_stripped:
             return SummaryResult(
-                full_summary_md="# 課堂總結\n\n（無輸入內文）",
+                full_summary_md="# 課堂重點筆記\n\n（無輸入內文）",
                 input_char_count=0,
                 summary_char_count=0,
                 model_used=self.primary_model,
@@ -198,7 +198,7 @@ class GeminiLectureSummarizer(BaseSummarizer):
                     ]
                     if any(kw.lower() in err_msg.lower() for kw in transient_keywords):
                         console.print(
-                            f"[yellow]⚠️ 總結模型 {model_id} (嘗試 {attempt + 1}/3) 遇伺服器尖峰或連線中斷 ({err_msg[:60]}...)，保守等待 6 秒後重試...[/yellow]"
+                            f"[yellow][WARN] 筆記模型 {model_id} (嘗試 {attempt + 1}/3) 連線中斷或忙碌 ({err_msg[:60]}...)，等待 6 秒後重試...[/yellow]"
                         )
                         time.sleep(6.0)
                         continue

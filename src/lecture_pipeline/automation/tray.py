@@ -1,13 +1,13 @@
 """Windows system tray icon integration for background folder watcher.
 
 Features:
-1. Dynamic state badges: 閒置💤 (Green), 處理🔄 (Orange), 上傳⏫ (Blue).
+1. Dynamic state badges: 閒置 (Green), 處理中 (Orange), 上傳中 (Blue).
 2. Mouse hover tooltip with multi-line status and progress details.
 3. Right-click context menu:
-   - 打開 Inbox 資料夾
+   - 開啟 Inbox 資料夾
    - 暫停/恢復監控
-   - 查看今日紀錄
-   - 關閉監控
+   - 查看執行紀錄
+   - 結束程式
 """
 
 from __future__ import annotations
@@ -42,10 +42,10 @@ def create_status_icon(base_path: Path, state: str = "idle") -> Image.Image:
 
     # Color mapping for states
     colors = {
-        "idle": (46, 204, 113, 255),       # Green for 閒置💤
-        "processing": (243, 156, 18, 255), # Orange for 處理🔄
-        "uploading": (52, 152, 219, 255),  # Blue for 上傳⏫
-        "paused": (149, 165, 166, 255),    # Gray for 暫停⏸️
+        "idle": (46, 204, 113, 255),       # Green for 閒置
+        "processing": (243, 156, 18, 255), # Orange for 處理中
+        "uploading": (52, 152, 219, 255),  # Blue for 上傳中
+        "paused": (149, 165, 166, 255),    # Gray for 已暫停
     }
     badge_color = colors.get(state, (46, 204, 113, 255))
 
@@ -88,10 +88,10 @@ class WatcherTray:
     def _build_tooltip(self) -> str:
         """Construct descriptive multi-line hover tooltip."""
         icons = {
-            "idle": "閒置💤",
-            "processing": "處理🔄",
-            "uploading": "上傳⏫",
-            "paused": "已暫停⏸️",
+            "idle": "閒置",
+            "processing": "處理中",
+            "uploading": "上傳中",
+            "paused": "已暫停",
         }
         state_label = icons.get(self.current_state, "監控中")
         lines = [
@@ -140,7 +140,7 @@ class WatcherTray:
             pass
 
     def _on_both_modes(self, _icon, _item):
-        """Right-click menu: 同時雙軌模式."""
+        """Right-click menu: 同時模式."""
         try:
             self._ensure_backend_running()
             import webbrowser
@@ -155,7 +155,7 @@ class WatcherTray:
             pass
 
     def _on_open_inbox(self, _icon, _item):
-        """Right-click menu: 打開 Inbox 資料夾."""
+        """Right-click menu: 開啟 Inbox 資料夾."""
         try:
             self.inbox_dir.mkdir(parents=True, exist_ok=True)
             if hasattr(os, "startfile"):
@@ -171,7 +171,7 @@ class WatcherTray:
             self.is_paused = not self.is_paused
             new_state = "paused" if self.is_paused else "idle"
             self.current_state = new_state
-            self.current_detail = "監控已暫停" if self.is_paused else "正在監看 Inbox"
+            self.current_detail = "監控已暫停" if self.is_paused else "監看 Inbox"
             self.current_progress = "暫停中" if self.is_paused else "等待音檔"
 
         self._apply_state_to_icon()
@@ -185,7 +185,7 @@ class WatcherTray:
             pass
 
     def _on_view_log(self, _icon, _item):
-        """Right-click menu: 查看今日紀錄."""
+        """Right-click menu: 查看執行紀錄."""
         try:
             self.log_file.parent.mkdir(parents=True, exist_ok=True)
             if not self.log_file.is_file():
@@ -216,7 +216,7 @@ class WatcherTray:
         os._exit(0)
 
     def _get_pause_label(self, _item) -> str:
-        return "恢復監控 ▶️" if self.is_paused else "暫停監控 ⏸️"
+        return "恢復監控" if self.is_paused else "暫停監控"
 
     def _apply_state_to_icon(self) -> None:
         if not self._icon:
@@ -251,15 +251,15 @@ class WatcherTray:
     def start(self) -> None:
         """Launch the system tray icon detached in background thread."""
         menu = pystray.Menu(
-            pystray.MenuItem("顯示桌面視窗 🖥️", self._on_show_window),
-            pystray.MenuItem("開啟瀏覽器網頁 🌐", self._on_open_web),
-            pystray.MenuItem("同時雙軌模式 🔄", self._on_both_modes),
+            pystray.MenuItem("顯示桌面視窗", self._on_show_window),
+            pystray.MenuItem("開啟瀏覽器網頁", self._on_open_web),
+            pystray.MenuItem("同時模式", self._on_both_modes),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("打開 Inbox 資料夾 📂", self._on_open_inbox),
+            pystray.MenuItem("開啟 Inbox 資料夾", self._on_open_inbox),
             pystray.MenuItem(self._get_pause_label, self._on_toggle_pause),
-            pystray.MenuItem("查看今日紀錄 📋", self._on_view_log),
+            pystray.MenuItem("查看執行紀錄", self._on_view_log),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem("關閉並退出系統 🛑", self._on_exit),
+            pystray.MenuItem("結束程式", self._on_exit),
         )
 
         initial_img = self._images.get(self.current_state, self._images["idle"])

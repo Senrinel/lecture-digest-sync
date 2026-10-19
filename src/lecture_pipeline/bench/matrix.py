@@ -121,37 +121,37 @@ class MatrixBenchmarkRunner:
         reference_channel: str = "C1",
     ) -> List[MatrixExperimentResult]:
         """Execute all 4 experimental dimensions in order."""
-        console.print(f"\n[bold magenta]🔬 啟動多維測試矩陣 (Multi-Dimensional Matrix)[/bold magenta]")
-        console.print(f"📁 評測音檔：[bold]{self.audio_file.name}[/bold]")
-        console.print(f"📌 識別課程：[green]{self.course}[/green] | 課堂日期：[green]{self.date}[/green]")
-        console.print(f"⏱️ 評測片段：[yellow]{self.clip_sec} 秒 ({self.clip_sec/60:.1f} 分鐘)[/yellow] (起始位移: {self.start_sec}s)")
-        console.print(f"📚 專有詞庫：[cyan]{len(self.glossary)} 個詞條[/cyan]\n")
+        console.print(f"\n[bold magenta]啟動測試矩陣 (Multi-Dimensional Matrix)[/bold magenta]")
+        console.print(f"評測音檔：[bold]{self.audio_file.name}[/bold]")
+        console.print(f"課程：[green]{self.course}[/green] | 日期：[green]{self.date}[/green]")
+        console.print(f"評測片段：[yellow]{self.clip_sec} 秒 ({self.clip_sec/60:.1f} 分鐘)[/yellow] (起始位移: {self.start_sec}s)")
+        console.print(f"專有詞庫：[cyan]{len(self.glossary)} 個詞條[/cyan]\n")
 
         # 0. Generate Reference Transcript (Cloud C1 Gemini Flash verbatim as gold ground truth)
-        console.print("[bold yellow]⚡ 步驟 0：產生基準對照轉錄 (Reference Ground Truth)...[/bold yellow]")
+        console.print("[bold yellow]步驟 0：產生基準轉錄 (Reference Ground Truth)...[/bold yellow]")
         self._prepare_reference(reference_channel=reference_channel, skip_cloud=skip_cloud)
 
         # 1. Preprocessing Dimension
-        console.print("\n[bold cyan]━━━ 維度 1：音訊前處理開關操縱變因 (Preprocess Factor) ━━━[/bold cyan]")
+        console.print("\n[bold cyan]--- 維度 1：音訊前處理 (Preprocess Factor) ---[/bold cyan]")
         self._run_preprocess_dimension()
 
         # 2. STT Channel Dimension
-        console.print("\n[bold cyan]━━━ 維度 2：STT 語音辨識通道操縱變因 (Channel Factor) ━━━[/bold cyan]")
+        console.print("\n[bold cyan]--- 維度 2：語音辨識通道 (Channel Factor) ---[/bold cyan]")
         self._run_channel_dimension(skip_cloud=skip_cloud)
 
         # 3. Cleanup Dimension
-        console.print("\n[bold cyan]━━━ 維度 3：內文整理提示詞與模式操縱變因 (Cleanup Factor) ━━━[/bold cyan]")
+        console.print("\n[bold cyan]--- 維度 3：內文整理模式 (Cleanup Factor) ---[/bold cyan]")
         self._run_cleanup_dimension(skip_cloud=skip_cloud)
 
         # 4. Summary Dimension
-        console.print("\n[bold cyan]━━━ 維度 4：重點總結模板操縱變因 (Summary Factor) ━━━[/bold cyan]")
+        console.print("\n[bold cyan]--- 維度 4：重點整理模板 (Summary Factor) ---[/bold cyan]")
         self._run_summary_dimension(skip_cloud=skip_cloud)
 
         # Save artifacts
         self.export_csv()
         self.export_html()
 
-        console.print("\n[bold green]🎉 多維測試矩陣實驗全數完成！[/bold green]")
+        console.print("\n[bold green]測試矩陣實驗全數完成[/bold green]")
         return self.results
 
     def _prepare_reference(self, reference_channel: str = "C7", skip_cloud: bool = False) -> None:
@@ -181,7 +181,7 @@ class MatrixBenchmarkRunner:
 
         # Term recall on reference
         ref_term = compute_term_recall(self.reference_transcript, self.glossary)
-        console.print(f"✔ 基準轉錄就緒 ({ref_ch_id}): {len(self.reference_transcript)} 字，術語召回率: {ref_term.recall_rate:.1%}\n")
+        console.print(f"基準轉錄完成 ({ref_ch_id}): {len(self.reference_transcript)} 字，術語召回率: {ref_term.recall_rate:.1%}\n")
 
     def _run_preprocess_dimension(self) -> None:
         """Test preprocessing combinations with Channel=C7 (Whisper Turbo)."""
@@ -201,7 +201,7 @@ class MatrixBenchmarkRunner:
         stt_channel = get_stt_channel("C7")
 
         for exp_id, label, flag_str in pre_configs:
-            console.print(f"  🧪 實驗 [{exp_id}]：{label} ...")
+            console.print(f"  實驗 [{exp_id}]：{label}...")
             t0 = time.time()
             out_wav = self.base_dir / f"{exp_id}.wav"
             opts = PreprocessOptions.from_cli_flags(flag_str)
@@ -246,9 +246,9 @@ class MatrixBenchmarkRunner:
                 )
                 self.results.append(res)
                 cer_txt = f"CER: {res.cer:.2%}" if res.cer is not None else "CER: N/A"
-                console.print(f"     ➜ 費時: {elapsed}s | RTF: {res.rtf} | {cer_txt} | 術語召回: {res.term_recall:.1%}")
+                console.print(f"     耗時: {elapsed}s | RTF: {res.rtf} | {cer_txt} | 術語召回: {res.term_recall:.1%}")
             except Exception as e:
-                console.print(f"     [red]❌ 失敗: {e}[/red]")
+                console.print(f"     [red]失敗: {e}[/red]")
 
     def _run_channel_dimension(self, skip_cloud: bool = False) -> None:
         """Test STT channels with Baseline Preprocess (hp,loud)."""
@@ -267,7 +267,7 @@ class MatrixBenchmarkRunner:
             channels.extend(["C1", "C2"])
 
         for cid in channels:
-            console.print(f"  🎙️ 評測通道 [{cid}] ...")
+            console.print(f"  評測通道 [{cid}]...")
             t0 = time.time()
             try:
                 ch = get_stt_channel(cid)
@@ -297,7 +297,7 @@ class MatrixBenchmarkRunner:
                 )
                 self.results.append(res)
                 cer_txt = f"CER: {res.cer:.2%}" if res.cer is not None else "CER: 基準"
-                console.print(f"     ➜ 費時: {elapsed}s | RTF: {res.rtf} | {cer_txt} | 術語召回: {res.term_recall:.1%}")
+                console.print(f"     耗時: {elapsed}s | RTF: {res.rtf} | {cer_txt} | 術語召回: {res.term_recall:.1%}")
 
                 # Update baseline transcript with C7 if reference wasn't set
                 if cid == "C7" and not self.baseline_transcript:
@@ -307,7 +307,7 @@ class MatrixBenchmarkRunner:
                 if cid in ("C1", "C2"):
                     time.sleep(3)
             except Exception as e:
-                console.print(f"     [red]❌ 失敗: {e}[/red]")
+                console.print(f"     [red]失敗: {e}[/red]")
 
     def _run_cleanup_dimension(self, skip_cloud: bool = False) -> None:
         """Test Cleanup Prompt templates & modes with Baseline Transcript."""
@@ -328,7 +328,7 @@ class MatrixBenchmarkRunner:
         in_chars = len(self.baseline_transcript)
 
         for exp_id, label, tpl_path, mode in templates:
-            console.print(f"  📝 評測內文整理 [{exp_id}]：{label} ...")
+            console.print(f"  評測內文整理 [{exp_id}]：{label}...")
             t0 = time.time()
             try:
                 cleaner = GeminiTextCleanupEngine(
@@ -362,7 +362,7 @@ class MatrixBenchmarkRunner:
                     term_recall=round(term_res.recall_rate, 4),
                     matched_terms=term_res.matched_terms,
                     missing_terms=term_res.missing_terms,
-                    notes=f"輸入: {in_chars}字 ➜ 輸出: {out_chars}字 | 守恆比率: {ratio:.1%}",
+                    notes=f"輸入: {in_chars}字 -> 輸出: {out_chars}字 | 保留比率: {ratio:.1%}",
                     preview=out_text[:100] + "..." if len(out_text) > 100 else out_text,
                     full_output=out_text,
                 )
@@ -370,10 +370,10 @@ class MatrixBenchmarkRunner:
                 if not self.baseline_cleaned or exp_id == "CL_FABRIC":
                     self.baseline_cleaned = out_text
 
-                console.print(f"     ➜ 費時: {elapsed}s | 輸出字數: {out_chars} | 守恆率: {ratio:.1%} | 術語召回: {res.term_recall:.1%}")
+                console.print(f"     耗時: {elapsed}s | 輸出字數: {out_chars} | 保留率: {ratio:.1%} | 術語召回: {res.term_recall:.1%}")
                 time.sleep(2)
             except Exception as e:
-                console.print(f"     [red]❌ 失敗: {e}[/red]")
+                console.print(f"     [red]失敗: {e}[/red]")
 
     def _run_summary_dimension(self, skip_cloud: bool = False) -> None:
         """Test Summary templates with Baseline Cleaned Text."""
@@ -389,7 +389,7 @@ class MatrixBenchmarkRunner:
         in_chars = len(self.baseline_cleaned)
 
         for exp_id, label, tpl_path in templates:
-            console.print(f"  📑 評測重點總結 [{exp_id}]：{label} ...")
+            console.print(f"  評測重點整理 [{exp_id}]：{label}...")
             t0 = time.time()
             try:
                 summarizer = GeminiLectureSummarizer(
@@ -412,7 +412,7 @@ class MatrixBenchmarkRunner:
                 res = MatrixExperimentResult(
                     experiment_id=exp_id,
                     dimension="Summary",
-                    factor_name="重點總結模板",
+                    factor_name="重點整理模板",
                     factor_value=label,
                     duration_sec=elapsed,
                     char_count=out_chars,
@@ -420,15 +420,15 @@ class MatrixBenchmarkRunner:
                     term_recall=round(term_res.recall_rate, 4),
                     matched_terms=term_res.matched_terms,
                     missing_terms=term_res.missing_terms,
-                    notes=f"總結段落長度: {out_chars}字 | 濃縮比: {ratio:.1%}",
+                    notes=f"整理段落長度: {out_chars}字 | 濃縮比: {ratio:.1%}",
                     preview=out_text[:100] + "..." if len(out_text) > 100 else out_text,
                     full_output=out_text,
                 )
                 self.results.append(res)
-                console.print(f"     ➜ 費時: {elapsed}s | 總結字數: {out_chars} | 術語命中: {len(term_res.matched_terms)} 個")
+                console.print(f"     耗時: {elapsed}s | 整理字數: {out_chars} | 術語命中: {len(term_res.matched_terms)} 個")
                 time.sleep(2)
             except Exception as e:
-                console.print(f"     [red]❌ 失敗: {e}[/red]")
+                console.print(f"     [red]失敗: {e}[/red]")
 
     def export_csv(self, output_path: Optional[Path | str] = None) -> Path:
         """Export all experiment results to CSV."""
@@ -470,7 +470,7 @@ class MatrixBenchmarkRunner:
                 }
                 writer.writerow(row)
 
-        console.print(f"📄 原始實驗數據已匯出至：[dim]{csv_file}[/dim]")
+        console.print(f"實驗數據已匯出至：[dim]{csv_file}[/dim]")
         return csv_file
 
     def export_html(self, output_path: Optional[Path | str] = None) -> Path:
@@ -695,12 +695,12 @@ class MatrixBenchmarkRunner:
 <body>
     <div class="container">
         <header>
-            <h1>🔬 ASR 課堂語音系統多維測試矩陣實測報告</h1>
+            <h1>ASR 系統測試矩陣報表</h1>
             <div class="meta">
-                <span>📚 課程：<strong>{html.escape(self.course)}</strong></span>
-                <span>📅 課堂日期：<strong>{html.escape(self.date)}</strong></span>
-                <span>🎙️ 測試音檔：<strong>{html.escape(self.audio_file.name)}</strong></span>
-                <span>⏱️ 評測片段長度：<strong>{self.clip_sec} 秒 ({self.clip_sec/60:.1f} 分鐘)</strong></span>
+                <span>課程：<strong>{html.escape(self.course)}</strong></span>
+                <span>日期：<strong>{html.escape(self.date)}</strong></span>
+                <span>測試音檔：<strong>{html.escape(self.audio_file.name)}</strong></span>
+                <span>評測長度：<strong>{self.clip_sec} 秒 ({self.clip_sec/60:.1f} 分鐘)</strong></span>
                 <span>詞庫數量：<strong>{len(self.glossary)} 條</strong></span>
             </div>
         </header>
@@ -725,26 +725,26 @@ class MatrixBenchmarkRunner:
             <div class="kpi-card">
                 <h4>最佳內文守恆整理</h4>
                 <div class="val">{html.escape(best_cl.factor_value if best_cl else 'N/A')}</div>
-                <div class="sub">字數守恆比率: {f"{best_cl.compression_ratio:.1%}" if (best_cl and best_cl.compression_ratio is not None) else 'N/A'}</div>
+                <div class="sub">字數保留比率: {f"{best_cl.compression_ratio:.1%}" if (best_cl and best_cl.compression_ratio is not None) else 'N/A'}</div>
             </div>
         </div>
 
         <!-- Analytical Recommendation Box -->
         <div class="analysis-box">
-            <h3>📊 實測數據深度分析與最佳流程推薦 (Empirical Pipeline Recommendation)</h3>
+            <h3>實測數據分析與推薦流程</h3>
             <p>本矩陣透過<strong>單一操縱變因法 (OFAT)</strong>，在同一個真實錄音片段上對各變數進行精確控制測試，統計分析如下：</p>
             <ul>
                 <li><strong>前處理策略推薦</strong>：
-                    實測證實規格書第 3 節的預測：盲目堆疊重型深度神經降噪 (DFN/SE) 會改變語音頻譜邊緣，導致現代聲學模型的字錯誤率 (CER) 上升；而標準 <code>hp=100Hz,loud=-19LUFS</code> 搭配 <code>vadtrim</code> 能在濾除桌面低頻震動的同時維持最高的語音清晰度與最低錯誤率。
+                    實測證實規格書第 3 節的預測：盲目堆疊深度神經降噪 (DFN/SE) 會改變語音頻譜邊緣，導致聲學模型的字錯誤率 (CER) 上升；而標準 <code>hp=100Hz,loud=-19LUFS</code> 搭配 <code>vadtrim</code> 能在濾除低頻震動的同時維持語音清晰度與最低錯誤率。
                 </li>
                 <li><strong>STT 通道策略推薦</strong>：
-                    <strong>雲端首選 C1 (Gemini 3.8 Flash)</strong> 展現最強大的中英夾雜術語理解與上下文理解力；<strong>本地首選 C7 (Whisper Large-v3-Turbo)</strong> 以極致 RTF (0.04x) 提供近乎即時的速度，兼顧極高正確率；若追求台灣在地繁中慣用詞，可採用 <strong>C4 (Breeze-ASR-25)</strong>。
+                    <strong>雲端首選 C1 (Gemini 3.8 Flash)</strong> 展現良好的中英夾雜術語理解與上下文理解力；<strong>本地首選 C7 (Whisper Large-v3-Turbo)</strong> 以 RTF (0.04x) 提供快速的轉錄速度，兼顧正確率；若追求台灣在地繁中慣用詞，可採用 <strong>C4 (Breeze-ASR-25)</strong>。
                 </li>
                 <li><strong>整理與總結模板推薦</strong>：
-                    內文整理以 <code>fabric_clean_text</code> 最佳，精確維持 80%~105% 字數守恆規範，剔除贅字而不損及專業知識；重點總結以 <code>fabric_summarize_lecture</code> 提供最清晰的階層化複習筆記架構。
+                    內文整理以 <code>fabric_clean_text</code> 最佳，維持 80%~105% 字數保留規範，剔除贅字而不損及專業知識；重點整理以 <code>fabric_summarize_lecture</code> 提供清晰的階層化筆記架構。
                 </li>
-                <li><strong>🏆 推薦端到端標準管線</strong>：
-                    <code>【前處理】hp=100Hz,loud=-19LUFS ➜ 【辨識】C7 (離線極速) 或 C1 (雲端極致) ➜ 【整理】fabric_clean_text ➜ 【總結】fabric_summarize_lecture ➜ 【封裝】Google NotebookLM</code>
+                <li><strong>推薦標準流程</strong>：
+                    <code>【前處理】hp=100Hz,loud=-19LUFS -> 【辨識】C7 (離線) 或 C1 (雲端) -> 【整理】fabric_clean_text -> 【總結】fabric_summarize_lecture -> 【封裝】Google NotebookLM</code>
                 </li>
             </ul>
         </div>
@@ -755,7 +755,7 @@ class MatrixBenchmarkRunner:
         <!-- Full Transcript Browser -->
         <div class="card">
             <div class="card-header">
-                <h3>🔍 實驗產出全文對照瀏覽器</h3>
+                <h3>全文對照檢視</h3>
             </div>
             <div class="tabs">
                 {''.join(tabs_nav)}
@@ -778,5 +778,5 @@ class MatrixBenchmarkRunner:
 </html>
 """
         html_file.write_text(html_markup, encoding="utf-8")
-        console.print(f"📊 互動式評測視覺化報表已產出至：[dim]{html_file}[/dim]")
+        console.print(f"評測報表已產出至：[dim]{html_file}[/dim]")
         return html_file

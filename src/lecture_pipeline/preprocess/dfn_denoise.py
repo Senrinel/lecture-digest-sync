@@ -32,7 +32,7 @@ def apply_dfn_denoise(
     runner_script = Path("backends/enhance/run_enhance.py").resolve()
 
     if not enhance_python.is_file() or not runner_script.is_file():
-        console.print("[yellow]⚠️ 找不到 backends/enhance 執行環境，略過 DeepFilterNet3 深度降噪。[/yellow]")
+        console.print("[yellow]找不到 backends/enhance 執行環境，略過 DeepFilterNet3 降噪。[/yellow]")
         return in_p
 
     cmd = [
@@ -54,7 +54,7 @@ def apply_dfn_denoise(
 
     if res.returncode != 0 or not out_p.is_file() or out_p.stat().st_size == 0:
         err_msg = res.stderr.strip() or res.stdout.strip()
-        console.print(f"[yellow]⚠️ DeepFilterNet3 執行異常 ({err_msg})，保留前一階段音訊。[/yellow]")
+        console.print(f"[yellow]DeepFilterNet3 執行失敗 ({err_msg})，保留前一階段音訊。[/yellow]")
         return in_p
 
     return out_p

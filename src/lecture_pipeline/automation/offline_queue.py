@@ -84,7 +84,7 @@ class OfflineUploadQueue:
         queue.append(item)
         self._save_queue(queue)
 
-        console.print(f"[yellow]📶 離線排隊：{display_name} 已加入待上傳佇列，等待連線...[/yellow]")
+        console.print(f"[yellow]離線佇列：{display_name} 已加入待上傳佇列，等待網路連線...[/yellow]")
         notify_offline_pending(display_name)
 
     def get_pending(self) -> List[Dict[str, Any]]:
@@ -110,7 +110,7 @@ class OfflineUploadQueue:
         remaining: List[Dict[str, Any]] = []
         uploaded_count = 0
 
-        console.print(f"\n[cyan]🌐 偵測到網路已恢復，開始處理待上傳佇列 ({len(queue)} 筆)...[/cyan]")
+        console.print(f"\n[cyan]網路已恢復，開始處理待上傳佇列 ({len(queue)} 筆)...[/cyan]")
 
         for item in queue:
             w_dir = Path(item["work_dir"])
@@ -122,11 +122,11 @@ class OfflineUploadQueue:
             try:
                 pub_res = publisher.publish_lecture(w_dir)
                 doc_link = pub_res.doc_link if hasattr(pub_res, "doc_link") else None
-                console.print(f"[green]✔ 佇列項目上傳成功：{display_name}[/green]")
+                console.print(f"[green][OK] 佇列項目上傳成功：{display_name}[/green]")
                 notify_upload_success(display_name, doc_url=doc_link)
                 uploaded_count += 1
             except Exception as e:
-                console.print(f"[yellow]⚠️ 上傳重試失敗 ({display_name}): {e}，保留於佇列。[/yellow]")
+                console.print(f"[yellow][WARN] 上傳重試失敗 ({display_name}): {e}，保留於佇列。[/yellow]")
                 remaining.append(item)
 
         self._save_queue(remaining)

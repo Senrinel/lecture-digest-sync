@@ -1,14 +1,14 @@
 """Inbox folder watcher and automated multi-part lecture pipeline executor.
 
 Enhanced with:
-1. Low process priority (BELOW_NORMAL) to guarantee zero interference with user's games/apps.
+1. Low process priority (BELOW_NORMAL) to avoid interfering with user applications.
 2. Two-stage file copy completion verification (settling time + non-blocking exclusive file lock).
 3. Multi-part lecture grouping and debounce window.
-4. Windows desktop toast notifications (開始解析 / 上傳成功 / 離線排隊 / 壞檔隔離).
-5. System tray icon with dynamic badges (💤/🔄/⏫) and hover progress tooltips.
-6. Dead letter queue (壞檔隔離): 3 strikes rule moving to inbox/failed/.
-7. Task timeout circuit breaker (60 分鐘強制熔斷).
-8. Auto-pruning & long-term archival to C:\\Users\\LinKJ\\Pictures\\Record (Opus + cleaned + summary + log).
+4. Windows desktop toast notifications (開始解析 / 上傳成功 / 離線佇列 / 處理失敗).
+5. System tray icon with status badges and hover progress tooltips.
+6. Failed file handling: 3 retries moving to inbox/failed/.
+7. Task timeout limit (60 minutes).
+8. File cleanup & archival to C:\\Users\\LinKJ\\Pictures\\Record (Opus + cleaned + summary + log).
 9. Offline network resilience & next-day quota deferral queue.
 """
 
@@ -163,7 +163,7 @@ def is_file_stable(filepath: Path, delay_sec: float = 2.0) -> bool:
 
 
 class DeadLetterQuarantine:
-    """Tracks retry attempts per file and isolates corrupted files after 3 failures."""
+    """Tracks retry attempts per file and moves failed files after 3 failures."""
 
     def __init__(self, inbox_dir: Path | str, max_retries: int = 3):
         self.inbox_dir = Path(inbox_dir).resolve()
@@ -188,10 +188,10 @@ class DeadLetterQuarantine:
             pass
 
     def record_failure(self, audio_files: List[Path]) -> bool:
-        """Increment failure counts. If failures >= max_retries, quarantine to inbox/failed/.
+        """Increment failure counts. If failures >= max_retries, move to inbox/failed/.
 
         Returns:
-            True if corrupted files were quarantined, False otherwise.
+            True if failed files were moved, False otherwise.
         """
         stats = self._load_stats()
         quarantined = False
@@ -215,7 +215,7 @@ class DeadLetterQuarantine:
                 quarantined = True
                 notify_corrupted_file(fname)
                 log_watcher_event(
-                    f"檔案 {fname} 失敗超過 {self.max_retries} 次，判定壞檔並隔離至 {dest}",
+                    f"檔案 {fname} 失敗超過 {self.max_retries} 次，已移至 {dest}",
                     level="ERROR",
                 )
 
@@ -308,17 +308,17 @@ def run_pipeline_for_group(
     """Execute complete end-to-end processing for a single or multi-part lecture."""
     def check_aborted():
         if abort_event and abort_event.is_set():
-            raise InterruptedError("任務已由使用者強制中止。")
+            raise InterruptedError("任務已中止。")
         b = _get_bridge()
         if b:
             g_abort = b.get_task_abort_event()
             if g_abort and g_abort.is_set():
-                raise InterruptedError("任務已由使用者強制中止。")
+                raise InterruptedError("任務已中止。")
             p_pause = b.get_task_pause_event()
             while p_pause and p_pause.is_set():
                 time.sleep(0.5)
                 if (abort_event and abort_event.is_set()) or (g_abort and g_abort.is_set()):
-                    raise InterruptedError("任務已由使用者強制中止。")
+                    raise InterruptedError("任務已中止。")
 
     start_total = time.time()
     primary_file = audio_files[0]
@@ -328,7 +328,7 @@ def run_pipeline_for_group(
     target_work_dir.mkdir(parents=True, exist_ok=True)
 
     file_display = ", ".join(f.name for f in audio_files)
-    console.print(f"\n[bold cyan]🚀 自動化處理啟動：{parsed.display_tag}[/bold cyan]")
+    console.print(f"\n[bold cyan]開始處理：{parsed.display_tag}[/bold cyan]")
     log_watcher_event(f"開始處理課堂：{parsed.display_tag}，檔案：{file_display}")
 
     # Desktop Toast Notification: 開始解析
@@ -357,22 +357,22 @@ def run_pipeline_for_group(
 
     try:
         if len(audio_files) > 1:
-            console.print(f"📦 偵測到多段錄音分檔 (共 {len(audio_files)} 檔)，將自動合併：")
+            console.print(f"偵測到多段錄音分檔 (共 {len(audio_files)} 檔)，將自動合併：")
             for f in audio_files:
                 console.print(f"   - {f.name}")
 
         # 1. Preprocess
         check_aborted()
-        report_progress("音訊前處理", 15, "執行 16kHz 單聲道標準化與多段拼接...")
+        report_progress("音訊前處理", 15, "執行 16kHz 單聲道轉換與多段合併...")
         norm_audio = target_work_dir / "00_normalized.wav"
         pre_opts = PreprocessOptions.from_cli_flags(pre_flags) if pre_flags else PreprocessOptions()
-        console.print("[dim]⏳ 執行音訊前處理與多段拼接...[/dim]")
+        console.print("[dim]執行音訊前處理與多段合併...[/dim]")
         preprocess_audio(audio_files, norm_audio, opts=pre_opts)
 
         # 2. VAD Segmentation
         check_aborted()
-        report_progress("VAD 切段", 30, "執行 Silero VAD 靜音切段偵測...")
-        console.print("[dim]⏳ 執行 VAD 靜音切段...[/dim]")
+        report_progress("VAD 切段", 30, "執行 Silero VAD 靜音切段...")
+        console.print("[dim]執行 VAD 靜音切段...[/dim]")
         chunks = segment_audio(norm_audio, target_work_dir / "chunks")
 
         state = RunState(
@@ -391,11 +391,11 @@ def run_pipeline_for_group(
         check_aborted()
         actual_channel_id = channel_id
         if channel_id in ["C1", "C2"] and not is_internet_connected():
-            console.print(f"[yellow]📶 偵測到無網路連線，STT 自動降級至本地高效能 GPU 通道 C7...[/yellow]")
+            console.print(f"[yellow]無網路連線，STT 切換至本機 GPU 通道 C7...[/yellow]")
             actual_channel_id = "C7"
 
         report_progress("語音轉錄", 50, f"執行語音轉錄 (通道 {actual_channel_id})...")
-        console.print(f"[dim]⏳ 執行語音轉錄 (通道 {actual_channel_id})...[/dim]")
+        console.print(f"[dim]執行語音轉錄 (通道 {actual_channel_id})...[/dim]")
         glossary = load_course_glossary(parsed.course) if parsed.course != "Unsorted" else []
         channel = get_stt_channel(actual_channel_id)
         transcription = channel.transcribe_all(
@@ -410,8 +410,8 @@ def run_pipeline_for_group(
 
         # 4. Cleanup
         check_aborted()
-        report_progress("內文整理", 70, f"執行 AI 內文整理潤飾 ({cleanup_model})...")
-        console.print(f"[dim]⏳ 執行 AI 內文整理 ({cleanup_model})...[/dim]")
+        report_progress("內文整理", 70, f"執行內文整理 ({cleanup_model})...")
+        console.print(f"[dim]執行內文整理 ({cleanup_model})...[/dim]")
         cleaner = GeminiTextCleanupEngine(primary_model=cleanup_model)
         clean_result = cleaner.clean(
             transcription.full_text,
@@ -425,8 +425,8 @@ def run_pipeline_for_group(
 
         # 5. Summary
         check_aborted()
-        report_progress("重點筆記", 85, f"提煉 AI 重點結構筆記 ({summary_model})...")
-        console.print(f"[dim]⏳ 執行 AI 重點總結 ({summary_model})...[/dim]")
+        report_progress("重點筆記", 85, f"產生重點筆記 ({summary_model})...")
+        console.print(f"[dim]產生重點筆記 ({summary_model})...[/dim]")
         time.sleep(3.0)  # Rate limit cooldown buffer before summary call
         check_aborted()
         summarizer = GeminiLectureSummarizer(primary_model=summary_model)
@@ -436,7 +436,7 @@ def run_pipeline_for_group(
 
         # 6. Notebook Bundle & Exports
         check_aborted()
-        console.print("[dim]⏳ 封裝重點總結筆記 Markdown 並同步至匯出目錄...[/dim]")
+        console.print("[dim]輸出重點筆記 Markdown 至匯出目錄...[/dim]")
         target_export = export_dir
         if not target_export:
             try:
@@ -460,7 +460,7 @@ def run_pipeline_for_group(
                 b.update_task_progress(
                     stage="上傳與封存",
                     progress=95,
-                    detail="同步 Google Docs 與長期壓縮封存...",
+                    detail="同步 Google Docs 與封存檔案...",
                     task_name=parsed.display_tag,
                     running=True,
                 )
@@ -470,28 +470,28 @@ def run_pipeline_for_group(
 
             if has_creds and online:
                 try:
-                    console.print("[dim]☁️ 正在自動上傳至 Google Drive 並轉為原生 Google Docs...[/dim]")
+                    console.print("[dim]正在上傳至 Google Drive 並轉為 Google Docs...[/dim]")
                     publisher = GoogleDrivePublisher(credentials_file=Path("credentials.json"))
                     pub_res = publisher.publish_lecture(target_work_dir)
-                    console.print(f"[green]✔ Google Drive 資料夾：{pub_res.course_folder_link}[/green]")
+                    console.print(f"[green][OK] Google Drive 資料夾：{pub_res.course_folder_link}[/green]")
                     log_watcher_event(f"已同步至 Google Drive：{pub_res.course_folder_link}")
                     notify_upload_success(primary_file.name, doc_url=pub_res.course_folder_link)
                 except Exception as e:
-                    console.print(f"[yellow]⚠️ Google Drive 自動同步遇到問題 ({e})，排入離線待上傳佇列。[/yellow]")
+                    console.print(f"[yellow][WARN] Google Drive 同步失敗 ({e})，排入離線待上傳佇列。[/yellow]")
                     if offline_queue:
                         offline_queue.enqueue(target_work_dir, primary_file.name, parsed.course, parsed.date)
                     else:
                         notify_offline_pending(primary_file.name)
             else:
                 if not online:
-                    console.print(f"[yellow]📶 目前無網路連線，將 {primary_file.name} 寫入離線排隊佇列。[/yellow]")
+                    console.print(f"[yellow]無網路連線，將 {primary_file.name} 加入離線佇列。[/yellow]")
                 if offline_queue:
                     offline_queue.enqueue(target_work_dir, primary_file.name, parsed.course, parsed.date)
                 else:
                     notify_offline_pending(primary_file.name)
 
-        # 8. Auto-Pruning & Long-Term Archival (Specification & User Request)
-        console.print("[dim]🧹 執行多餘產物修剪並封存至長期儲存區...[/dim]")
+        # 8. Auto-Pruning & Long-Term Archival
+        console.print("[dim]清理暫存檔並封存至封存目錄...[/dim]")
         try:
             prune_and_archive(
                 work_dir=target_work_dir,
@@ -502,7 +502,7 @@ def run_pipeline_for_group(
                 delete_norm_wav=True,
             )
         except Exception as e:
-            console.print(f"[yellow]⚠️ 自動修剪與封存提示: {e}[/yellow]")
+            console.print(f"[yellow][WARN] 檔案清理與封存警告: {e}[/yellow]")
 
         # 9. Move original inbox audio files to archive to prevent duplicate scans
         target_archive = Path(archive_dir).resolve() / parsed.course / parsed.date
@@ -515,16 +515,16 @@ def run_pipeline_for_group(
                 shutil.move(str(f), str(dest))
 
         elapsed = round(time.time() - start_total, 2)
-        console.print(f"[bold green]✨ {parsed.display_tag} 處理完成！耗時 {elapsed} 秒，音檔已移至 archive/[/bold green]\n")
+        console.print(f"[bold green][OK] {parsed.display_tag} 處理完成，耗時 {elapsed} 秒，音檔已移至 archive/[/bold green]\n")
         log_watcher_event(f"課堂 {parsed.display_tag} 處理完成，總耗時 {elapsed} 秒")
 
         if tray:
             tray.increment_processed()
-            tray.update_status(state="idle", detail="正在監看 Inbox", progress="等待音檔")
+            tray.update_status(state="idle", detail="監看 Inbox", progress="等待音檔")
 
         b = _get_bridge()
         if b:
-            b.notify_task_completed(parsed.display_tag, detail=f"課堂 {parsed.display_tag} 處理完成！")
+            b.notify_task_completed(parsed.display_tag, detail=f"課堂 {parsed.display_tag} 處理完成")
 
         return target_work_dir
 
@@ -548,7 +548,7 @@ def run_pipeline_with_timeout(
     offline_queue: Optional[OfflineUploadQueue] = None,
     record_archive_base_dir: Optional[Path | str] = None,
 ) -> Path:
-    """Execute complete pipeline protected by a strict execution timeout circuit breaker."""
+    """Execute complete pipeline protected by an execution timeout."""
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(
             run_pipeline_for_group,
@@ -567,10 +567,10 @@ def run_pipeline_with_timeout(
             return future.result(timeout=timeout_sec)
         except concurrent.futures.TimeoutError:
             log_watcher_event(
-                f"任務逾時熔斷：處理超過 {timeout_sec} 秒上限，強制中斷任務",
+                f"任務處理逾時：處理超過 {timeout_sec} 秒上限，中斷任務",
                 level="ERROR",
             )
-            raise TimeoutError(f"任務處理逾時熔斷：超過 {timeout_sec} 秒上限")
+            raise TimeoutError(f"任務處理逾時：超過 {timeout_sec} 秒上限")
 
 
 def watch_inbox(
@@ -605,7 +605,7 @@ def watch_inbox(
             if b:
                 b.set_global_tray(tray)
         except Exception as e:
-            console.print(f"[dim]⚠️ 系統匣圖示啟動略過: {e}[/dim]")
+            console.print(f"[dim][WARN] 系統匣圖示啟動略過: {e}[/dim]")
             tray = None
 
     # Ensure backend server running so tray web/window actions work seamlessly
@@ -618,14 +618,14 @@ def watch_inbox(
                 daemon=True,
             )
             th.start()
-            console.print("[dim]🌐 監看模式已於背景同步就緒 API / GUI 伺服器 (http://127.0.0.1:8000)[/dim]")
+            console.print("[dim]監看模式已於背景啟動 API / GUI 伺服器 (http://127.0.0.1:8000)[/dim]")
     except Exception as se:
-        console.print(f"[dim]⚠️ 後端伺服器略過: {se}[/dim]")
+        console.print(f"[dim][WARN] 後端伺服器略過: {se}[/dim]")
 
-    console.print(f"\n[bold blue]👀 啟動 Inbox 智慧監看服務：{inbox_path}[/bold blue]")
-    console.print(f"📌 預設 STT 通道：[yellow]{channel_id}[/yellow] | 模式：{'單次掃描' if once else f'持續監看 (輪詢間隔 {poll_interval}s)'}")
-    console.print(f"🛡️ 資源保護模式：[green]已開啟 (低優先權調度，零背景資源干擾)[/green]")
-    console.print(f"⚡ 熔斷保護與壞檔隔離：[green]逾時上限 {timeout_sec}s / 失敗 3 次隔離[/green]\n")
+    console.print(f"\n[bold blue]啟動 Inbox 監看服務：{inbox_path}[/bold blue]")
+    console.print(f"預設 STT 通道：[yellow]{channel_id}[/yellow] | 模式：{'單次掃描' if once else f'持續監看 (輪詢間隔 {poll_interval}s)'}")
+    console.print(f"程序優先權：[green]低優先權[/green]")
+    console.print(f"逾時與錯誤處理：[green]逾時上限 {timeout_sec}s / 失敗 3 次移至 failed[/green]\n")
     log_watcher_event(f"監看服務已啟動，監控目錄：{inbox_path}，通道：{channel_id}")
 
     total_processed = 0
@@ -635,7 +635,7 @@ def watch_inbox(
             # Check tray exit and pause flags
             if tray:
                 if tray.stop_requested:
-                    console.print("[yellow]🛑 接收到系統匣關閉訊號，正在退出監控...[/yellow]")
+                    console.print("[yellow]收到系統匣關閉訊號，正在結束監控...[/yellow]")
                     break
                 if tray.is_paused:
                     time.sleep(1.0)
@@ -645,8 +645,8 @@ def watch_inbox(
                 # 0. Check Disk Space Guard (protect drive from being filled)
                 has_space, free_gb = check_disk_space(inbox_path, min_free_gb=3.0)
                 if not has_space:
-                    console.print(f"[bold red]⚠️ 磁碟剩餘空間不足 ({free_gb} GB < 3.0 GB)，已暫緩處理錄音！[/bold red]")
-                    log_watcher_event(f"磁碟空間警告 ({free_gb} GB < 3.0 GB)，暫緩處理", level="WARNING")
+                    console.print(f"[bold red][WARN] 磁碟剩餘空間不足 ({free_gb} GB < 3.0 GB)，暫停處理錄音[/bold red]")
+                    log_watcher_event(f"磁碟空間警告 ({free_gb} GB < 3.0 GB)，暫停處理", level="WARNING")
                     time.sleep(30.0)
                     continue
 
@@ -684,15 +684,15 @@ def watch_inbox(
                                 dead_letter.record_success(files)
                                 total_processed += 1
                             except TimeoutError as te:
-                                console.print(f"[bold red]❌ 任務逾時熔斷 ({g_key}): {te}[/bold red]")
-                                log_watcher_event(f"逾時熔斷 ({g_key}): {te}", level="ERROR")
+                                console.print(f"[bold red][ERROR] 任務處理逾時 ({g_key}): {te}[/bold red]")
+                                log_watcher_event(f"任務處理逾時 ({g_key}): {te}", level="ERROR")
                                 dead_letter.record_failure(files)
                             except Exception as e:
-                                console.print(f"[bold red]❌ 處理 {g_key} 遭遇錯誤: {e}[/bold red]")
+                                console.print(f"[bold red][ERROR] 處理 {g_key} 發生錯誤: {e}[/bold red]")
                                 log_watcher_event(f"處理失敗 ({g_key}): {e}", level="ERROR")
                                 dead_letter.record_failure(files)
                         else:
-                            console.print(f"[yellow]⏳ 偵測到新錄音正在傳輸寫入中，靜候寫入完成：{g_key}[/yellow]")
+                            console.print(f"[yellow]偵測到新錄音正在寫入中，等待寫入完成：{g_key}[/yellow]")
 
                 if once:
                     break
@@ -700,11 +700,11 @@ def watch_inbox(
                 time.sleep(poll_interval)
 
             except KeyboardInterrupt:
-                console.print("\n[yellow]🛑 監看服務已由使用者手動中止。[/yellow]")
+                console.print("\n[yellow]監看服務已手動中止。[/yellow]")
                 log_watcher_event("監看服務已手動中止。")
                 break
             except Exception as e:
-                console.print(f"[yellow]⚠️ 監看巡檢發生暫時性異常，將於 10 秒後重試：{e}[/yellow]")
+                console.print(f"[yellow][WARN] 監看巡檢發生異常，將於 10 秒後重試：{e}[/yellow]")
                 log_watcher_event(f"巡檢異常: {e}", level="WARNING")
                 time.sleep(10.0)
 

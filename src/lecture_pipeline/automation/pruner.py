@@ -143,11 +143,11 @@ def prune_and_archive(
             actual_compressed = compress_audio_to_opus(norm_wav, compressed_audio_dest)
             archived_files["audio"] = actual_compressed
             console.print(
-                f"[green]✔ 高壓縮音檔封存成功: {actual_compressed.name} "
+                f"[green][OK] 壓縮音檔封存完成: {actual_compressed.name} "
                 f"({actual_compressed.stat().st_size // 1024} KB)[/green]"
             )
         except Exception as e:
-            console.print(f"[yellow]⚠️ 音檔壓縮失敗，保留原始檔封存: {e}[/yellow]")
+            console.print(f"[yellow][WARN] 音檔壓縮失敗，保留原始檔封存: {e}[/yellow]")
             fallback_dest = dest_dir / norm_wav.name
             shutil.copy2(str(norm_wav), str(fallback_dest))
             archived_files["audio"] = fallback_dest
@@ -167,7 +167,6 @@ def prune_and_archive(
         archived_files["summary_notes"] = dest_md
 
     # 3.5 Specification compliance: Do NOT archive or generate HTML files.
-    # Interactive synced review is handled purely within native GUI without static HTML clutter.
     old_html = dest_dir / "04_player.html"
     if old_html.is_file():
         try:
@@ -197,25 +196,25 @@ def prune_and_archive(
             except Exception:
                 pass
 
-    # 5. Prune intermediate heavy waste
+    # 5. Prune intermediate files
     if delete_chunks:
         chunks_dir = w_dir / "chunks"
         if chunks_dir.is_dir():
             try:
                 shutil.rmtree(str(chunks_dir))
-                console.print(f"[dim]🗑️ 已修剪暫存目錄: {chunks_dir.name}[/dim]")
+                console.print(f"[dim]已刪除暫存目錄: {chunks_dir.name}[/dim]")
             except Exception as e:
-                console.print(f"[dim]⚠️ 暫存目錄清理警告: {e}[/dim]")
+                console.print(f"[dim][WARN] 暫存目錄清理警告: {e}[/dim]")
 
     if delete_norm_wav:
         if norm_wav.is_file():
             try:
                 norm_wav.unlink()
-                console.print(f"[dim]🗑️ 已修剪未壓縮原始檔: {norm_wav.name}[/dim]")
+                console.print(f"[dim]已刪除未壓縮原始檔: {norm_wav.name}[/dim]")
             except Exception as e:
-                console.print(f"[dim]⚠️ 原始檔清理警告: {e}[/dim]")
+                console.print(f"[dim][WARN] 原始檔清理警告: {e}[/dim]")
 
     console.print(
-        f"[bold green]📦 課堂長期封存完成：{dest_dir} (保留壓縮音檔、文稿、筆記與 log)[/bold green]"
+        f"[bold green][OK] 課堂封存完成：{dest_dir} (保留壓縮音檔、文稿、筆記與 log)[/bold green]"
     )
     return archived_files

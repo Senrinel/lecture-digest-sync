@@ -49,18 +49,18 @@ def find_iscc() -> Path | None:
 def run_obfuscation_pipeline() -> None:
     """Run dual-layer obfuscation and native compilation."""
     print("=" * 75)
-    print("🔒 [步驟 1/3] 執行雙層混合混淆構建 (Cython Native .pyd + AST 變數混淆)...")
+    print("[步驟 1/3] 執行程式碼混淆構建 (Cython Native .pyd + AST 變數混淆)...")
     print("=" * 75)
     obf_script = ROOT / "scripts" / "obfuscate_pipeline.py"
     res = subprocess.run([sys.executable, str(obf_script)], cwd=str(ROOT))
     if res.returncode != 0:
-        raise RuntimeError("混淆與二進位原生編譯失敗，中止打包！")
+        raise RuntimeError("混淆與原生編譯失敗，中止打包。")
 
 
 def run_pyinstaller_packaging() -> Path:
     """Run PyInstaller with optimized settings over obfuscated source code."""
     print("\n" + "=" * 75)
-    print("📦 [步驟 2/3] 執行 PyInstaller 最佳化打包 (移除無用庫 + Bytecode 最佳化)...")
+    print("[步驟 2/3] 執行 PyInstaller 打包...")
     print("=" * 75)
 
     obf_root = ROOT / "build" / "obfuscated_src"
@@ -201,16 +201,16 @@ def run_pyinstaller_packaging() -> Path:
     for folder in ["inbox", "exports", "archive"]:
         (dist_dir / folder).mkdir(exist_ok=True)
 
-    print(f"✔ PyInstaller 打包完成！執行檔位於: {dist_dir / 'LecturePipeline.exe'}")
+    print(f"PyInstaller 打包完成，執行檔位於: {dist_dir / 'LecturePipeline.exe'}")
 
     # Verify the compiled exe
     exe_file = dist_dir / "LecturePipeline.exe"
-    print("🔍 正在驗證建置後的執行檔相容性...")
+    print("正在驗證執行檔相容性...")
     res = subprocess.run([str(exe_file), "--test-import"], capture_output=True, text=True, cwd=str(dist_dir))
     if "[TEST_OK]" in res.stdout or res.returncode == 0:
-        print("✔ 執行檔核心模組導入驗證通過 (無缺少模組或崩潰)！")
+        print("執行檔核心模組導入驗證通過。")
     else:
-        print("❌ 執行檔驗證輸出：", res.stdout, res.stderr)
+        print("執行檔驗證失敗：", res.stdout, res.stderr)
 
     return dist_dir
 
@@ -218,12 +218,12 @@ def run_pyinstaller_packaging() -> Path:
 def run_inno_setup_compiler() -> Path | None:
     """Compile Inno Setup script to generate Setup_LecturePipeline_v0.1.0.exe."""
     print("\n" + "=" * 75)
-    print("🛠️  [步驟 3/3] 執行 Inno Setup 編譯標準 Windows 安裝導引精靈...")
+    print("[步驟 3/3] 執行 Inno Setup 編譯 Windows 安裝程式...")
     print("=" * 75)
 
     iscc_bin = find_iscc()
     if not iscc_bin:
-        print("⚠️ 未檢測到 Inno Setup 編譯器 (ISCC.exe)。請確認已安裝 Inno Setup 6。")
+        print("未檢測到 Inno Setup 編譯器 (ISCC.exe)。請確認已安裝 Inno Setup 6。")
         return None
 
     iss_file = ROOT / "installer.iss"
@@ -239,7 +239,7 @@ def run_inno_setup_compiler() -> Path | None:
     installer_exe = ROOT / "dist" / "Setup_LecturePipeline_v0.1.0.exe"
     if installer_exe.is_file():
         size_mb = installer_exe.stat().st_size / (1024 * 1024)
-        print(f"\n🎉 安裝程式建置成功！")
+        print(f"\n安裝程式建置完成。")
         print(f"  安裝檔路徑: {installer_exe}")
         print(f"  安裝檔大小: {size_mb:.2f} MB")
         return installer_exe
@@ -251,7 +251,7 @@ def main() -> None:
     run_pyinstaller_packaging()
     run_inno_setup_compiler()
     print("\n" + "=" * 75)
-    print("✅ 全部構建作業已圓滿完成！")
+    print("建置作業完成。")
     print("=" * 75)
 
 

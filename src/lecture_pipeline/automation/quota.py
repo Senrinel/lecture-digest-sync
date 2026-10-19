@@ -73,8 +73,8 @@ class QuotaManager:
 
         local_reset_str = reset_time.astimezone().strftime("%Y-%m-%d %H:%M:%S")
         console.print(
-            f"[bold red]⛔ 雲端 API 額度已用盡 ({reason})！[/bold red]\n"
-            f"[yellow]⏳ 任務已自動鎖定並延期至明日重置時間：{local_reset_str}[/yellow]"
+            f"[bold red][WARN] 雲端 API 配額已用盡 ({reason})[/bold red]\n"
+            f"[yellow]任務已鎖定並延後至重置時間：{local_reset_str}[/yellow]"
         )
         return reset_time
 
@@ -110,15 +110,15 @@ class QuotaManager:
         if self.lock_file.is_file():
             try:
                 self.lock_file.unlink()
-                console.print("[green]✔ 雲端 API 每日重置時間已到，配額鎖定已解除！[/green]")
+                console.print("[green][OK] 雲端 API 每日重置時間已到，配額鎖定已解除[/green]")
             except Exception:
                 pass
 
     def handle_stt_quota_error(self, requested_channel: str) -> str:
-        """Switch to high-performance local GPU channel upon STT quota exhaustion."""
+        """Switch to local GPU channel upon STT quota exhaustion."""
         console.print(
-            f"[yellow]⚠️ 雲端通道 {requested_channel} 配額已耗盡，"
-            f"依策略自動切換至本地高效能 GPU 通道 {self.local_fallback_channel}...[/yellow]"
+            f"[yellow][WARN] 雲端通道 {requested_channel} 配額已用盡，"
+            f"切換至本機 GPU 通道 {self.local_fallback_channel}...[/yellow]"
         )
         self.mark_quota_exhausted(service=f"STT-{requested_channel}")
         return self.local_fallback_channel
@@ -160,8 +160,8 @@ class QuotaManager:
 
         local_reset_time = next_reset.astimezone().strftime("%Y-%m-%d %H:%M:%S")
         console.print(
-            f"[yellow]📋 已將 {task_type} 任務延期寫入佇列：{deferred_file.name}\n"
-            f"   預計於明日配額重置後執行 ({local_reset_time})[/yellow]"
+            f"[yellow]已將 {task_type} 任務延後寫入佇列：{deferred_file.name}\n"
+            f"   預計於配額重置後執行 ({local_reset_time})[/yellow]"
         )
         return deferred_file
 
@@ -183,12 +183,12 @@ class QuotaManager:
                 "vram_usage": "~2.8 GB VRAM (int8_float16)",
                 "speed": "15x ~ 20x real-time (2hr lecture finishes in ~7 mins)",
                 "cost_and_quota": "0 cost, 100% offline, unlimited runs, 0 rate limit",
-                "glossary_extraction": "Pure local NLP / regex (<1s per PDF slide deck, 0 API calls)",
+                "glossary_extraction": "Local regex (<1s per PDF slide deck, 0 API calls)",
             },
             "optimal_routing_strategy": [
-                "1. 配額充足時：優先使用雲端 C1 (Gemini Flash)，語音字字逐字精確。",
-                "2. 單日課堂量大或遇到 429 限制時：自動切換至本地 C7 轉錄，節省 100% 雲端語音配額。",
-                "3. 課堂講義詞庫提取：100% 本地純離線抽取 (0 API 消耗)，保留寶貴配額給文稿整理與摘要。",
-                "4. 整理與摘要遇配額上限時：安全延期至次日 16:00 自動補跑，零人工干預。",
+                "1. 配額充足時：使用雲端 C1 (Gemini Flash) 執行語音轉錄。",
+                "2. 遇到 429 限制時：切換至本機 C7 轉錄。",
+                "3. 課堂講義詞庫提取：本機離線提取，不使用 API。",
+                "4. 整理與摘要遇配額上限時：延後至隔日 16:00 執行。",
             ],
         }

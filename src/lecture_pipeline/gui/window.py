@@ -22,7 +22,7 @@ class DesktopWindow:
     def __init__(
         self,
         url: str = "http://127.0.0.1:8000",
-        title: str = "Lecture Digest Sync - 課堂錄音辨識與筆記同步系統",
+        title: str = "Lecture Digest Sync - 課堂錄音辨識與筆記同步",
         width: int = 1280,
         height: int = 800,
         min_width: int = 960,

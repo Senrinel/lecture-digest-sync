@@ -68,7 +68,7 @@ def run_benchmark(
 
     for cid in channel_ids:
         cid_clean = cid.strip().upper()
-        console.print(f"⏳ 正在評測通道 [bold yellow]{cid_clean}[/bold yellow]...")
+        console.print(f"正在評測通道 [bold yellow]{cid_clean}[/bold yellow]...")
 
         channel = get_stt_channel(cid_clean)
         t0 = time.time()
@@ -77,7 +77,7 @@ def run_benchmark(
             duration = trans.total_latency_sec or round(time.time() - t0, 2)
             full_text = trans.full_text
         except Exception as e:
-            console.print(f"[red]❌ 通道 {cid_clean} 執行失敗: {e}[/red]")
+            console.print(f"[red]通道 {cid_clean} 執行失敗: {e}[/red]")
             continue
 
         char_count = len(full_text)
@@ -128,7 +128,7 @@ def run_benchmark(
     )
 
     # 3. Print Rich summary table
-    table = Table(title=f"🏆 ASR 平行評測報告：{course} ({date})")
+    table = Table(title=f"ASR 評測報告：{course} ({date})")
     table.add_column("通道", style="cyan", no_wrap=True)
     table.add_column("名稱", style="white")
     table.add_column("字數", justify="right", style="green")
@@ -154,7 +154,7 @@ def run_benchmark(
         )
 
     console.print(table)
-    console.print(f"\n📊 評測 CSV 檔案：[bold]{csv_path}[/bold]")
-    console.print(f"🌐 互動式 HTML 對照報表：[bold]{html_path}[/bold]\n")
+    console.print(f"\n評測 CSV 檔案：[bold]{csv_path}[/bold]")
+    console.print(f"HTML 評測報表：[bold]{html_path}[/bold]\n")
 
     return benchmark_results

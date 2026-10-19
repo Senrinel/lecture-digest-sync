@@ -179,7 +179,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="header-content">
             <div class="title-block">
                 <h1>{{TITLE}}</h1>
-                <span>📅 錄音日期：{{DATE}} | 雙向同步音訊播放器</span>
+                <span>錄音日期：{{DATE}} | 音訊與文稿同步播放器</span>
             </div>
             <div class="player-bar">
                 <audio id="audioPlayer" controls src="{{AUDIO_SRC}}"></audio>
@@ -196,7 +196,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <!-- Left Column: Synchronized Cleaned Transcript -->
         <div class="card" id="transcriptCard">
             <div class="card-header">
-                <span class="card-title">📖 課堂整理文稿 (點擊句子即時跳轉)</span>
+                <span class="card-title">課堂整理文稿 (點擊句子跳轉)</span>
                 <input type="text" id="searchInput" class="search-box" placeholder="搜尋關鍵字..." oninput="searchTranscript()">
             </div>
             <div id="transcriptList">
@@ -207,7 +207,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <!-- Right Column: Structured Exam Notes -->
         <div class="card" id="summaryCard">
             <div class="card-header">
-                <span class="card-title">📝 結構化重點總結筆記</span>
+                <span class="card-title">重點筆記</span>
             </div>
             <div class="summary-body" id="summaryContent">
                 {{SUMMARY_CONTENT}}
@@ -349,7 +349,7 @@ def generate_interactive_player(
 
         p_html = (
             f'<div class="transcript-p" data-start="{start_s:.1f}" data-end="{end_s:.1f}" onclick="jumpToTime({start_s:.1f})">'
-            f'<span class="ts-tag" title="點擊跳轉至此時間點">▶ {ts_str}</span>'
+            f'<span class="ts-tag" title="點擊跳轉至此時間點">[{ts_str}]</span>'
             f'<span>{safe_text}</span>'
             f'</div>'
         )

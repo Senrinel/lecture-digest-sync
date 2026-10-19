@@ -96,16 +96,16 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
                 with open(self.prompt_template_path, "r", encoding="utf-8") as f:
                     return f.read()
             except Exception as e:
-                console.print(f"[yellow]⚠️ 無法讀取 Prompt 範本 {self.prompt_template_path}: {e}，使用內建標準範本。[/yellow]")
+                console.print(f"[yellow][WARN] 無法讀取 Prompt 範本 {self.prompt_template_path}: {e}，使用預設範本。[/yellow]")
 
         return (
             "# 角色與目標\n"
-            "你是一位高階學術編輯，請將輸入的大學課堂語音逐字稿整理為結構清晰、標點完整、分段清楚的高品質課堂文稿。\n\n"
-            "# 核心約束 (絕對不可違反)\n"
-            "1. 【字數與內容守恆】：嚴禁濃縮、嚴禁摘要、嚴禁刪減講師所講的任何實質內容與口語細節。輸出字數應與輸入字數大致守恆（容許 80%~105% 之間）。\n"
-            "2. 【忠於原話原意】：保留講師原本的用語與教學語氣。不得任意改寫為自己的話。\n"
+            "請將輸入的大學課堂語音逐字稿整理為結構清晰、標點完整、分段清楚的課堂文稿。\n\n"
+            "# 核心規則\n"
+            "1. 【字數與內容保留】：不可濃縮、不可摘要、不可刪減講師所講的實質內容與細節。輸出字數應與輸入字數相近（80%~105% 之間）。\n"
+            "2. 【忠於原意】：保留講師原本的用語與教學語氣，不可任意改寫。\n"
             "3. 【台灣繁體與專有名詞】：使用標準台灣繁體中文，英文專有名詞與公式符號保留原文大小寫。\n"
-            "4. 僅輸出整理後的 Markdown 內文，嚴禁開場白或說明語。"
+            "4. 僅輸出整理後的 Markdown 內文，不要加入開場白或說明語。"
         )
 
     def build_prompt(
@@ -132,9 +132,9 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
         retry_warning = ""
         if is_retry:
             retry_warning = (
-                f"\n\n> ⚠️ 注意 (最高警戒)：你上一次整理的產出字數比僅有 {previous_ratio:.1%}，"
-                f"嚴重違反了「不可摘要、字數守恆」的核心原則！\n"
-                f"> 請務必完整還原原始逐字稿中的每一句話與細節，切勿跳過任何句子或擅自總結！\n"
+                f"\n\n> 注意：上一次整理的產出字數比僅有 {previous_ratio:.1%}，"
+                f"違反了「不可摘要、保留字數」的原則。\n"
+                f"> 請完整保留原始逐字稿中的每一句話與細節，切勿跳過句子或自行總結。\n"
             )
 
         if self.mode == "fusion" and secondary_text_chunk:
@@ -144,7 +144,7 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
                 f"--- 【通道 B 逐字稿】 ---\n"
                 f"{secondary_text_chunk}\n"
                 f"--- 逐字稿結束 ---\n\n"
-                f"請對比以上兩份逐字稿，截長補短並消除單邊幻覺與漏字，直接輸出最高品質繁體中文融合文稿："
+                f"請對比以上兩份逐字稿，修正錯誤與漏字，直接輸出繁體中文課堂文稿："
             )
         else:
             content_section = (
@@ -213,7 +213,7 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
             try:
                 uploaded_file = self.client.files.upload(file=str(audio_path))
             except Exception as e:
-                console.print(f"[yellow]⚠️ 無法上傳音檔至 Gemini Files API: {e}，降級為純文字整理模式。[/yellow]")
+                console.print(f"[yellow][WARN] 無法上傳音檔至 Gemini Files API: {e}，改為純文字整理模式。[/yellow]")
                 uploaded_file = None
 
         try:
@@ -242,7 +242,7 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
                     ]
                     if any(kw.lower() in err_msg.lower() for kw in transient_keywords):
                         console.print(
-                            f"[yellow]⚠️ 整理模型 {model_id} 遇尖峰或連線中斷 ({err_msg[:50]}...)，等待 5 秒後切換或重試...[/yellow]"
+                            f"[yellow][WARN] 整理模型 {model_id} 連線中斷或忙碌 ({err_msg[:50]}...)，等待 5 秒後重試...[/yellow]"
                         )
                         time.sleep(5.0)
                         continue
@@ -285,12 +285,12 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
         retried = False
         validation_passed = self.min_ratio <= retention_ratio <= self.max_ratio
 
-        # 2. Guardrail: If summarized / truncated (< min_ratio), auto-retry once with strict alert
+        # 2. Guardrail: If summarized / truncated (< min_ratio), auto-retry once
         if retention_ratio < self.min_ratio:
             retried = True
             console.print(
-                f"[yellow]⚠️ 片段 #{chunk_index} 整理後字數比為 {retention_ratio:.1%} "
-                f"(低於閾值 {self.min_ratio:.1%})，觸發嚴格防摘要二次校正...[/yellow]"
+                f"[yellow][WARN] 片段 #{chunk_index} 整理後字數比為 {retention_ratio:.1%} "
+                f"(低於門檻 {self.min_ratio:.1%})，重新執行整理...[/yellow]"
             )
             retry_prompt = self.build_prompt(
                 raw_chunk,
@@ -314,11 +314,11 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
             validation_passed = self.min_ratio <= retention_ratio <= self.max_ratio
             if validation_passed:
                 console.print(
-                    f"[green]✔ 片段 #{chunk_index} 二次校正成功！字數比提升至 {retention_ratio:.1%}[/green]"
+                    f"[green][OK] 片段 #{chunk_index} 重新整理完成，字數比為 {retention_ratio:.1%}[/green]"
                 )
             else:
                 console.print(
-                    f"[yellow]⚠️ 片段 #{chunk_index} 二次校正後字數比仍為 {retention_ratio:.1%}，標記為審計例外。[/yellow]"
+                    f"[yellow][WARN] 片段 #{chunk_index} 重新整理後字數比仍為 {retention_ratio:.1%}[/yellow]"
                 )
 
         latency = round(time.time() - start_t, 2)
@@ -372,14 +372,14 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
 
         for idx, chunk in enumerate(text_chunks, start=1):
             if abort_event and abort_event.is_set():
-                raise InterruptedError("內文整理已被使用者強制中止。")
+                raise InterruptedError("內文整理已中止。")
 
             if idx > 1:
                 # Conservative 3.5s pause between text cleanup calls to prevent rate limits
                 wait_steps = 35
                 for _ in range(wait_steps):
                     if abort_event and abort_event.is_set():
-                        raise InterruptedError("內文整理已被使用者強制中止。")
+                        raise InterruptedError("內文整理已中止。")
                     time.sleep(0.1)
 
             sec_chunk = secondary_chunks[idx - 1] if idx - 1 < len(secondary_chunks) else None

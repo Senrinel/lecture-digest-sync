@@ -184,12 +184,12 @@ def generate_benchmark_html(
 <body>
     <div class="container">
         <header>
-            <h1>🎙️ ASR 多通道評測對照報告</h1>
+            <h1>ASR 多通道評測對照報告</h1>
             <div class="meta">課程：<strong>{html.escape(course)}</strong> | 日期：<strong>{html.escape(date)}</strong> | 評測通道數：{len(results)}</div>
         </header>
 
         <div class="card">
-            <h3>📊 客觀指標排行榜 (Objective Metrics Ranking)</h3>
+            <h3>客觀指標評測結果 (Objective Metrics Ranking)</h3>
             <table>
                 <thead>
                     <tr>
@@ -210,7 +210,7 @@ def generate_benchmark_html(
         </div>
 
         <div class="card">
-            <h3>🔍 逐字稿全文並排/切換檢視 (Transcript Viewer)</h3>
+            <h3>逐字稿全文檢視 (Transcript Viewer)</h3>
             <div class="tab-buttons">
                 {''.join(tab_headers)}
             </div>

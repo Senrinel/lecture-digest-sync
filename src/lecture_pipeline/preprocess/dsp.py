@@ -166,7 +166,7 @@ def convert_wav_to_flac(
             check=True,
         )
     except Exception as e:
-        console.print(f"[yellow]⚠️ FLAC 轉換略過或失敗 ({e})，雲端將沿用 WAV。[/yellow]")
+        console.print(f"[yellow]FLAC 轉換失敗 ({e})，沿用 WAV。[/yellow]")
         return wav_p
 
     return flac_p

@@ -93,25 +93,25 @@ def preprocess_audio(
             # 2. WPE Dereverberation
             if opts.wpe == "on":
                 wpe_out = tmp_path / "stage2_wpe.wav"
-                console.print("   [dim]⏳ 套用 NARA-WPE 語音去殘響...[/dim]")
+                console.print("   [dim]執行 NARA-WPE 語音去殘響...[/dim]")
                 curr_wav = apply_wpe_dereverb(curr_wav, wpe_out)
 
             # 3. DeepFilterNet3 Neural Denoising
             if opts.dfn == "on":
                 dfn_out = tmp_path / "stage3_dfn.wav"
-                console.print("   [dim]⏳ 套用 DeepFilterNet3 深度神經降噪 (GPU)...[/dim]")
+                console.print("   [dim]執行 DeepFilterNet3 降噪 (GPU)...[/dim]")
                 curr_wav = apply_dfn_denoise(curr_wav, dfn_out)
 
             # 4. Speech Enhancement
             if opts.se == "on":
                 se_out = tmp_path / "stage4_se.wav"
-                console.print("   [dim]⏳ 套用特徵語音增強 (Speech Enhancement)...[/dim]")
+                console.print("   [dim]執行語音增強 (Speech Enhancement)...[/dim]")
                 curr_wav = apply_speech_enhancement(curr_wav, se_out)
 
             # 5. Silero VAD Trim
             if opts.vadtrim == "on":
                 vad_out = tmp_path / "stage5_vadtrim.wav"
-                console.print("   [dim]⏳ 套用 Silero VAD 長靜音修剪...[/dim]")
+                console.print("   [dim]執行 Silero VAD 靜音修剪...[/dim]")
                 curr_wav = apply_vad_trim(curr_wav, vad_out)
 
             shutil.copyfile(str(curr_wav), str(out_file))

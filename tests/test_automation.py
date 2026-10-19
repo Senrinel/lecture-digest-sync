@@ -107,7 +107,7 @@ def test_task_timeout_circuit_breaker(tmp_path: Path):
                 audio_files=[audio],
                 timeout_sec=0.1,  # Strict timeout
             )
-        assert "任務處理逾時熔斷" in str(exc_info.value)
+        assert "任務處理逾時" in str(exc_info.value)
 
 
 def test_auto_pruning_and_archival(tmp_path: Path):
@@ -259,7 +259,7 @@ def test_desktop_notifications():
 
         notify_corrupted_file("壞音檔.wav", sync=True)
         mock_send.assert_called_with(
-            title="壞檔隔離警報",
+            title="檔案處理失敗",
             message='"壞音檔.wav" 損壞，放棄處理',
             sync=True,
         )
@@ -284,7 +284,7 @@ def test_system_tray_icon_and_menu(tmp_path: Path):
     assert "離散數學 02" in tray.current_detail
 
     tooltip = tray._build_tooltip()
-    assert "處理🔄" in tooltip
+    assert "處理中" in tooltip
     assert "50% 轉錄中" in tooltip
 
     tray.increment_processed()
@@ -294,12 +294,12 @@ def test_system_tray_icon_and_menu(tmp_path: Path):
     # Toggle pause
     tray._on_toggle_pause(None, None)
     assert tray.is_paused is True
-    assert "已暫停⏸️" in tray._build_tooltip()
-    assert tray._get_pause_label(None) == "恢復監控 ▶️"
+    assert "已暫停" in tray._build_tooltip()
+    assert tray._get_pause_label(None) == "恢復監控"
 
     tray._on_toggle_pause(None, None)
     assert tray.is_paused is False
-    assert tray._get_pause_label(None) == "暫停監控 ⏸️"
+    assert tray._get_pause_label(None) == "暫停監控"
 
 
 def test_glossary_pure_local_extraction(tmp_path: Path):

@@ -169,7 +169,7 @@ def switch_gui_mode_action(mode: str, source: str = "browser") -> Dict[str, Any]
         return {
             "status": "ok",
             "mode": "web",
-            "message": "已設定為「網頁模式」，桌面原生視窗已關閉。",
+            "message": "已設定為「網頁模式」，桌面視窗已關閉。",
             "url": url,
         }
     elif saved_mode == "window":
@@ -177,7 +177,7 @@ def switch_gui_mode_action(mode: str, source: str = "browser") -> Dict[str, Any]
         return {
             "status": "ok",
             "mode": "window",
-            "message": "已開啟桌面原生視窗。",
+            "message": "已開啟桌面視窗。",
             "url": url,
         }
     else:  # both
@@ -187,7 +187,7 @@ def switch_gui_mode_action(mode: str, source: str = "browser") -> Dict[str, Any]
         return {
             "status": "ok",
             "mode": "both",
-            "message": "已同時開啟瀏覽器與桌面原生視窗。",
+            "message": "已同時開啟瀏覽器與桌面視窗。",
             "url": url,
         }
 
@@ -299,7 +299,7 @@ def set_watcher_paused(paused: bool) -> bool:
     broadcaster.broadcast_sync({
         "type": "watcher_state",
         "paused": _watcher_paused,
-        "badge": "已暫停" if _watcher_paused else "常駐待命",
+        "badge": "已暫停" if _watcher_paused else "待命",
     })
     return _watcher_paused
 
@@ -357,7 +357,7 @@ def get_full_system_status() -> Dict[str, Any]:
         },
         "network": {
             "ok": net_ok,
-            "label": "在線 / 額度充裕" if net_ok else "離線模式 (自動排隊)",
+            "label": "連線正常" if net_ok else "離線模式 (佇列暫存)",
         },
         "google_docs": {
             "ok": docs_authorized,
@@ -365,7 +365,7 @@ def get_full_system_status() -> Dict[str, Any]:
         },
         "api_key": {
             "ok": gemini_key_set,
-            "label": "Gemini API 金鑰就緒" if gemini_key_set else "缺少 GEMINI_API_KEY",
+            "label": "Gemini API 金鑰已設定" if gemini_key_set else "缺少 GEMINI_API_KEY",
         },
         "disk": {
             "ok": disk_ok,
@@ -373,7 +373,7 @@ def get_full_system_status() -> Dict[str, Any]:
         },
         "watcher": {
             "paused": is_watcher_paused(),
-            "badge": "已暫停" if is_watcher_paused() else "常駐待命",
+            "badge": "已暫停" if is_watcher_paused() else "待命",
         },
         "active_task": get_current_task_status(),
     }
@@ -775,7 +775,7 @@ def resolve_export_lecture_file(lecture_id: str, file_type: str = "summary") -> 
                 break
 
     if not summary_text:
-        summary_text = f"# 【課堂考前重點總結筆記】{c_name} ({d_name})\n\n（尚未產生筆記或處理中）"
+        summary_text = f"# 【課堂重點筆記】{c_name} ({d_name})\n\n（尚未產生筆記或處理中）"
 
     dest_file.write_text(summary_text, encoding="utf-8")
     return dest_file
@@ -998,9 +998,9 @@ def abort_processing_task() -> Dict[str, Any]:
 
     broadcaster.broadcast_sync({
         "type": "task_aborted",
-        "detail": "任務已由使用者強制熔斷中止。已處理之中間進度保留於暫存目錄。",
+        "detail": "任務已中止，已處理的進度保留於暫存目錄。",
     })
-    return {"status": "ok", "message": "任務已強制熔斷中止"}
+    return {"status": "ok", "message": "任務已中止"}
 
 
 def get_task_abort_event() -> threading.Event:
@@ -1050,21 +1050,21 @@ def notify_task_completed(lecture_id: str, detail: str = "") -> None:
     with _processing_lock:
         _current_task_info.update({
             "running": False,
-            "stage": "常駐監控待命",
+            "stage": "待命",
             "progress": 100,
-            "detail": detail or f"課堂已成功歸檔至 {lecture_id}",
+            "detail": detail or f"課堂已歸檔至 {lecture_id}",
         })
 
     if _tray_instance:
         _tray_instance.increment_processed()
-        _tray_instance.update_status(state="idle", detail="正在監看 Inbox", progress="等待音檔")
+        _tray_instance.update_status(state="idle", detail="監看 Inbox", progress="等待音檔")
 
     broadcaster.broadcast_sync({
         "type": "progress",
         "running": False,
         "progress": 100,
         "stage": "處理完成",
-        "detail": detail or f"課堂已成功歸檔至 {lecture_id}",
+        "detail": detail or f"課堂已歸檔至 {lecture_id}",
     })
     broadcaster.broadcast_sync({
         "type": "task_completed",
@@ -1080,7 +1080,7 @@ def notify_task_error(error_msg: str, task_name: str = "") -> None:
             "running": False,
             "stage": "處理失敗",
             "progress": 0,
-            "detail": f"管線執行異常：{error_msg}",
+            "detail": f"處理失敗：{error_msg}",
         })
 
     if _tray_instance:
@@ -1091,7 +1091,7 @@ def notify_task_error(error_msg: str, task_name: str = "") -> None:
         "running": False,
         "progress": 0,
         "stage": "處理失敗",
-        "detail": f"管線執行異常：{error_msg}",
+        "detail": f"處理失敗：{error_msg}",
     })
 
 
@@ -1152,7 +1152,7 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
 
             notify_task_completed(
                 lecture_id=out_dir.name,
-                detail=f"課堂已成功歸檔至 {out_dir.name}",
+                detail=f"課堂已歸檔至 {out_dir.name}",
             )
 
         except InterruptedError as ie:
@@ -1163,7 +1163,7 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
                 "running": False,
                 "progress": 0,
                 "stage": "已中止",
-                "detail": "任務已由使用者強制熔斷中止。已處理之中間進度保留於暫存目錄。",
+                "detail": "任務已中止，已處理的進度保留於暫存目錄。",
             })
             broadcaster.broadcast_sync({
                 "type": "task_aborted",
@@ -1303,7 +1303,7 @@ def rename_lecture(lecture_id: str, new_course: str = "", new_title: str = "") -
 
     return {
         "status": "ok",
-        "message": f"課堂資訊已成功更新",
+        "message": f"課堂資訊已更新",
         "lecture": get_lecture_content(lecture_id),
     }
 
@@ -1320,13 +1320,13 @@ def delete_lecture(lecture_id: str) -> Dict[str, Any]:
 
     cfg = get_current_config()
     export_dir = Path(cfg.get("export", {}).get("export_dir", "exports")).resolve()
-    # 嚴格安全限制：僅允許刪除筆記匯出目錄 (Exports) 中的產物，絕對禁止刪除長期封存庫或原始資料夾
+    # 安全限制：僅允許刪除筆記匯出目錄 (Exports) 中的檔案，禁止刪除封存目錄或原始資料夾
     try:
         target_dir.resolve().relative_to(export_dir)
     except ValueError:
         return {
             "status": "error",
-            "message": "安全防護限制：僅允許刪除筆記匯出目錄 (Exports) 中的產物，禁止刪除長期封存庫或原始錄音資料夾。",
+            "message": "安全防護限制：僅允許刪除筆記匯出目錄 (Exports) 中的檔案，禁止刪除封存目錄或原始錄音資料夾。",
         }
 
     try:

@@ -75,10 +75,10 @@ def prepare_notebook_bundle(
     if summary_src.is_file():
         summary_content = summary_src.read_text(encoding="utf-8")
     else:
-        summary_content = "# 【課堂考前重點筆記】\n\n（尚未執行總結階段）"
+        summary_content = "# 【課堂重點筆記】\n\n（尚未執行重點筆記階段）"
 
     with open(summary_out, "w", encoding="utf-8") as f:
-        f.write(f"# 【課堂考前重點總結筆記】{course} ({formatted_date})\n\n{header_block}{summary_content}\n")
+        f.write(f"# 【課堂重點筆記】{course} ({formatted_date})\n\n{header_block}{summary_content}\n")
 
     # 3. Package 02: Full Cleaned Transcript
     cleaned_src = target_work_dir / "02_cleaned.txt"
@@ -92,7 +92,7 @@ def prepare_notebook_bundle(
         cleaned_content = raw_src.read_text(encoding="utf-8") if raw_src.is_file() else ""
 
     with open(cleaned_out, "w", encoding="utf-8") as f:
-        f.write(f"# 【完整課堂精修文稿】{course} ({formatted_date})\n\n{header_block}{cleaned_content}\n")
+        f.write(f"# 【完整課堂整理文稿】{course} ({formatted_date})\n\n{header_block}{cleaned_content}\n")
 
     # 4. Package 03: Timestamped Transcript (Optional audio locator)
     raw_ts_src = target_work_dir / "01_raw_timestamped.txt"

@@ -59,12 +59,11 @@ class GeminiFlashChannel(BaseSTTChannel):
     def _build_prompt(self, course: str = "", glossary: Optional[List[str]] = None) -> str:
         """Construct prompt enforcing verbatim Taiwan Traditional Chinese transcription."""
         prompt_lines = [
-            "你是一位頂尖的大學課堂速記員與語音聽寫專家。",
-            "請完整、精確地將此音訊片段逐字轉錄為文字：",
+            "請完整將此音訊片段逐字轉錄為文字：",
             "1. 語言以台灣華語為主，請一律使用標準台灣繁體中文輸出（例如：程式碼、記憶體、演算法、伺服器、變數）。",
-            "2. 英文專有名詞、科技縮寫、函數與術語請務必保留原始英文大小寫，嚴禁進行中文音譯。",
-            "3. 極致逐字還原：絕對不可摘要、不可刪減、不可漏掉講師講的任何一句話，保留所有說明的完整性。",
-            "4. 僅輸出逐字稿內容，不要包含任何開場白、問候語或中繼說明。",
+            "2. 英文專有名詞、科技縮寫、函數與術語請保留原始英文大小寫，不要進行中文音譯。",
+            "3. 逐字轉錄：不可摘要、不可刪減、不可遺漏講師講的任何一句話。",
+            "4. 僅輸出逐字稿內容，不要包含開場白、問候語或額外說明。",
         ]
 
         if course and course != "Unsorted":

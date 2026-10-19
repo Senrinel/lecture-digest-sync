@@ -238,7 +238,7 @@ async def api_toggle_watcher():
     return {
         "status": "ok",
         "paused": new_state,
-        "badge": "已暫停" if new_state else "常駐待命",
+        "badge": "已暫停" if new_state else "待命",
     }
 
 
@@ -469,7 +469,7 @@ async def api_upload_pdf(file: UploadFile = File(...), course: str = Form("")):
     """Upload syllabus PDF/TXT and extract technical glossary terms."""
     content = await file.read()
     terms = extract_terms_from_uploaded_file(content, file.filename, course=course)
-    return {"status": "ok", "course": course, "terms": terms, "message": f"成功從 {file.filename} 萃取專有名詞"}
+    return {"status": "ok", "course": course, "terms": terms, "message": f"已從 {file.filename} 提取專有名詞"}
 
 
 @app.post("/api/process/upload")

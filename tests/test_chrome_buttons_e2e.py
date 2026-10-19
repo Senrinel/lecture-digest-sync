@@ -469,7 +469,7 @@ async def test_chrome_full_button_and_workflow_suite(live_server_and_chrome: str
         await client.click("#nav-studio")
 
         # Open Long-term archive folder button
-        await client.click_by_xpath_text("開啟長期歸檔目錄")
+        await client.click_by_xpath_text("開啟封存目錄")
 
         # Task control buttons: Pause / Abort
         await client.click("#task-btn-pause")
