@@ -82,24 +82,77 @@ def release_processing_files(audio_files: List[Path]) -> None:
             _active_processing_files.discard(f.name)
 
 
-def is_quota_or_rate_limit_error(exc: Exception) -> bool:
-    """Detect if an exception is caused by API rate limiting or quota exhaustion."""
+def is_api_or_quota_error(exc: Exception) -> bool:
+    """Detect if an exception is caused by API rate limiting, quota exhaustion, network or upstream API service error."""
+    exc_type_str = f"{type(exc).__module__}.{type(exc).__qualname__}".lower()
+    api_modules = [
+        "google",
+        "genai",
+        "httpx",
+        "httpcore",
+        "urllib3",
+        "requests",
+        "socket",
+        "ssl",
+        "asyncio",
+    ]
+    if any(m in exc_type_str for m in api_modules):
+        return True
+
     err_str = str(exc).lower()
-    quota_signatures = [
+    api_signatures = [
+        # Quota & Rate Limit
         "resource_exhausted",
         "resourceexhausted",
         "429",
-        "quota exceeded",
-        "quota_exceeded",
-        "exceeded your current quota",
+        "quota",
         "rate limit",
         "ratelimit",
         "too many requests",
         "daily limit",
         "rpd limit",
         "tpm limit",
+        "limit exceeded",
+        # Server Errors & Service Unavailable
+        "500",
+        "502",
+        "503",
+        "504",
+        "service unavailable",
+        "internal server error",
+        "bad gateway",
+        "gateway timeout",
+        "overloaded",
+        "temporarily unavailable",
+        "server disconnected",
+        "remote disconnected",
+        # Network & Timeout
+        "timeout",
+        "timed out",
+        "deadline exceeded",
+        "connection reset",
+        "connection refused",
+        "connection aborted",
+        "connectionerror",
+        "network",
+        "socket",
+        "ssl",
+        "broken pipe",
+        # API Client Errors
+        "apierror",
+        "api error",
+        "api key",
+        "gemini",
+        "drive api",
+        "google api",
+        "call failed",
     ]
-    return any(sig in err_str for sig in quota_signatures)
+    return any(sig in err_str for sig in api_signatures)
+
+
+def is_quota_or_rate_limit_error(exc: Exception) -> bool:
+    """Detect if an exception is caused by API rate limiting, quota exhaustion, or API call failures."""
+    return is_api_or_quota_error(exc)
 
 
 SUPPORTED_AUDIO_EXTENSIONS = {
@@ -237,12 +290,13 @@ class DeadLetterQuarantine:
         except Exception:
             pass
 
-    def record_failure(self, audio_files: List[Path]) -> bool:
+    def record_failure(self, audio_files: List[Path], exc: Optional[Exception] = None) -> bool:
         """Increment failure counts. If failures >= max_retries, move to inbox/failed/.
-
-        Returns:
-            True if failed files were moved, False otherwise.
+        If exc is an API or quota error, never quarantine files!
         """
+        if exc and is_api_or_quota_error(exc):
+            return False
+
         stats = self._load_stats()
         quarantined = False
 
@@ -666,9 +720,9 @@ def run_pipeline_for_group(
                 reset_t = qm.mark_quota_exhausted(reason=str(exc))
                 reset_str = reset_t.astimezone().strftime("%Y-%m-%d %H:%M:%S")
                 b.update_task_progress(
-                    stage="配額限制延遲",
+                    stage="API 延遲重試",
                     progress=0,
-                    detail=f"API 配額已滿，進度已保留，已延遲至重置時間重試（{reset_str}）",
+                    detail=f"API 呼叫失敗，進度已保留，已延遲至重置時間重試（{reset_str}）",
                     task_name=parsed.display_tag,
                     running=False,
                 )
@@ -802,7 +856,13 @@ def watch_inbox(
                     except Exception:
                         pass
 
-                # 2. Check quota lock status
+                # 2. Check if active processing task is running from GUI
+                b = _get_bridge()
+                if b and b.is_processing_active():
+                    time.sleep(poll_interval)
+                    continue
+
+                # 3. Check quota lock status
                 is_locked, locked_until = quota_manager.is_quota_locked()
                 if is_locked:
                     time.sleep(poll_interval)
@@ -810,7 +870,7 @@ def watch_inbox(
 
                 effective_channel = channel_id
 
-                # 3. Scan inbox for audio groups
+                # 4. Scan inbox for audio groups
                 groups = scan_and_group_inbox(inbox_path)
                 if groups:
                     for g_key, files in groups.items():
@@ -831,22 +891,31 @@ def watch_inbox(
                             except TimeoutError as te:
                                 console.print(f"[bold red][ERROR] 任務處理逾時 ({g_key}): {te}[/bold red]")
                                 log_watcher_event(f"任務處理逾時 ({g_key}): {te}", level="ERROR")
-                                dead_letter.record_failure(files)
+                                dead_letter.record_failure(files, exc=te)
                             except Exception as e:
-                                if is_quota_or_rate_limit_error(e):
+                                if is_api_or_quota_error(e):
                                     next_reset = quota_manager.mark_quota_exhausted(reason=str(e))
                                     local_reset_str = next_reset.astimezone().strftime("%Y-%m-%d %H:%M:%S")
-                                    msg = f"課堂 {g_key} 遇 API 配額限制，已延遲至隔日自動重試（重置時間：{local_reset_str}）"
-                                    console.print(f"[bold yellow][配額延遲] {msg}[/bold yellow]")
+                                    msg = f"課堂 {g_key} API 呼叫失敗，進度已保留，已延遲至隔日自動重試（重置時間：{local_reset_str}）"
+                                    console.print(f"[bold yellow][API 延遲] {msg}[/bold yellow]")
                                     log_watcher_event(msg, level="WARNING")
                                     send_notification(
-                                        title="API 配額已達限制",
-                                        message=f"{g_key} 已延遲至隔日重試",
+                                        title="API 呼叫失敗，已延遲重試",
+                                        message=f"{g_key} 進度已保留，將延遲至隔日重試",
                                     )
+                                    b = _get_bridge()
+                                    if b:
+                                        b.update_task_progress(
+                                            stage="API 延遲重試",
+                                            progress=0,
+                                            detail=f"API 呼叫失敗，進度已保留，將於 {local_reset_str} 隔日重試",
+                                            task_name=g_key,
+                                            running=False,
+                                        )
                                 else:
                                     console.print(f"[bold red][ERROR] 處理 {g_key} 發生錯誤: {e}[/bold red]")
                                     log_watcher_event(f"處理失敗 ({g_key}): {e}", level="ERROR")
-                                    dead_letter.record_failure(files)
+                                    dead_letter.record_failure(files, exc=e)
                         else:
                             console.print(f"[yellow]偵測到新錄音正在寫入中，等待寫入完成：{g_key}[/yellow]")
 

@@ -113,10 +113,7 @@ def notify_offline_pending(filename: str, sync: bool = False) -> None:
 
 
 def notify_corrupted_file(filename: str, sync: bool = False) -> None:
-    """Notify user that file failed repeatedly and is moved to failed directory.
-    
-    User specification: 「"{檔名}" 損壞，放棄處理」
-    """
+    """Notify user that a file failed repeatedly due to file corruption and is moved to failed directory."""
     send_notification(
         title="檔案處理失敗",
         message=f'"{filename}" 損壞，放棄處理',

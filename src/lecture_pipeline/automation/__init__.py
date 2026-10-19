@@ -26,6 +26,7 @@ from lecture_pipeline.automation.tray import WatcherTray, create_status_icon
 from lecture_pipeline.automation.watcher import (
     DeadLetterQuarantine,
     acquire_processing_files,
+    is_api_or_quota_error,
     is_file_stable,
     is_quota_or_rate_limit_error,
     release_processing_files,
@@ -48,6 +49,7 @@ __all__ = [
     "enable_autostart",
     "get_autostart_status",
     "get_record_archive_base_dir",
+    "is_api_or_quota_error",
     "is_file_stable",
     "is_internet_connected",
     "is_quota_or_rate_limit_error",

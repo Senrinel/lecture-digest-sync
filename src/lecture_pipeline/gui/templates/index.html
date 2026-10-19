@@ -3444,16 +3444,32 @@
     }
 
     // WebSocket 即時進度與日誌監聽
+    let _activeWs = null;
+    let _wsReconnectTimer = null;
+    let _lastLoggedSignature = '';
+
     function initWebSocket() {
+      if (_activeWs && (_activeWs.readyState === WebSocket.OPEN || _activeWs.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+      if (_activeWs) {
+        try { _activeWs.close(); } catch (e) {}
+        _activeWs = null;
+      }
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${location.host}/ws/events`;
       try {
-        const ws = new WebSocket(wsUrl);
-        ws.onmessage = (event) => {
+        _activeWs = new WebSocket(wsUrl);
+        _activeWs.onopen = () => {
+          if (_wsReconnectTimer) {
+            clearTimeout(_wsReconnectTimer);
+            _wsReconnectTimer = null;
+          }
+        };
+        _activeWs.onmessage = (event) => {
           try {
             const msg = JSON.parse(event.data);
             if (msg.type === 'progress') {
-              showToast(`[${msg.stage}] ${msg.detail}`);
               updateWorkbenchTaskState({
                 running: msg.running !== false,
                 task_name: msg.task_name,
@@ -3462,7 +3478,10 @@
                 detail: msg.detail,
               });
               const logsEl = document.getElementById('task-live-logs');
-              if (logsEl && msg.detail) {
+              const logEntryKey = `${msg.stage}::${msg.detail}`;
+              if (logsEl && msg.detail && logEntryKey !== _lastLoggedSignature) {
+                _lastLoggedSignature = logEntryKey;
+                showToast(`[${msg.stage}] ${msg.detail}`);
                 const row = document.createElement('div');
                 row.className = 'text-cyan-400';
                 row.innerText = `[${new Date().toLocaleTimeString()}] [${msg.stage}] ${msg.detail}`;
@@ -3470,10 +3489,12 @@
                 logsEl.scrollTop = logsEl.scrollHeight;
               }
             } else if (msg.type === 'task_completed') {
+              _lastLoggedSignature = '';
               showToast(`課堂處理完成：${msg.lecture_id}`);
               updateWorkbenchTaskState({ running: false });
               loadHistoryFromServer();
             } else if (msg.type === 'task_aborted') {
+              _lastLoggedSignature = '';
               updateWorkbenchTaskState({ running: false });
             } else if (msg.type === 'task_pause_toggle') {
               const btn = document.getElementById('ui-studio-btn-pause');
@@ -3481,7 +3502,12 @@
             }
           } catch (e) {}
         };
-        ws.onclose = () => setTimeout(initWebSocket, 4000);
+        _activeWs.onclose = () => {
+          _activeWs = null;
+          if (!_wsReconnectTimer) {
+            _wsReconnectTimer = setTimeout(initWebSocket, 4000);
+          }
+        };
       } catch (e) {}
     }
 

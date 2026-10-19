@@ -1151,9 +1151,22 @@ def get_task_pause_event() -> threading.Event:
     return _task_pause_event
 
 
+_last_progress_sig: Optional[str] = None
+_last_progress_time: float = 0.0
+_progress_debounce_lock = threading.Lock()
+
+
 def update_task_progress(stage: str, progress: int, detail: str, task_name: str = "", running: bool = True) -> None:
     """Update active task state and broadcast to all connected WebSocket GUI clients and tray."""
-    global _current_task_info
+    global _current_task_info, _last_progress_sig, _last_progress_time
+    now = time.time()
+    sig = f"{stage}:{progress}:{detail}:{task_name}:{running}"
+    with _progress_debounce_lock:
+        if sig == _last_progress_sig and (now - _last_progress_time) < 1.0:
+            return
+        _last_progress_sig = sig
+        _last_progress_time = now
+
     with _processing_lock:
         if running and not _current_task_info.get("running"):
             _current_task_info["start_time"] = time.time()
@@ -1242,6 +1255,10 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
         if _current_task_info.get("running", False):
             return False
 
+        from lecture_pipeline.automation.watcher import acquire_processing_files
+        if not acquire_processing_files(audio_files):
+            return False
+
         _task_abort_event.clear()
         _task_pause_event.clear()
         file_names = [f.name for f in audio_files]
@@ -1253,7 +1270,7 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
             "task_name": primary_name,
             "files": file_names,
             "channel": channel_id,
-            "stage": "準備前處理",
+            "stage": "準備處理",
             "progress": 5,
             "detail": f"開始處理音訊檔案：{', '.join(file_names)}",
             "start_time": time.time(),
@@ -1262,14 +1279,6 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
     def _worker():
         global _current_task_info
         try:
-            update_task_progress(
-                stage="準備前處理",
-                progress=5,
-                detail=f"開始處理音訊檔案：{', '.join(file_names)}",
-                task_name=primary_name,
-                running=True,
-            )
-
             cfg = get_current_config()
             paths = cfg.get("paths", {})
             archive_dir = paths.get("archive_dir", "archive")
@@ -1297,11 +1306,6 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
                 export_dir=export_dir,
             )
 
-            notify_task_completed(
-                lecture_id=out_dir.name,
-                detail=f"課堂已歸檔至 {out_dir.name}",
-            )
-
         except InterruptedError as ie:
             if _tray_instance:
                 _tray_instance.update_status(state="idle", detail="任務已中止", progress="等待音檔")
@@ -1317,17 +1321,17 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
                 "detail": str(ie),
             })
         except Exception as e:
-            from lecture_pipeline.automation.watcher import is_quota_or_rate_limit_error
-            if is_quota_or_rate_limit_error(e):
+            from lecture_pipeline.automation.watcher import is_api_or_quota_error
+            if is_api_or_quota_error(e):
                 from lecture_pipeline.automation.quota import QuotaManager
                 qm = QuotaManager()
                 next_reset = qm.mark_quota_exhausted(reason=str(e))
                 reset_str = next_reset.astimezone().strftime("%Y-%m-%d %H:%M:%S")
-                msg = f"API 配額已達限制，進度已保留，已延遲至隔日重試（重置時間：{reset_str}）"
+                msg = f"API 呼叫失敗，進度已保留，已延遲至隔日重試（重置時間：{reset_str}）"
                 with _processing_lock:
                     _current_task_info.update({
                         "running": False,
-                        "stage": "配額限制延遲",
+                        "stage": "API 延遲重試",
                         "progress": 0,
                         "detail": msg,
                     })
@@ -1335,9 +1339,13 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
                     "type": "progress",
                     "running": False,
                     "progress": 0,
-                    "stage": "配額限制延遲",
+                    "stage": "API 延遲重試",
                     "detail": msg,
                 })
+                send_notification(
+                    title="API 呼叫失敗，已延遲重試",
+                    message=f"{primary_name} 進度已保留，將延遲至隔日重試",
+                )
             else:
                 notify_task_error(error_msg=str(e), task_name=primary_name)
         finally:
