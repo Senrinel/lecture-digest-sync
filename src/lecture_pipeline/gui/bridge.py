@@ -1255,8 +1255,9 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
         if _current_task_info.get("running", False):
             return False
 
+        task_token = f"gui_task_{audio_files[0].name if audio_files else 'lecture'}"
         from lecture_pipeline.automation.watcher import acquire_processing_files
-        if not acquire_processing_files(audio_files):
+        if not acquire_processing_files(audio_files, token=task_token):
             return False
 
         _task_abort_event.clear()
@@ -1304,6 +1305,7 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
                 record_archive_base_dir=rec_archive,
                 abort_event=_task_abort_event,
                 export_dir=export_dir,
+                lock_token=task_token,
             )
 
         except InterruptedError as ie:
@@ -1349,6 +1351,8 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
             else:
                 notify_task_error(error_msg=str(e), task_name=primary_name)
         finally:
+            from lecture_pipeline.automation.watcher import release_processing_files
+            release_processing_files(audio_files, token=task_token)
             with _processing_lock:
                 _current_task_info = {"running": False, "paused": False, "aborted": False}
 

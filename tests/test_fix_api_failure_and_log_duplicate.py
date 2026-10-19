@@ -144,6 +144,15 @@ def test_progress_broadcast_deduplication():
         )
         assert len(broadcasted) == 2
 
+        # Reset running state to False
+        update_task_progress(
+            stage="完成",
+            progress=100,
+            detail="處理完成",
+            task_name="演算法",
+            running=False,
+        )
+
 
 def test_task_locking_prevents_overlap(tmp_path: Path):
     """Acquiring active processing files prevents concurrent processing on the same file."""
@@ -164,3 +173,20 @@ def test_task_locking_prevents_overlap(tmp_path: Path):
     # Acquisition now succeeds again
     assert acquire_processing_files([f1]) is True
     release_processing_files([f1])
+
+
+def test_task_locking_reentrant_with_same_token(tmp_path: Path):
+    """Acquiring with the same lock token succeeds (re-entrant), while different token fails."""
+    f = tmp_path / "lecture.wav"
+    f.touch()
+    token = "task_123"
+    assert acquire_processing_files([f], token=token) is True
+    # Re-entrant with same token succeeds
+    assert acquire_processing_files([f], token=token) is True
+    # Different token fails
+    assert acquire_processing_files([f], token="task_456") is False
+    # Release with token
+    release_processing_files([f], token=token)
+    # Now different token succeeds
+    assert acquire_processing_files([f], token="task_456") is True
+    release_processing_files([f], token="task_456")

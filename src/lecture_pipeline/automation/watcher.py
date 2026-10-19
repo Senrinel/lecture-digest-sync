@@ -61,25 +61,35 @@ from lecture_pipeline.automation.tray import WatcherTray
 
 console = Console(legacy_windows=False)
 
+import uuid
+
 _active_files_lock = threading.Lock()
-_active_processing_files: Set[str] = set()
+_active_processing_files: Dict[str, str] = {}
 
 
-def acquire_processing_files(audio_files: List[Path]) -> bool:
-    """Attempt to acquire exclusive processing lock for a group of files."""
+def acquire_processing_files(audio_files: List[Path], token: Optional[str] = None) -> bool:
+    """Attempt to acquire exclusive processing lock for a group of files.
+    
+    Re-entrant if called with the same non-None token.
+    """
+    effective_token = token or uuid.uuid4().hex
     with _active_files_lock:
         names = {f.name for f in audio_files}
-        if _active_processing_files.intersection(names):
-            return False
-        _active_processing_files.update(names)
+        for n in names:
+            existing = _active_processing_files.get(n)
+            if existing is not None and existing != effective_token:
+                return False
+        for n in names:
+            _active_processing_files[n] = effective_token
         return True
 
 
-def release_processing_files(audio_files: List[Path]) -> None:
+def release_processing_files(audio_files: List[Path], token: Optional[str] = None) -> None:
     """Release exclusive processing lock for a group of files."""
     with _active_files_lock:
         for f in audio_files:
-            _active_processing_files.discard(f.name)
+            if token is None or _active_processing_files.get(f.name) == token:
+                _active_processing_files.pop(f.name, None)
 
 
 def is_api_or_quota_error(exc: Exception) -> bool:
@@ -294,7 +304,12 @@ class DeadLetterQuarantine:
         """Increment failure counts. If failures >= max_retries, move to inbox/failed/.
         If exc is an API or quota error, never quarantine files!
         """
-        if exc and is_api_or_quota_error(exc):
+        if exc and (
+            is_api_or_quota_error(exc)
+            or isinstance(exc, (InterruptedError, KeyboardInterrupt))
+            or "任務已中止" in str(exc)
+            or "abort" in str(exc).lower()
+        ):
             return False
 
         stats = self._load_stats()
@@ -408,6 +423,7 @@ def run_pipeline_for_group(
     record_archive_base_dir: Optional[Path | str] = None,
     abort_event: Optional[threading.Event] = None,
     export_dir: Optional[Path | str] = None,
+    lock_token: str = "default",
 ) -> Path:
     """Execute complete end-to-end processing for a single or multi-part lecture."""
     def check_aborted():
@@ -427,7 +443,7 @@ def run_pipeline_for_group(
     primary_file = audio_files[0]
     parsed = parse_filename(primary_file)
 
-    acquired = acquire_processing_files(audio_files)
+    acquired = acquire_processing_files(audio_files, token=lock_token)
     if not acquired:
         console.print(f"[yellow]檔案已由另一任務處理中，略過重疊執行：{primary_file.name}[/yellow]")
         return parsed.work_dir
@@ -730,7 +746,7 @@ def run_pipeline_for_group(
                 b.notify_task_error(str(exc), task_name=parsed.display_tag)
         raise
     finally:
-        release_processing_files(audio_files)
+        release_processing_files(audio_files, token=lock_token)
 
 
 def run_pipeline_with_timeout(
@@ -745,6 +761,7 @@ def run_pipeline_with_timeout(
     tray: Optional[WatcherTray] = None,
     offline_queue: Optional[OfflineUploadQueue] = None,
     record_archive_base_dir: Optional[Path | str] = None,
+    lock_token: str = "default",
 ) -> Path:
     """Execute complete pipeline protected by an execution timeout."""
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
@@ -760,6 +777,7 @@ def run_pipeline_with_timeout(
             tray=tray,
             offline_queue=offline_queue,
             record_archive_base_dir=record_archive_base_dir,
+            lock_token=lock_token,
         )
         try:
             return future.result(timeout=timeout_sec)
@@ -875,6 +893,12 @@ def watch_inbox(
                 if groups:
                     for g_key, files in groups.items():
                         if all(is_file_stable(f, delay_sec=1.5) for f in files):
+                            b = _get_bridge()
+                            if b and b.is_processing_active():
+                                break
+                            watcher_token = f"watcher_{g_key}"
+                            if not acquire_processing_files(files, token=watcher_token):
+                                continue
                             try:
                                 run_pipeline_with_timeout(
                                     audio_files=files,
@@ -885,6 +909,7 @@ def watch_inbox(
                                     tray=tray,
                                     offline_queue=offline_queue,
                                     record_archive_base_dir=record_archive_base_dir,
+                                    lock_token=watcher_token,
                                 )
                                 dead_letter.record_success(files)
                                 total_processed += 1
@@ -916,6 +941,8 @@ def watch_inbox(
                                     console.print(f"[bold red][ERROR] 處理 {g_key} 發生錯誤: {e}[/bold red]")
                                     log_watcher_event(f"處理失敗 ({g_key}): {e}", level="ERROR")
                                     dead_letter.record_failure(files, exc=e)
+                            finally:
+                                release_processing_files(files, token=watcher_token)
                         else:
                             console.print(f"[yellow]偵測到新錄音正在寫入中，等待寫入完成：{g_key}[/yellow]")
 
