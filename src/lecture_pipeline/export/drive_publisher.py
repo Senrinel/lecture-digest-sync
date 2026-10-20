@@ -88,7 +88,11 @@ def _run_local_server_with_display(
         console.print("[bold yellow]請點擊以下授權連結進行 Google 帳號授權：[/bold yellow]")
         console.print(f"[bold underline cyan]{auth_url}[/bold underline cyan]")
         console.print("=" * 70 + "\n")
-        sys.stdout.flush()
+        if sys.stdout is not None:
+            try:
+                sys.stdout.flush()
+            except Exception:
+                pass
 
         log_dir = Path("logs")
         log_dir.mkdir(parents=True, exist_ok=True)

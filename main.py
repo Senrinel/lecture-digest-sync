@@ -47,8 +47,17 @@ class SafeWriter:
         except Exception:
             pass
 
+    def reconfigure(self, *args, **kwargs):
+        if self._target is not None and hasattr(self._target, "reconfigure"):
+            try:
+                self._target.reconfigure(*args, **kwargs)
+            except Exception:
+                pass
+
     def __getattr__(self, name):
-        return getattr(self._target, name)
+        if self._target is not None:
+            return getattr(self._target, name)
+        return lambda *args, **kwargs: None
 
 
 # Fix stdout/stderr encoding on Windows and attach console if invoked from CLI
@@ -66,12 +75,22 @@ if sys.platform == "win32":
 
     for _s_name in ("stdout", "stderr"):
         _cur = getattr(sys, _s_name, None)
-        if _cur is not None:
+        if _cur is None:
+            try:
+                _devnull = open(os.devnull, "w", encoding="utf-8", errors="replace")
+                setattr(sys, _s_name, SafeWriter(_devnull))
+            except Exception:
+                setattr(sys, _s_name, SafeWriter(None))
+        else:
             try:
                 _cur.reconfigure(encoding="utf-8", errors="replace")
             except Exception:
                 pass
             setattr(sys, _s_name, SafeWriter(_cur))
+
+    if sys.stdin is None:
+        import io
+        sys.stdin = io.StringIO("")
 
 # Ensure 'src' is in sys.path and handle frozen executable
 if getattr(sys, "frozen", False):
