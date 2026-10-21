@@ -23,6 +23,15 @@ ENGLISH_SLIDE_STOPWORDS = {
     "Email", "Name", "Date", "Slide", "Slides", "Version", "All", "Rights", "Reserved"
 }
 
+# Common Chinese lecture non-domain stopwords
+CHINESE_SLIDE_STOPWORDS = {
+    "今天", "明天", "昨天", "我們", "你們", "他們", "大家", "老師", "同學", "教授",
+    "助教", "本堂", "本週", "下週", "上週", "課堂", "課程", "作業", "考試", "期中",
+    "期末", "報告", "投影片", "講義", "課本", "章節", "大綱", "介紹", "探討", "說明",
+    "討論", "複習", "開始", "結束", "題目", "問題", "答案", "筆記", "注意", "重點",
+    "可以", "能夠", "應該", "進行", "使用", "提供", "如果", "因為", "所以", "謝謝"
+}
+
 # Academic and technical Chinese compound suffixes
 CHINESE_TECH_SUFFIXES = (
     "演算法", "定理", "矩陣", "架構", "函數", "變數", "模型", "協議",
@@ -69,10 +78,27 @@ def load_course_glossary(
     return terms
 
 
+def clean_zh_term(s: str) -> str:
+    """Strip leading conversational verbs/pronouns and trailing grammatical particles."""
+    try:
+        import jieba.posseg as pseg
+        words = [w for w, _ in pseg.cut(s)]
+        stopwords_strip = CHINESE_SLIDE_STOPWORDS | {
+            "在", "從", "對", "與", "和", "或", "由", "為", "把", "將", "被", "會", "考", "請", "本堂課", "課會"
+        }
+        while words and (words[0] in stopwords_strip):
+            words.pop(0)
+        while words and (words[-1] in ("的", "了", "著", "過", "嗎", "呢", "吧", "啊")):
+            words.pop(-1)
+        return "".join(words)
+    except Exception:
+        return s.strip()
+
+
 def extract_terms_from_text(text: str) -> List[str]:
     """Extract domain terms, technical acronyms, and bilingual terms from text without API calls.
 
-    Pure local extraction using regular expressions and statistical patterns.
+    Combines local regex pattern matching with jieba TF-IDF, TextRank, and POS analysis.
     """
     if not text:
         return []
@@ -81,10 +107,10 @@ def extract_terms_from_text(text: str) -> List[str]:
     seen: Set[str] = set()
 
     def add_term(term: str):
-        t = term.strip().strip(",.:;\"'()[]{}")
+        t = term.strip().strip(",.:;\"'()[]{}<>《》「」『』【】")
         if not t or len(t) < 2 or len(t) > 50:
             return
-        if t in seen or t in ENGLISH_SLIDE_STOPWORDS:
+        if t in seen or t in ENGLISH_SLIDE_STOPWORDS or t in CHINESE_SLIDE_STOPWORDS:
             return
         # Skip pure numbers or dates
         if re.match(r"^[\d\.\-\/\:]+$", t):
@@ -93,15 +119,15 @@ def extract_terms_from_text(text: str) -> List[str]:
         found_terms.append(t)
 
     # 1. Bilingual pairs: 中文 (English) or English (中文)
-    bilingual_pattern_1 = re.findall(r"([\u4e00-\u9fa5]{2,12})\s*[\(（]([A-Za-z0-9\s\-\_]{2,35})[\)）]", text)
+    bilingual_pattern_1 = re.findall(r"([\u4e00-\u9fa5]{2,15})\s*[\(（]([A-Za-z0-9\s\-\_]{2,35})[\)）]", text)
     for zh, en in bilingual_pattern_1:
-        add_term(zh)
+        add_term(clean_zh_term(zh))
         add_term(en)
 
-    bilingual_pattern_2 = re.findall(r"([A-Za-z0-9\s\-\_]{2,35})\s*[\(（]([\u4e00-\u9fa5]{2,12})[\)）]", text)
+    bilingual_pattern_2 = re.findall(r"([A-Za-z0-9\s\-\_]{2,35})\s*[\(（]([\u4e00-\u9fa5]{2,15})[\)）]", text)
     for en, zh in bilingual_pattern_2:
         add_term(en)
-        add_term(zh)
+        add_term(clean_zh_term(zh))
 
     # 2. Uppercase technical acronyms (2 to 7 characters, e.g. ASR, VRAM, FFT, DFS, BFS, LUFS)
     acronyms = re.findall(r"\b[A-Z0-9]{2,7}\b", text)
@@ -122,8 +148,56 @@ def extract_terms_from_text(text: str) -> List[str]:
     # 4. Chinese technical terms with academic suffixes or domain terms
     tech_pattern = rf"([\u4e00-\u9fa5]{{0,6}}(?:{'|'.join(CHINESE_TECH_SUFFIXES)}))"
     for m in re.findall(tech_pattern, text):
-        if len(m) >= 2:
-            add_term(m)
+        cleaned = clean_zh_term(m)
+        if len(cleaned) >= 2:
+            add_term(cleaned)
+
+    # 5. Local NLP Keyword Extraction via jieba (TF-IDF + TextRank)
+    try:
+        import jieba.analyse
+        tfidf_tags = jieba.analyse.extract_tags(
+            text,
+            topK=60,
+            withWeight=False,
+            allowPOS=("n", "nr", "ns", "nt", "nz", "eng"),
+        )
+        for tag in tfidf_tags:
+            add_term(tag)
+
+        textrank_tags = jieba.analyse.textrank(
+            text,
+            topK=60,
+            withWeight=False,
+            allowPOS=("n", "nr", "ns", "nt", "nz", "eng"),
+        )
+        for tag in textrank_tags:
+            add_term(tag)
+    except Exception:
+        pass
+
+    # 6. Compound noun sequence extraction (e.g. consecutive nouns like 奇異值 + 分解)
+    try:
+        import jieba.posseg as pseg
+        words_flags = list(pseg.cut(text))
+        cur_compound: List[str] = []
+        for word, flag in words_flags:
+            word = word.strip()
+            if not word or word in CHINESE_SLIDE_STOPWORDS or word in ENGLISH_SLIDE_STOPWORDS:
+                if len(cur_compound) >= 2:
+                    add_term("".join(cur_compound))
+                cur_compound = []
+                continue
+
+            if flag.startswith("n") or flag == "eng" or flag == "vn":
+                cur_compound.append(word)
+            else:
+                if len(cur_compound) >= 2:
+                    add_term("".join(cur_compound))
+                cur_compound = []
+        if len(cur_compound) >= 2:
+            add_term("".join(cur_compound))
+    except Exception:
+        pass
 
     return found_terms
 

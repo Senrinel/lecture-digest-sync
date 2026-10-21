@@ -1323,13 +1323,23 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
                 "detail": str(ie),
             })
         except Exception as e:
-            from lecture_pipeline.automation.watcher import is_api_or_quota_error
+            from lecture_pipeline.automation.quota import (
+                QuotaManager,
+                is_api_or_quota_error,
+                is_quota_exhausted_error,
+                is_temporary_service_error,
+            )
             if is_api_or_quota_error(e):
-                from lecture_pipeline.automation.quota import QuotaManager
                 qm = QuotaManager()
-                next_reset = qm.mark_quota_exhausted(reason=str(e))
+                next_reset = qm.calculate_next_reset_datetime()
                 reset_str = next_reset.astimezone().strftime("%Y-%m-%d %H:%M:%S")
-                msg = f"API 呼叫失敗，進度已保留，已延遲至隔日重試（重置時間：{reset_str}）"
+                if is_temporary_service_error(e):
+                    msg = f"服務持續繁忙 (503 重試 3 次未果)，進度已保留，已延遲至重置時間重試（{reset_str}）"
+                    notif_title = "伺服器暫時繁忙，已延遲重試"
+                else:
+                    msg = f"API 配額已用盡 (429)，進度已保留，已延遲至重置時間重試（{reset_str}）"
+                    notif_title = "API 配額用盡，已延遲重試"
+
                 with _processing_lock:
                     _current_task_info.update({
                         "running": False,
@@ -1345,8 +1355,8 @@ def start_processing_task(audio_files: List[Path], channel_id: str = "C1") -> bo
                     "detail": msg,
                 })
                 send_notification(
-                    title="API 呼叫失敗，已延遲重試",
-                    message=f"{primary_name} 進度已保留，將延遲至隔日重試",
+                    title=notif_title,
+                    message=f"{primary_name} 進度已保留，將延遲至重置時間重試",
                 )
             else:
                 notify_task_error(error_msg=str(e), task_name=primary_name)

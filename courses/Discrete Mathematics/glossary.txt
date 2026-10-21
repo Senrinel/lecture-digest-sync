@@ -33,3 +33,11 @@ Partial Order
 # --- Auto-extracted terms (2) ---
 s Algorithm
 戴克斯特拉
+
+# --- Auto-extracted terms (6) ---
+Dijkstra
+Algorithm
+戴克
+shortest
+path
+algorithm

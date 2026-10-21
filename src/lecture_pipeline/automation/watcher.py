@@ -56,7 +56,12 @@ from lecture_pipeline.automation.offline_queue import (
     is_internet_connected,
 )
 from lecture_pipeline.automation.pruner import prune_and_archive
-from lecture_pipeline.automation.quota import QuotaManager
+from lecture_pipeline.automation.quota import (
+    QuotaManager,
+    is_api_or_quota_error,
+    is_quota_exhausted_error,
+    is_temporary_service_error,
+)
 from lecture_pipeline.automation.tray import WatcherTray
 
 console = Console(legacy_windows=False)
@@ -92,77 +97,8 @@ def release_processing_files(audio_files: List[Path], token: Optional[str] = Non
                 _active_processing_files.pop(f.name, None)
 
 
-def is_api_or_quota_error(exc: Exception) -> bool:
-    """Detect if an exception is caused by API rate limiting, quota exhaustion, network or upstream API service error."""
-    exc_type_str = f"{type(exc).__module__}.{type(exc).__qualname__}".lower()
-    api_modules = [
-        "google",
-        "genai",
-        "httpx",
-        "httpcore",
-        "urllib3",
-        "requests",
-        "socket",
-        "ssl",
-        "asyncio",
-    ]
-    if any(m in exc_type_str for m in api_modules):
-        return True
-
-    err_str = str(exc).lower()
-    api_signatures = [
-        # Quota & Rate Limit
-        "resource_exhausted",
-        "resourceexhausted",
-        "429",
-        "quota",
-        "rate limit",
-        "ratelimit",
-        "too many requests",
-        "daily limit",
-        "rpd limit",
-        "tpm limit",
-        "limit exceeded",
-        # Server Errors & Service Unavailable
-        "500",
-        "502",
-        "503",
-        "504",
-        "service unavailable",
-        "internal server error",
-        "bad gateway",
-        "gateway timeout",
-        "overloaded",
-        "temporarily unavailable",
-        "server disconnected",
-        "remote disconnected",
-        # Network & Timeout
-        "timeout",
-        "timed out",
-        "deadline exceeded",
-        "connection reset",
-        "connection refused",
-        "connection aborted",
-        "connectionerror",
-        "network",
-        "socket",
-        "ssl",
-        "broken pipe",
-        # API Client Errors
-        "apierror",
-        "api error",
-        "api key",
-        "gemini",
-        "drive api",
-        "google api",
-        "call failed",
-    ]
-    return any(sig in err_str for sig in api_signatures)
-
-
-def is_quota_or_rate_limit_error(exc: Exception) -> bool:
-    """Detect if an exception is caused by API rate limiting, quota exhaustion, or API call failures."""
-    return is_api_or_quota_error(exc)
+# Re-export for backward compatibility
+is_quota_or_rate_limit_error = is_api_or_quota_error
 
 
 SUPPORTED_AUDIO_EXTENSIONS = {
@@ -543,6 +479,28 @@ def run_pipeline_for_group(
         state.mark_stage("preprocess")
         state.mark_stage("vad_segment")
 
+        def execute_stage_with_retry(stage_name: str, stage_progress: int, call_fn):
+            max_attempts = 3
+            retry_delay = 120.0  # 2 minutes between attempts
+            for attempt in range(1, max_attempts + 1):
+                check_aborted()
+                try:
+                    return call_fn()
+                except Exception as exc:
+                    if is_temporary_service_error(exc) and attempt < max_attempts:
+                        msg = f"服務暫時繁忙 (503)，等待 2 分鐘後重試 (第 {attempt}/3 次)..."
+                        console.print(f"[yellow][WARN] {stage_name}：{msg}[/yellow]")
+                        report_progress(stage_name, stage_progress, msg)
+                        log_watcher_event(
+                            f"課堂 {parsed.display_tag} 階段 [{stage_name}] 遭遇 503 暫時性錯誤，等待 2 分鐘重試 (第 {attempt}/3 次): {exc}",
+                            level="WARNING",
+                        )
+                        for _ in range(int(retry_delay)):
+                            check_aborted()
+                            time.sleep(1.0)
+                    else:
+                        raise
+
         # 3. STT Transcription (Stage Checkpoint: resume if raw transcription exists)
         check_aborted()
         raw_json_file = target_work_dir / "01_raw.json"
@@ -553,6 +511,19 @@ def run_pipeline_for_group(
                 transcription = FullTranscription.model_validate_json(raw_json_file.read_text(encoding="utf-8"))
             except Exception:
                 transcription = None
+
+        if not transcription and raw_txt_file.is_file() and raw_txt_file.stat().st_size > 0:
+            txt_content = raw_txt_file.read_text(encoding="utf-8").strip()
+            if txt_content:
+                transcription = FullTranscription(
+                    channel_name=channel_id,
+                    course=parsed.course,
+                    date=parsed.date,
+                    chunks=[],
+                    full_text=txt_content,
+                    timestamped_text="",
+                    total_latency_sec=0.0,
+                )
 
         if transcription and transcription.full_text.strip():
             console.print(f"[bold green][OK] 偵測到既有逐字稿 ({len(transcription.full_text)} 字)，直接接續，略過 STT 階段[/bold green]")
@@ -568,13 +539,17 @@ def run_pipeline_for_group(
             console.print(f"[dim]執行語音轉錄 (通道 {actual_channel_id})...[/dim]")
             glossary = load_course_glossary(parsed.course) if parsed.course != "Unsorted" else []
             channel = get_stt_channel(actual_channel_id)
-            transcription = channel.transcribe_all(
-                chunks,
-                course=parsed.course,
-                date=parsed.date,
-                glossary=glossary,
-                abort_event=abort_event,
-            )
+
+            def do_stt():
+                return channel.transcribe_all(
+                    chunks,
+                    course=parsed.course,
+                    date=parsed.date,
+                    glossary=glossary,
+                    abort_event=abort_event,
+                )
+
+            transcription = execute_stage_with_retry("語音轉錄", 50, do_stt)
             save_stt_outputs(transcription, target_work_dir)
             state.mark_stage("stt")
 
@@ -591,6 +566,21 @@ def run_pipeline_for_group(
             except Exception:
                 clean_result = None
 
+        if not clean_result and clean_txt_file.is_file() and clean_txt_file.stat().st_size > 0:
+            clean_txt_content = clean_txt_file.read_text(encoding="utf-8").strip()
+            if clean_txt_content:
+                clean_result = CleanupResult(
+                    full_cleaned_text=clean_txt_content,
+                    raw_char_count=len(transcription.full_text) if transcription else len(clean_txt_content),
+                    cleaned_char_count=len(clean_txt_content),
+                    retention_ratio=1.0,
+                    model_used=cleanup_model,
+                    prompt_template="videolingo_punct.md",
+                    total_latency_sec=0.0,
+                    validation_passed=True,
+                    chunks=[],
+                )
+
         if clean_result and clean_result.full_cleaned_text.strip():
             console.print(f"[bold green][OK] 偵測到既有內文整理 ({len(clean_result.full_cleaned_text)} 字)，直接接續，略過整理階段[/bold green]")
             report_progress("內文整理", 80, "沿用既有整理文稿...")
@@ -599,13 +589,17 @@ def run_pipeline_for_group(
             report_progress("內文整理", 70, f"執行內文整理 ({cleanup_model})...")
             console.print(f"[dim]執行內文整理 ({cleanup_model})...[/dim]")
             cleaner = GeminiTextCleanupEngine(primary_model=cleanup_model)
-            clean_result = cleaner.clean(
-                transcription.full_text,
-                course=parsed.course,
-                date=parsed.date,
-                glossary=glossary,
-                abort_event=abort_event,
-            )
+
+            def do_clean():
+                return cleaner.clean(
+                    transcription.full_text,
+                    course=parsed.course,
+                    date=parsed.date,
+                    glossary=glossary,
+                    abort_event=abort_event,
+                )
+
+            clean_result = execute_stage_with_retry("內文整理", 70, do_clean)
             save_cleanup_outputs(clean_result, target_work_dir)
             state.mark_stage("cleanup")
 
@@ -620,6 +614,19 @@ def run_pipeline_for_group(
             except Exception:
                 summary_result = None
 
+        if not summary_result and summary_md_file.is_file() and summary_md_file.stat().st_size > 0:
+            summary_content = summary_md_file.read_text(encoding="utf-8").strip()
+            if summary_content:
+                summary_result = SummaryResult(
+                    full_summary_md=summary_content,
+                    input_char_count=len(clean_result.full_cleaned_text) if clean_result else 0,
+                    summary_char_count=len(summary_content),
+                    model_used=summary_model,
+                    prompt_template="fabric_summarize_lecture.md",
+                    thinking_budget=1024,
+                    total_latency_sec=0.0,
+                )
+
         if summary_result and summary_result.full_summary_md.strip():
             console.print(f"[bold green][OK] 偵測到既有重點筆記 ({len(summary_result.full_summary_md)} 字)，直接接續[/bold green]")
             report_progress("重點筆記", 90, "沿用既有重點筆記...")
@@ -630,7 +637,16 @@ def run_pipeline_for_group(
             time.sleep(3.0)  # Rate limit cooldown buffer before summary call
             check_aborted()
             summarizer = GeminiLectureSummarizer(primary_model=summary_model)
-            summary_result = summarizer.summarize(clean_result.full_cleaned_text, course=parsed.course, date=parsed.date, glossary=glossary)
+
+            def do_summary():
+                return summarizer.summarize(
+                    clean_result.full_cleaned_text,
+                    course=parsed.course,
+                    date=parsed.date,
+                    glossary=glossary,
+                )
+
+            summary_result = execute_stage_with_retry("重點筆記", 85, do_summary)
             save_summary_outputs(summary_result, target_work_dir)
             state.mark_stage("summarize")
 
@@ -731,7 +747,29 @@ def run_pipeline_for_group(
     except Exception as exc:
         b = _get_bridge()
         if b:
-            if is_quota_or_rate_limit_error(exc):
+            if is_temporary_service_error(exc):
+                qm = QuotaManager()
+                reset_t = qm.mark_quota_exhausted(reason=f"503 暫時繁忙（重試 3 次失敗）: {exc}")
+                reset_str = reset_t.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                b.update_task_progress(
+                    stage="API 延遲重試",
+                    progress=0,
+                    detail=f"服務持續繁忙 (503 重試 3 次未果)，進度已保留，已延遲至重置時間重試（{reset_str}）",
+                    task_name=parsed.display_tag,
+                    running=False,
+                )
+            elif is_quota_exhausted_error(exc):
+                qm = QuotaManager()
+                reset_t = qm.mark_quota_exhausted(reason=str(exc))
+                reset_str = reset_t.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                b.update_task_progress(
+                    stage="API 延遲重試",
+                    progress=0,
+                    detail=f"API 配額已用盡 (429)，進度已保留，已延遲至重置時間重試（{reset_str}）",
+                    task_name=parsed.display_tag,
+                    running=False,
+                )
+            elif is_api_or_quota_error(exc):
                 qm = QuotaManager()
                 reset_t = qm.mark_quota_exhausted(reason=str(exc))
                 reset_str = reset_t.astimezone().strftime("%Y-%m-%d %H:%M:%S")
@@ -801,6 +839,18 @@ def watch_inbox(
     record_archive_base_dir: Optional[Path | str] = None,
 ) -> int:
     """Monitor inbox directory and process newly incoming lectures automatically."""
+    if str(inbox_dir) == "inbox":
+        try:
+            from lecture_pipeline.gui.bridge import get_current_config
+            c_cfg = get_current_config()
+            cfg_inbox = c_cfg.get("paths", {}).get("inbox_dir")
+            if cfg_inbox:
+                inbox_dir = cfg_inbox
+            if not record_archive_base_dir:
+                record_archive_base_dir = c_cfg.get("paths", {}).get("record_archive_dir")
+        except Exception:
+            pass
+
     inbox_path = Path(inbox_dir).resolve()
     inbox_path.mkdir(parents=True, exist_ok=True)
 
@@ -918,14 +968,33 @@ def watch_inbox(
                                 log_watcher_event(f"任務處理逾時 ({g_key}): {te}", level="ERROR")
                                 dead_letter.record_failure(files, exc=te)
                             except Exception as e:
-                                if is_api_or_quota_error(e):
-                                    next_reset = quota_manager.mark_quota_exhausted(reason=str(e))
+                                if is_temporary_service_error(e):
+                                    next_reset = quota_manager.calculate_next_reset_datetime()
                                     local_reset_str = next_reset.astimezone().strftime("%Y-%m-%d %H:%M:%S")
-                                    msg = f"課堂 {g_key} API 呼叫失敗，進度已保留，已延遲至隔日自動重試（重置時間：{local_reset_str}）"
+                                    msg = f"課堂 {g_key} 伺服器持續繁忙 (503 重試 3 次未果)，進度已保留，已延遲至重置時間重試（{local_reset_str}）"
                                     console.print(f"[bold yellow][API 延遲] {msg}[/bold yellow]")
                                     log_watcher_event(msg, level="WARNING")
                                     send_notification(
-                                        title="API 呼叫失敗，已延遲重試",
+                                        title="伺服器暫時繁忙，已延遲重試",
+                                        message=f"{g_key} 進度已保留，將延遲至重置時間重試",
+                                    )
+                                    b = _get_bridge()
+                                    if b:
+                                        b.update_task_progress(
+                                            stage="API 延遲重試",
+                                            progress=0,
+                                            detail=f"服務持續繁忙，進度已保留，將於 {local_reset_str} 重試",
+                                            task_name=g_key,
+                                            running=False,
+                                        )
+                                elif is_quota_exhausted_error(e):
+                                    next_reset = quota_manager.calculate_next_reset_datetime()
+                                    local_reset_str = next_reset.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                                    msg = f"課堂 {g_key} API 配額已用盡 (429)，進度已保留，已延遲至隔日自動重試（重置時間：{local_reset_str}）"
+                                    console.print(f"[bold yellow][API 延遲] {msg}[/bold yellow]")
+                                    log_watcher_event(msg, level="WARNING")
+                                    send_notification(
+                                        title="API 配額用盡，已延遲重試",
                                         message=f"{g_key} 進度已保留，將延遲至隔日重試",
                                     )
                                     b = _get_bridge()
@@ -933,7 +1002,7 @@ def watch_inbox(
                                         b.update_task_progress(
                                             stage="API 延遲重試",
                                             progress=0,
-                                            detail=f"API 呼叫失敗，進度已保留，將於 {local_reset_str} 隔日重試",
+                                            detail=f"API 配額已用盡，進度已保留，將於 {local_reset_str} 重試",
                                             task_name=g_key,
                                             running=False,
                                         )

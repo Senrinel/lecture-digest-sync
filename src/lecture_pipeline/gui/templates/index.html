@@ -2145,6 +2145,7 @@
       renderColorSwatches();
       renderUiTextCustomizer();
       renderTimetableRules();
+      loadBackendConfigPaths();
 
       if (!raw) {
         changeSurfaceOpacity(60);
@@ -2438,20 +2439,40 @@
       }
     }
 
+    async function loadBackendConfigPaths() {
+      try {
+        const res = await fetch('/api/config');
+        if (res.ok) {
+          const cfg = await res.json();
+          const paths = cfg.paths || {};
+          const exportCfg = cfg.export || {};
+          if (paths.inbox_dir) document.getElementById('dir-inbox').value = paths.inbox_dir;
+          if (paths.archive_dir) document.getElementById('dir-archive').value = paths.archive_dir;
+          if (paths.exports_dir || exportCfg.export_dir) document.getElementById('dir-export').value = paths.exports_dir || exportCfg.export_dir;
+          if (paths.logs_dir) document.getElementById('dir-logs').value = paths.logs_dir;
+        }
+      } catch (e) {}
+    }
+
     async function syncSingleParamToBackend(key, value) {
-      const paramMap = {
-        'dir-inbox': 'inbox_dir',
-        'dir-archive': 'archive_dir',
-        'dir-export': 'export_dir',
-        'dir-logs': 'log_dir',
-      };
-      const field = paramMap[key];
-      if (!field) return;
+      const payload = { params: {} };
+      if (key === 'dir-inbox') {
+        payload.params.paths = { inbox_dir: value };
+      } else if (key === 'dir-archive') {
+        payload.params.paths = { archive_dir: value };
+      } else if (key === 'dir-export') {
+        payload.params.paths = { exports_dir: value };
+        payload.params.export = { export_dir: value };
+      } else if (key === 'dir-logs') {
+        payload.params.paths = { logs_dir: value };
+      } else {
+        return;
+      }
       try {
         await fetch('/api/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ params: { paths: { [field]: value } } }),
+          body: JSON.stringify(payload),
         });
       } catch (e) {}
     }

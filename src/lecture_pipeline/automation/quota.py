@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,7 +14,75 @@ from rich.console import Console
 
 console = Console(legacy_windows=False)
 
-DEFAULT_LOCK_FILE = Path("logs/quota_lock.json")
+
+def get_default_quota_lock_path() -> Path:
+    """Resolve lock file path across development and packaged environments."""
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        return exe_dir / "logs" / "quota_lock.json"
+    return Path("logs/quota_lock.json")
+
+
+DEFAULT_LOCK_FILE = get_default_quota_lock_path()
+
+
+def is_temporary_service_error(exc: Exception) -> bool:
+    """Detect if an exception is a transient/temporary upstream server or connection issue (e.g. 503, 502, 504, 500, overloaded, timeout)."""
+    err_str = str(exc).lower()
+    exc_type_str = f"{type(exc).__module__}.{type(exc).__qualname__}".lower()
+
+    # If it explicitly says 429 or quota exceeded, it is NOT a temporary service spike
+    if any(q in err_str for q in ["429", "resource_exhausted", "resourceexhausted", "generativelanguage.googleapis.com"]):
+        return False
+
+    transient_sigs = [
+        "503", "502", "504", "500",
+        "unavailable",
+        "temporarily unavailable",
+        "high demand",
+        "spikes in demand",
+        "overloaded",
+        "bad gateway",
+        "gateway timeout",
+        "internal server error",
+        "server disconnected",
+        "remote disconnected",
+        "remoteprotocolerror",
+        "connection reset",
+        "connection refused",
+        "connection aborted",
+        "connectionerror",
+        "broken pipe",
+        "timeout",
+        "timed out",
+        "deadline exceeded",
+    ]
+    return any(sig in err_str for sig in transient_sigs) or any(sig in exc_type_str for sig in ["timeout", "connection", "httpcore", "httpx"])
+
+
+def is_quota_exhausted_error(exc: Exception) -> bool:
+    """Detect if an exception is a daily quota or rate limit exhaustion (429, RESOURCE_EXHAUSTED)."""
+    err_str = str(exc).lower()
+    quota_sigs = [
+        "429",
+        "resource_exhausted",
+        "resourceexhausted",
+        "quota exceeded",
+        "quotaexceeded",
+        "exceeded your current quota",
+        "generativelanguage.googleapis.com/generate_content_free_tier_requests",
+        "rate limit",
+        "ratelimit",
+        "rpd limit",
+        "daily limit",
+        "too many requests",
+    ]
+    return any(sig in err_str for sig in quota_sigs)
+
+
+def is_api_or_quota_error(exc: Exception) -> bool:
+    """Detect if exception is any cloud API failure (transient 503, quota 429, or network failure)."""
+    return is_temporary_service_error(exc) or is_quota_exhausted_error(exc)
 
 
 @dataclass

@@ -170,6 +170,88 @@ def setup_desktop_shortcuts() -> None:
         print(f"[ERROR] 建立捷徑失敗: {e}")
 
 
+def check_and_forward_to_existing_instance(args: list[str]) -> bool:
+    """If another instance is already running (uvicorn on port 8000), forward args and activate window."""
+    try:
+        from lecture_pipeline.gui.bridge import get_current_config
+        cfg = get_current_config()
+        gui_cfg = cfg.get("gui", {})
+        host = gui_cfg.get("host", "127.0.0.1")
+        port = int(gui_cfg.get("port", 8000))
+    except Exception:
+        host = "127.0.0.1"
+        port = 8000
+
+    import json
+    import urllib.request
+    import urllib.error
+
+    url_status = f"http://{host}:{port}/api/status"
+    try:
+        req = urllib.request.Request(url_status, headers={"User-Agent": "LecturePipeline-SingleInstance"})
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            if resp.status != 200:
+                return False
+    except Exception:
+        # No running instance
+        return False
+
+    # Server is alive! Check arguments for drag-and-drop or explicit processing
+    from lecture_pipeline.drag_and_drop import SUPPORTED_AUDIO_EXTENSIONS
+    audio_paths = []
+    folder_paths = []
+    for a in args:
+        if a.startswith("-"):
+            continue
+        p = Path(a)
+        if p.is_file() and p.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS:
+            audio_paths.append(str(p.resolve()))
+        elif p.is_dir():
+            folder_paths.append(str(p.resolve()))
+
+    # Forward files or folders
+    if audio_paths or folder_paths:
+        for fp in folder_paths:
+            try:
+                data = json.dumps({"folderpath": fp}).encode("utf-8")
+                req = urllib.request.Request(
+                    f"http://{host}:{port}/api/process/folder",
+                    data=data,
+                    headers={"Content-Type": "application/json"},
+                )
+                urllib.request.urlopen(req, timeout=3.0)
+                print(f"[OK] 已將資料夾轉交至背景運作中的實例：{fp}")
+            except Exception as e:
+                print(f"[WARN] 轉交資料夾失敗: {e}")
+
+        for ap in audio_paths:
+            try:
+                data = json.dumps({"filepath": ap}).encode("utf-8")
+                req = urllib.request.Request(
+                    f"http://{host}:{port}/api/process/file",
+                    data=data,
+                    headers={"Content-Type": "application/json"},
+                )
+                urllib.request.urlopen(req, timeout=3.0)
+                print(f"[OK] 已將音檔轉交至背景運作中的實例：{ap}")
+            except Exception as e:
+                print(f"[WARN] 轉交音檔失敗: {e}")
+
+    # Wake up / bring window or browser to front
+    try:
+        req = urllib.request.Request(
+            f"http://{host}:{port}/api/window/show",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+        )
+        urllib.request.urlopen(req, timeout=2.0)
+        print("[OK] 背景監控服務已在執行，已喚醒現有操作介面。")
+    except Exception:
+        pass
+
+    return True
+
+
 def main() -> None:
     args = sys.argv[1:]
 
@@ -178,6 +260,16 @@ def main() -> None:
         inbox_dir = args[1]
         exports_dir = args[2]
         courses_dir = args[3]
+
+        # Sanity check against ANSI mojibake from Inno Setup
+        docs_dir = Path.home() / "Documents" / "課堂錄音"
+        if any(c in inbox_dir for c in ["\ufffd", "Ұ", "?"]) or not inbox_dir:
+            inbox_dir = str(docs_dir / "收件匣")
+        if any(c in exports_dir for c in ["\ufffd", "Ұ", "?"]) or not exports_dir:
+            exports_dir = str(docs_dir / "筆記匯出")
+        if any(c in courses_dir for c in ["\ufffd", "Ұ", "?"]) or not courses_dir:
+            courses_dir = str(docs_dir / "科目詞庫")
+
         from lecture_pipeline.gui.bridge import get_config_file_path
         cfg_file = get_config_file_path()
         import yaml
@@ -190,6 +282,17 @@ def main() -> None:
         cfg["paths"]["inbox_dir"] = inbox_dir
         cfg["paths"]["exports_dir"] = exports_dir
         cfg["paths"]["courses_dir"] = courses_dir
+        if "export" not in cfg:
+            cfg["export"] = {}
+        cfg["export"]["export_dir"] = exports_dir
+
+        # Ensure directories exist
+        for d in [inbox_dir, exports_dir, courses_dir]:
+            try:
+                Path(d).mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+
         with open(cfg_file, "w", encoding="utf-8") as f:
             yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
         print(f"[OK] 設定檔已成功初始化分區路徑：\n  Inbox: {inbox_dir}\n  Exports: {exports_dir}\n  Courses: {courses_dir}")
@@ -208,8 +311,24 @@ def main() -> None:
         print("[TEST_OK] All critical modules imported successfully without errors!")
         return
 
+    # Single-instance guard: check if GUI/watcher server is already running
+    from lecture_pipeline.drag_and_drop import SUPPORTED_AUDIO_EXTENSIONS
+    is_drag_and_drop = False
+    for arg in args:
+        if arg.startswith("-"):
+            continue
+        p = Path(arg)
+        if p.exists():
+            if p.is_dir() or p.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS:
+                is_drag_and_drop = True
+                break
+
+    is_gui_invocation = not args or (len(args) >= 1 and args[0] in ("gui", "-g", "--gui"))
+    if (is_gui_invocation or is_drag_and_drop) and check_and_forward_to_existing_instance(args):
+        return
+
     # Case 2: No arguments or explicit GUI trigger -> Launch full GUI + Tray + Watcher
-    if not args or (len(args) >= 1 and args[0] in ("gui", "-g", "--gui")):
+    if is_gui_invocation:
         from lecture_pipeline.gui import launch_gui
 
         # Parse potential gui flags: --mode, --host, --port, --debug
@@ -233,17 +352,6 @@ def main() -> None:
         return
 
     # Case 3: Check if arguments are audio files or directories (Drag & Drop execution)
-    from lecture_pipeline.drag_and_drop import SUPPORTED_AUDIO_EXTENSIONS
-    is_drag_and_drop = False
-    for arg in args:
-        if arg.startswith("-"):
-            continue
-        p = Path(arg)
-        if p.exists():
-            if p.is_dir() or p.suffix.lower() in SUPPORTED_AUDIO_EXTENSIONS:
-                is_drag_and_drop = True
-                break
-
     if is_drag_and_drop:
         from lecture_pipeline.drag_and_drop import main as dnd_main
         dnd_main()

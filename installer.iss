@@ -1,4 +1,4 @@
-; Inno Setup Script for Lecture Digest Sync (課堂錄音自動化 ASR 與重點筆記系統)
+﻿; Inno Setup Script for Lecture Digest Sync (課堂錄音自動化 ASR 與重點筆記系統)
 #define MyAppName "課堂錄音自動化 ASR 與重點筆記系統"
 #define MyAppVersion "0.1.0"
 #define MyAppPublisher "Senrinel"

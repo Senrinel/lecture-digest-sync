@@ -86,6 +86,16 @@ class DesktopWindow:
             except Exception as e:
                 logger.warning(f"Error showing window: {e}")
 
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                hwnd = ctypes.windll.user32.FindWindowW(None, self.title)
+                if hwnd:
+                    ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+            except Exception:
+                pass
+
     def hide(self) -> None:
         """Hide window without closing backend loop."""
         if self.window:
@@ -124,6 +134,20 @@ def show_desktop_window() -> bool:
     if win:
         win.show()
         return True
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            for title in [
+                "Lecture Digest Sync - 課堂錄音辨識與筆記同步系統",
+                "Lecture Digest Sync - 課堂錄音辨識與筆記同步",
+            ]:
+                hwnd = ctypes.windll.user32.FindWindowW(None, title)
+                if hwnd:
+                    ctypes.windll.user32.ShowWindow(hwnd, 9)
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+                    return True
+        except Exception:
+            pass
     return False
 
 
