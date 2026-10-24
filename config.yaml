@@ -53,9 +53,9 @@ timetable:
   Monday: null
   Tuesday:
   - time: 9:00-11:00
-    course: 人文通識:世界文明史
+    course: 人文通識：世界文明史
   - time: 11:00-13:00
-    course: 人文通識:藝術欣賞
+    course: 人文通識：藝術欣賞
   - time: 13:00-16:00
     course: 光電子學
   - time: 16:00-18:00

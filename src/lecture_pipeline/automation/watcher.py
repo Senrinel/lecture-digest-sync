@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set
 from rich.console import Console
 
-from lecture_pipeline.naming import parse_filename
+from lecture_pipeline.naming import parse_filename, sanitize_filename
 from lecture_pipeline.preprocess import preprocess_audio
 from lecture_pipeline.state import (
     ChunkInfo,
@@ -240,9 +240,13 @@ class DeadLetterQuarantine:
         """Increment failure counts. If failures >= max_retries, move to inbox/failed/.
         If exc is an API or quota error, never quarantine files!
         """
+        is_os_path_error = isinstance(exc, OSError) and (
+            getattr(exc, "winerror", None) == 123 or "語法錯誤" in str(exc)
+        )
         if exc and (
             is_api_or_quota_error(exc)
             or isinstance(exc, (InterruptedError, KeyboardInterrupt))
+            or is_os_path_error
             or "任務已中止" in str(exc)
             or "abort" in str(exc).lower()
         ):
@@ -721,7 +725,7 @@ def run_pipeline_for_group(
             console.print(f"[yellow][WARN] 檔案清理與封存警告: {e}[/yellow]")
 
         # 9. Move original inbox audio files to archive to prevent duplicate scans
-        target_archive = Path(archive_dir).resolve() / parsed.course / parsed.date
+        target_archive = Path(archive_dir).resolve() / sanitize_filename(parsed.course) / sanitize_filename(parsed.date)
         target_archive.mkdir(parents=True, exist_ok=True)
         for f in audio_files:
             if f.is_file():

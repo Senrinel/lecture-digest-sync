@@ -323,7 +323,21 @@ def main() -> None:
                 is_drag_and_drop = True
                 break
 
-    is_gui_invocation = not args or (len(args) >= 1 and args[0] in ("gui", "-g", "--gui"))
+    known_cli_commands = {
+        "prep", "stt", "clean", "summary", "bundle", "export",
+        "bench", "autostart", "status", "watch", "env-check", "eval",
+    }
+    is_cli_subcommand = len(args) >= 1 and args[0].lower() in known_cli_commands
+    is_gui_flag = any(
+        a in ("--mode", "-m", "--host", "-h", "--port", "-p", "--debug", "-d")
+        or a.startswith(("--mode=", "--host=", "--port="))
+        for a in args
+    )
+    is_gui_invocation = (
+        not args
+        or (len(args) >= 1 and args[0] in ("gui", "-g", "--gui"))
+        or (is_gui_flag and not is_cli_subcommand)
+    )
     if (is_gui_invocation or is_drag_and_drop) and check_and_forward_to_existing_instance(args):
         return
 

@@ -85,6 +85,39 @@ GENERIC_AUDIO_NAMES = {
 }
 
 
+def sanitize_filename(name: str) -> str:
+    """Sanitize string for Windows filename and directory compatibility.
+
+    Replaces Windows-illegal characters:
+      : -> ： (fullwidth colon)
+      / -> -
+      \\ -> -
+      ? -> ？ (fullwidth question mark)
+      * -> _
+      " -> ''
+      < -> （ (fullwidth parenthesis)
+      > -> ）
+      | -> _
+    Strips leading/trailing whitespace and periods.
+    """
+    if not name:
+        return "Unsorted"
+    replacements = {
+        ":": "：",
+        "/": "-",
+        "\\": "-",
+        "?": "？",
+        "*": "_",
+        '"': "''",
+        "<": "（",
+        ">": "）",
+        "|": "_",
+    }
+    cleaned = "".join(replacements.get(ch, ch) for ch in str(name))
+    cleaned = cleaned.strip(". \t\r\n")
+    return cleaned if cleaned else "Unsorted"
+
+
 def get_file_mtime_date(path: Path) -> tuple[str, str]:
     """Retrieve date (YYYYMMDD) and time (HHMM) from file modification timestamp."""
     try:
@@ -142,7 +175,7 @@ def match_course_from_timetable(
 
             # Allow 30 mins early or during class
             if (start_mins - 30) <= rec_mins <= end_mins:
-                return str(target_course).strip()
+                return sanitize_filename(str(target_course).strip())
 
     except Exception:
         pass
@@ -173,7 +206,7 @@ def parse_filename(
     # 1. Try standard pattern: CourseName_YYYYMMDD[_HHMM]
     match = STANDARD_PATTERN.match(cleaned_stem)
     if match:
-        course = match.group("course").strip()
+        course = sanitize_filename(match.group("course").strip())
         date_str = match.group("date")
         time_str = match.group("time")
         work_dir = base_work / course / date_str
@@ -192,7 +225,7 @@ def parse_filename(
     match_course = COURSE_LECTURE_PATTERN.match(cleaned_stem)
     if match_course:
         raw_course = match_course.group("course").strip()
-        course = re.sub(r"\s+", " ", raw_course)
+        course = sanitize_filename(re.sub(r"\s+", " ", raw_course))
         lec_num = match_course.group("lec_num")
         section = match_course.group("section")
         part = match_course.group("part")
@@ -232,7 +265,7 @@ def parse_filename(
 
         matched = match_course_from_timetable(date_str, time_str)
         if matched:
-            course = matched
+            course = sanitize_filename(matched)
             is_std = True
             warning = f"依課表時間對齊（{time_str[:2]}:{time_str[2:]}），自動辨識為【{course}】。"
         else:
@@ -291,7 +324,7 @@ def parse_filename(
         )
     else:
         # User supplied a meaningful course/topic name without date (e.g. '畢業流程說明')
-        course = cleaned_stem
+        course = sanitize_filename(cleaned_stem)
         warning = (
             f"檔案 '{path.name}' 未包含日期或講數，已識別主題為 '{course}'，"
             f"並依檔案修改時間設定日期為 {date_str}。"

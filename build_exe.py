@@ -100,12 +100,12 @@ def run_pyinstaller_packaging() -> Path:
         "--exclude-module=IPython",
         "--exclude-module=notebook",
         "--exclude-module=PIL.ImageQt",
-        "--exclude-module=pygments",
         "--exclude-module=cython",
         "--exclude-module=setuptools",
     ]
 
     hidden_imports = [
+        "--hidden-import=pygments",
         "--hidden-import=uvicorn",
         "--hidden-import=uvicorn.logging",
         "--hidden-import=uvicorn.loops",
