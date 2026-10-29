@@ -37,7 +37,7 @@ from lecture_pipeline.gui.bridge import (
     set_global_tray,
 )
 from lecture_pipeline.gui.server import app
-from lecture_pipeline.gui.window import DesktopWindow
+from lecture_pipeline.gui.window import DesktopWindow, configure_webview2_environment, trim_process_working_set
 
 
 logger = logging.getLogger("lecture_pipeline.gui")
@@ -74,6 +74,28 @@ def run_uvicorn_server(host: str, port: int) -> None:
     server.run()
 
 
+def start_memory_watchdog(desktop: Optional[DesktopWindow] = None, interval_sec: int = 900) -> threading.Thread:
+    """Periodic memory watchdog to prevent RAM bloat during multi-day background runs."""
+    def _watchdog_loop():
+        import gc
+        while True:
+            time.sleep(interval_sec)
+            try:
+                gc.collect()
+                trim_process_working_set()
+                if desktop and desktop.window:
+                    try:
+                        desktop.window.evaluate_js("if(window.gc){window.gc();}")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+    t = threading.Thread(target=_watchdog_loop, daemon=True, name="MemoryWatchdog")
+    t.start()
+    return t
+
+
 def launch_gui(
     mode: Optional[str] = None,
     host: Optional[str] = None,
@@ -81,6 +103,7 @@ def launch_gui(
     debug: bool = False,
 ) -> None:
     """Launch the GUI application according to remembered or specified mode."""
+    configure_webview2_environment()
     cfg = get_current_config()
     gui_cfg = cfg.get("gui", {})
 
@@ -153,6 +176,7 @@ def launch_gui(
         width=gui_cfg.get("window_width", 1280),
         height=gui_cfg.get("window_height", 800),
     )
+    start_memory_watchdog(desktop)
 
     try:
         if active_mode == "web":

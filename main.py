@@ -343,6 +343,8 @@ def main() -> None:
 
     # Case 2: No arguments or explicit GUI trigger -> Launch full GUI + Tray + Watcher
     if is_gui_invocation:
+        from lecture_pipeline.gui.window import configure_webview2_environment
+        configure_webview2_environment()
         from lecture_pipeline.gui import launch_gui
 
         # Parse potential gui flags: --mode, --host, --port, --debug

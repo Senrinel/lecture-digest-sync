@@ -6,6 +6,7 @@ Provides a clean standalone desktop window utilizing Microsoft Edge WebView2.
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -14,6 +15,47 @@ import webview
 
 
 logger = logging.getLogger("lecture_pipeline.gui")
+
+
+def configure_webview2_environment() -> None:
+    """Configure Chromium command line switches for Microsoft Edge WebView2.
+    
+    Prevents memory leaks and restricts renderer memory footprint:
+    1. --js-flags="--max-old-space-size=256 --expose-gc":
+       Restricts V8 heap to 256MB and exposes window.gc() for manual/periodic collection.
+    2. --enable-features=ResourceSaver,BatterySaverMode,HighEfficiencyModeAvailable:
+       Enables Chromium memory saving features.
+    3. --disable-background-timer-throttling=false:
+       Enforces background throttling on timers when window is not active.
+    4. --disk-cache-size=104857600:
+       Limits disk cache to 100MB.
+    5. --renderer-process-limit=1:
+       Restricts extra renderer processes.
+    """
+    args = [
+        '--js-flags="--max-old-space-size=256 --expose-gc"',
+        '--enable-features=ResourceSaver,BatterySaverMode,HighEfficiencyModeAvailable',
+        '--disable-background-timer-throttling=false',
+        '--disk-cache-size=104857600',
+        '--renderer-process-limit=1',
+    ]
+    cur = os.environ.get("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", "")
+    new_flags = [a for a in args if a.split("=")[0] not in cur]
+    if new_flags:
+        combined = f"{cur} {' '.join(new_flags)}".strip()
+        os.environ["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = combined
+        logger.debug(f"Configured WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: {combined}")
+
+
+def trim_process_working_set() -> None:
+    """Trigger Windows OS working set trim to immediately return unused memory pages."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            handle = ctypes.windll.kernel32.GetCurrentProcess()
+            ctypes.windll.psapi.EmptyWorkingSet(handle)
+        except Exception:
+            pass
 
 
 class DesktopWindow:
@@ -72,7 +114,7 @@ class DesktopWindow:
                 logger.warning(f"Error destroying window: {e}")
 
     def show(self) -> None:
-        """Show and bring window to front."""
+        """Show and bring window to front and resume page animations."""
         if self.window:
             try:
                 try:
@@ -83,6 +125,10 @@ class DesktopWindow:
                     self.window.load_url(self.url)
                 self.window.show()
                 self.window.restore()
+                try:
+                    self.window.evaluate_js("window.onHostWindowShown && window.onHostWindowShown();")
+                except Exception:
+                    pass
             except Exception as e:
                 logger.warning(f"Error showing window: {e}")
 
@@ -97,17 +143,23 @@ class DesktopWindow:
                 pass
 
     def hide(self) -> None:
-        """Hide window without closing backend loop."""
+        """Hide window without closing backend loop and trigger page freeze."""
         if self.window:
             try:
+                try:
+                    self.window.evaluate_js("window.onHostWindowHidden && window.onHostWindowHidden();")
+                except Exception:
+                    pass
                 self.window.hide()
+                trim_process_working_set()
             except Exception as e:
                 logger.warning(f"Error hiding window: {e}")
 
     def start(self, debug: bool = False) -> None:
         """Start the PyWebView GUI event loop on Windows 10/11."""
+        configure_webview2_environment()
         try:
-            # On Windows 10, edgechromium uses system WebView2
+            # On Windows 10/11, edgechromium uses system WebView2
             gui_engine = "edgechromium" if sys.platform == "win32" else None
             webview.start(gui=gui_engine, debug=debug)
         except Exception as e:

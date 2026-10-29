@@ -1325,13 +1325,46 @@
       { x: width * 0.6, y: height * 0.4, vx: 0.5, vy: 0.5, r: 0.35 }
     ];
 
-    function renderFluidFrame() {
+    let isFluidAnimationActive = true;
+    let fluidAnimationId = null;
+    let lastFluidFrameTime = 0;
+    const FLUID_FRAME_INTERVAL = 1000 / 30; // 限制至 30 FPS，降低 50% GPU 與 CPU 負載
+
+    function startFluidAnimation() {
+      if (isFluidAnimationActive && fluidAnimationId) return;
+      isFluidAnimationActive = true;
+      lastFluidFrameTime = performance.now();
+      fluidAnimationId = requestAnimationFrame(renderFluidFrame);
+    }
+
+    function stopFluidAnimation() {
+      isFluidAnimationActive = false;
+      if (fluidAnimationId) {
+        cancelAnimationFrame(fluidAnimationId);
+        fluidAnimationId = null;
+      }
+      if (ctx && width && height) {
+        ctx.clearRect(0, 0, width, height);
+      }
+      lorenzTrail.length = 0;
+      pendulumTrail.length = 0;
+    }
+
+    function renderFluidFrame(now = 0) {
+      if (!isFluidAnimationActive) return;
+      fluidAnimationId = requestAnimationFrame(renderFluidFrame);
+
+      const elapsed = now - lastFluidFrameTime;
+      if (elapsed < FLUID_FRAME_INTERVAL) {
+        return;
+      }
+      lastFluidFrameTime = now - (elapsed % FLUID_FRAME_INTERVAL);
+
       ctx.clearRect(0, 0, width, height);
       fluidTime += 0.01 * fluidSpeed;
       const activeCount = colorList.length;
 
       if (activeCount === 0) {
-        requestAnimationFrame(renderFluidFrame);
         return;
       }
 
@@ -1599,10 +1632,8 @@
         }
         ctx.globalAlpha = 1.0;
       }
-
-      requestAnimationFrame(renderFluidFrame);
     }
-    renderFluidFrame();
+    startFluidAnimation();
 
     // =========================================================================
     // 2. 分頁切換
@@ -2612,8 +2643,12 @@
       if (docsBtn) docsBtn.style.display = 'none';
 
       if (playerAudioEl) {
-        playerAudioEl.pause();
-        playerAudioEl.removeAttribute('src');
+        try {
+          playerAudioEl.pause();
+          playerAudioEl.removeAttribute('src');
+          playerAudioEl.src = '';
+          playerAudioEl.load();
+        } catch (e) {}
       }
       const curEl = document.getElementById('player-time-current');
       if (curEl) curEl.innerText = '00:00:00';
@@ -3507,6 +3542,9 @@
                 row.className = 'text-cyan-400';
                 row.innerText = `[${new Date().toLocaleTimeString()}] [${msg.stage}] ${msg.detail}`;
                 logsEl.appendChild(row);
+                while (logsEl.children.length > 100) {
+                  logsEl.removeChild(logsEl.firstChild);
+                }
                 logsEl.scrollTop = logsEl.scrollHeight;
               }
             } else if (msg.type === 'task_completed') {
@@ -3532,6 +3570,43 @@
       } catch (e) {}
     }
 
+    let _bgPollingTimer = null;
+
+    function startBackgroundPolling() {
+      stopBackgroundPolling();
+      // 僅在頁面可見時進行低頻率備援輪詢 (每 15 秒)，常態更新主要由 WebSocket 推送
+      _bgPollingTimer = setInterval(() => {
+        if (document.visibilityState === 'visible') {
+          loadStatusFromServer();
+          loadHistoryFromServer();
+        }
+      }, 15000);
+    }
+
+    function stopBackgroundPolling() {
+      if (_bgPollingTimer) {
+        clearInterval(_bgPollingTimer);
+        _bgPollingTimer = null;
+      }
+    }
+
+    // 供 Python 宿主程序 (PyWebView) 在視窗隱藏與顯示時直接調用
+    window.onHostWindowHidden = function() {
+      stopFluidAnimation();
+      stopBackgroundPolling();
+      clearPlayerAndPanes();
+      if (window.gc) {
+        try { window.gc(); } catch (e) {}
+      }
+    };
+
+    window.onHostWindowShown = function() {
+      startFluidAnimation();
+      startBackgroundPolling();
+      loadStatusFromServer();
+      loadHistoryFromServer();
+    };
+
     window.addEventListener('DOMContentLoaded', () => {
       loadState();
       loadStatusFromServer();
@@ -3541,17 +3616,21 @@
       initWebSocket();
       lucide.createIcons();
 
-      // Background periodic polling for sync with tray & watcher
-      setInterval(() => {
-        loadStatusFromServer();
-        loadHistoryFromServer();
-      }, 4000);
+      startBackgroundPolling();
 
-      // Refresh when user returns to window/tab
+      // 監聽頁面可見性變化（最小化、切換分頁等）
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
+          startFluidAnimation();
+          startBackgroundPolling();
           loadStatusFromServer();
           loadHistoryFromServer();
+        } else {
+          stopFluidAnimation();
+          stopBackgroundPolling();
+          if (window.gc) {
+            try { window.gc(); } catch (e) {}
+          }
         }
       });
     });
