@@ -83,11 +83,6 @@ def start_memory_watchdog(desktop: Optional[DesktopWindow] = None, interval_sec:
             try:
                 gc.collect()
                 trim_process_working_set()
-                if desktop and desktop.window:
-                    try:
-                        desktop.window.evaluate_js("if(window.gc){window.gc();}")
-                    except Exception:
-                        pass
             except Exception:
                 pass
 

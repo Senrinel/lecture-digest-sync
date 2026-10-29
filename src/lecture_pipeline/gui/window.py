@@ -94,9 +94,11 @@ class DesktopWindow:
         )
 
         def on_closing():
-            """Intercept user clicking top-right X to keep background watcher active."""
+            """Intercept user clicking top-right X to keep background watcher active without deadlocking."""
             if not self._force_close:
-                self.hide()
+                # Asynchronously trigger window hide to prevent WinForms FormClosing message loop deadlock
+                import threading
+                threading.Thread(target=self.hide, daemon=True).start()
                 return False  # Cancels window destruction, stays alive in tray
             return True
 
@@ -114,7 +116,7 @@ class DesktopWindow:
                 logger.warning(f"Error destroying window: {e}")
 
     def show(self) -> None:
-        """Show and bring window to front and resume page animations."""
+        """Show and bring window to front."""
         if self.window:
             try:
                 try:
@@ -125,35 +127,53 @@ class DesktopWindow:
                     self.window.load_url(self.url)
                 self.window.show()
                 self.window.restore()
-                try:
-                    self.window.evaluate_js("window.onHostWindowShown && window.onHostWindowShown();")
-                except Exception:
-                    pass
             except Exception as e:
                 logger.warning(f"Error showing window: {e}")
 
         if sys.platform == "win32":
             try:
                 import ctypes
-                hwnd = ctypes.windll.user32.FindWindowW(None, self.title)
-                if hwnd:
-                    ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
-                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+                for title in [
+                    self.title,
+                    "Lecture Digest Sync - 課堂錄音辨識與筆記同步系統",
+                    "Lecture Digest Sync - 課堂錄音辨識與筆記同步",
+                ]:
+                    hwnd = ctypes.windll.user32.FindWindowW(None, title)
+                    if hwnd:
+                        ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                        ctypes.windll.user32.SetForegroundWindow(hwnd)
             except Exception:
                 pass
 
     def hide(self) -> None:
-        """Hide window without closing backend loop and trigger page freeze."""
+        """Hide window without closing backend loop and trigger resource trim."""
         if self.window:
             try:
-                try:
-                    self.window.evaluate_js("window.onHostWindowHidden && window.onHostWindowHidden();")
-                except Exception:
-                    pass
+                if sys.platform == "win32":
+                    try:
+                        import ctypes
+                        for title in [
+                            self.title,
+                            "Lecture Digest Sync - 課堂錄音辨識與筆記同步系統",
+                            "Lecture Digest Sync - 課堂錄音辨識與筆記同步",
+                        ]:
+                            hwnd = ctypes.windll.user32.FindWindowW(None, title)
+                            if hwnd:
+                                ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+                    except Exception:
+                        pass
                 self.window.hide()
-                trim_process_working_set()
             except Exception as e:
                 logger.warning(f"Error hiding window: {e}")
+
+        # Async memory trim so UI loop is never blocked
+        def _bg_trim():
+            import time
+            time.sleep(0.3)
+            trim_process_working_set()
+
+        import threading
+        threading.Thread(target=_bg_trim, daemon=True).start()
 
     def start(self, debug: bool = False) -> None:
         """Start the PyWebView GUI event loop on Windows 10/11."""
