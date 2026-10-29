@@ -107,15 +107,22 @@ class QuotaManager:
         local_fallback_channel: str = "C7",
         daily_reset_hour_utc: int = 8,  # 08:00 UTC = 16:00 Taiwan time
         lock_file: Path | str = DEFAULT_LOCK_FILE,
+        state_file: Optional[Path | str] = None,
+        reset_hour_utc: Optional[int] = None,
     ):
         self.policy = policy.lower().strip()
         self.local_fallback_channel = local_fallback_channel
-        self.daily_reset_hour_utc = daily_reset_hour_utc
-        self.lock_file = Path(lock_file).resolve()
+        self.daily_reset_hour_utc = reset_hour_utc if reset_hour_utc is not None else daily_reset_hour_utc
+        target_lock = state_file if state_file is not None else lock_file
+        self.lock_file = Path(target_lock).resolve()
 
-    def calculate_next_reset_datetime(self) -> datetime.datetime:
+    def calculate_next_reset_datetime(self, now: Optional[datetime.datetime] = None) -> datetime.datetime:
         """Calculate next Google API daily quota reset time (UTC 08:00 / TW 16:00)."""
-        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        if now is None:
+            now_utc = datetime.datetime.now(datetime.timezone.utc)
+        else:
+            now_utc = now if now.tzinfo is not None else now.replace(tzinfo=datetime.timezone.utc)
+            now_utc = now_utc.astimezone(datetime.timezone.utc)
         target = now_utc.replace(
             hour=self.daily_reset_hour_utc,
             minute=0,

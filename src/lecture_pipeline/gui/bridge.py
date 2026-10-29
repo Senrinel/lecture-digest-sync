@@ -123,6 +123,11 @@ def save_remembered_gui_mode(mode: str) -> str:
         valid_mode = "window"
 
     if not CONFIG_FILE_PATH.is_file():
+        CONFIG_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CONFIG_FILE_PATH.write_text(
+            f"gui:\n  mode: \"{valid_mode}\"\n  host: \"127.0.0.1\"\n  port: 8000\n",
+            encoding="utf-8",
+        )
         return valid_mode
 
     try:

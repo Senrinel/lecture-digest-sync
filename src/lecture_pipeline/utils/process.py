@@ -58,6 +58,11 @@ def silent_run(cmd: Union[List[str], str], *args: Any, **kwargs: Any) -> subproc
         kwargs["creationflags"] = NO_WINDOW_FLAGS
     if "stdin" not in kwargs:
         kwargs["stdin"] = subprocess.DEVNULL
+    if kwargs.get("text") or kwargs.get("universal_newlines"):
+        if "encoding" not in kwargs:
+            kwargs["encoding"] = "utf-8"
+        if "errors" not in kwargs:
+            kwargs["errors"] = "replace"
 
     return subprocess.run(cmd, *args, **kwargs)
 
@@ -68,5 +73,10 @@ def silent_popen(cmd: Union[List[str], str], *args: Any, **kwargs: Any) -> subpr
         kwargs["creationflags"] = NO_WINDOW_FLAGS
     if "stdin" not in kwargs:
         kwargs["stdin"] = subprocess.DEVNULL
+    if kwargs.get("text") or kwargs.get("universal_newlines"):
+        if "encoding" not in kwargs:
+            kwargs["encoding"] = "utf-8"
+        if "errors" not in kwargs:
+            kwargs["errors"] = "replace"
 
     return subprocess.Popen(cmd, *args, **kwargs)
