@@ -133,6 +133,38 @@ class TestDesktopWindowMemoryAndLifecycleWhitebox:
             win._force_close = True
             assert on_closing() is True
 
+    def test_window_standalone_closing_clean_exit(self):
+        win = DesktopWindow()
+        created_window = MagicMock()
+        closing_event = MagicMock()
+        created_window.events.closing = closing_event
+
+        with patch("webview.create_window", return_value=created_window):
+            win.create(hidden=False, standalone=True)
+
+        on_closing = closing_event.__iadd__.call_args[0][0]
+        # In standalone mode, user clicking X directly returns True to release all Chromium resources
+        assert on_closing() is True
+
+    def test_launch_window_process_invocation(self):
+        from lecture_pipeline.gui.window import launch_window_process
+        with patch("lecture_pipeline.utils.process.silent_popen") as mock_popen:
+            ok = launch_window_process(host="127.0.0.1", port=8000)
+            assert ok is True
+            mock_popen.assert_called_once()
+            cmd = mock_popen.call_args[0][0]
+            assert "--window-only" in cmd
+            assert "--host=127.0.0.1" in cmd
+            assert "--port=8000" in cmd
+
+    def test_close_external_desktop_window_safety(self):
+        from lecture_pipeline.gui.window import close_external_desktop_window
+        # Verify function executes without raising unhandled exceptions
+        try:
+            close_external_desktop_window()
+        except Exception as e:
+            pytest.fail(f"close_external_desktop_window raised: {e}")
+
 
 class TestGuiModePersistenceWhitebox:
     """White-box verification for GUI mode get/save behaviors."""

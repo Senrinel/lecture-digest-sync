@@ -3633,6 +3633,14 @@
           }
         }
       });
+
+      // 視窗失去焦點時暫停動畫，重新聚焦時恢復，避免背景失焦時持續耗費運算資源
+      window.addEventListener('blur', () => {
+        stopFluidAnimation();
+      });
+      window.addEventListener('focus', () => {
+        startFluidAnimation();
+      });
     });
   </script>
 </body>

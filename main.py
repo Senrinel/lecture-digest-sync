@@ -298,6 +298,32 @@ def main() -> None:
         print(f"[OK] 設定檔已成功初始化分區路徑：\n  Inbox: {inbox_dir}\n  Exports: {exports_dir}\n  Courses: {courses_dir}")
         return
 
+    # Case 0.5: On-demand standalone UI window process (isolated from background daemon)
+    if any(a == "--window-only" or a.startswith("--window-only") for a in args):
+        import argparse
+        parser = argparse.ArgumentParser(add_help=False)
+        parser.add_argument("--host", type=str, default="127.0.0.1")
+        parser.add_argument("--port", type=int, default=8000)
+        parsed_w, _ = parser.parse_known_args(args)
+
+        from lecture_pipeline.gui.window import DesktopWindow, configure_webview2_environment
+        from lecture_pipeline.gui.bridge import get_current_config
+        configure_webview2_environment()
+        cfg = get_current_config()
+        gui_cfg = cfg.get("gui", {})
+        w = gui_cfg.get("window_width", 1280)
+        h = gui_cfg.get("window_height", 800)
+        url = f"http://{parsed_w.host}:{parsed_w.port}"
+        desktop = DesktopWindow(
+            url=url,
+            title="Lecture Digest Sync - 課堂錄音辨識與筆記同步系統",
+            width=w,
+            height=h,
+        )
+        desktop.create(hidden=False, standalone=True)
+        desktop.start()
+        return
+
     # Case 1: Setup shortcuts
     if len(args) == 1 and args[0] in ("--setup", "--setup-shortcuts", "-s"):
         setup_desktop_shortcuts()

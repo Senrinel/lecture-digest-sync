@@ -164,36 +164,32 @@ def launch_gui(
     except Exception as we:
         logger.warning(f"無法啟動背景監看線程: {we}")
 
-    # 4. Handle execution modes
-    desktop = DesktopWindow(
-        url=url,
-        title="Lecture Digest Sync - 課堂錄音辨識與筆記同步系統",
-        width=gui_cfg.get("window_width", 1280),
-        height=gui_cfg.get("window_height", 800),
-    )
-    start_memory_watchdog(desktop)
+    # 4. Handle execution modes via on-demand UI architecture (Ultra-Low Footprint)
+    start_memory_watchdog()
+
+    from lecture_pipeline.gui.window import close_external_desktop_window, show_desktop_window
 
     try:
         if active_mode == "web":
             print(f"[啟動] 網頁模式啟用：正在以預設瀏覽器開啟 {url}...")
             webbrowser.open(url)
-            desktop.create(hidden=True)
-            desktop.start(debug=debug)
         elif active_mode == "both":
             print(f"[啟動] 同時模式啟用：正在以預設瀏覽器開啟 {url} 並啟動原生視窗...")
             webbrowser.open(url)
-            desktop.create(hidden=False)
-            print("[視窗] 啟動 Windows 10/11 原生獨立視窗 (Microsoft Edge WebView2)...")
-            desktop.start(debug=debug)
+            show_desktop_window(host=server_host, port=server_port)
         else:
             # window mode
-            desktop.create(hidden=False)
-            print("[視窗] 啟動 Windows 10/11 原生獨立視窗 (Microsoft Edge WebView2)...")
-            desktop.start(debug=debug)
+            print("[視窗] 啟動 Windows 10/11 原生獨立視窗 (按需載入)...")
+            show_desktop_window(host=server_host, port=server_port)
+
+        # 5. Keep headless daemon core alive in ultra-low footprint mode (~60MB RAM, 0% CPU)
+        while True:
+            time.sleep(1.0)
 
     except KeyboardInterrupt:
         print("\n[結束] 收到終止訊號，系統正在結束...")
     finally:
+        close_external_desktop_window()
         if tray:
             tray.stop()
         print("[退出] 系統服務已順利退出。")

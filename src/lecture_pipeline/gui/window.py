@@ -79,7 +79,7 @@ class DesktopWindow:
         self.window: Optional[webview.Window] = None
         self._force_close: bool = False
 
-    def create(self, hidden: bool = False) -> webview.Window:
+    def create(self, hidden: bool = False, standalone: bool = False) -> webview.Window:
         """Create and configure the desktop window."""
         initial_url = "about:blank" if hidden else self.url
         self.window = webview.create_window(
@@ -94,7 +94,10 @@ class DesktopWindow:
         )
 
         def on_closing():
-            """Intercept user clicking top-right X to keep background watcher active without deadlocking."""
+            """Handle window close event."""
+            if standalone:
+                # Standalone UI process terminates cleanly, releasing all Chromium memory
+                return True
             if not self._force_close:
                 # Asynchronously trigger window hide to prevent WinForms FormClosing message loop deadlock
                 import threading
@@ -201,9 +204,43 @@ def get_desktop_window() -> Optional[DesktopWindow]:
     return _active_desktop_window
 
 
-def show_desktop_window() -> bool:
+def launch_window_process(host: str = "127.0.0.1", port: int = 8000) -> bool:
+    """Launch an independent, on-demand WebView2 UI subprocess."""
+    try:
+        from lecture_pipeline.utils.process import silent_popen
+        if getattr(sys, "frozen", False):
+            exe = sys.executable
+            cmd = [exe, "--window-only", f"--host={host}", f"--port={port}"]
+        else:
+            cmd = [sys.executable, "main.py", "--window-only", f"--host={host}", f"--port={port}"]
+        silent_popen(cmd)
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to launch on-demand window process: {e}")
+        return False
+
+
+def close_external_desktop_window() -> None:
+    """Close desktop window subprocess if running."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            for title in [
+                "Lecture Digest Sync - 課堂錄音辨識與筆記同步系統",
+                "Lecture Digest Sync - 課堂錄音辨識與筆記同步",
+            ]:
+                hwnd = ctypes.windll.user32.FindWindowW(None, title)
+                if hwnd:
+                    # Send WM_CLOSE = 0x0010 to request clean termination
+                    ctypes.windll.user32.PostMessageW(hwnd, 0x0010, 0, 0)
+        except Exception:
+            pass
+
+
+def show_desktop_window(host: str = "127.0.0.1", port: int = 8000) -> bool:
+    """Activate existing desktop window or launch a lightweight on-demand UI process."""
     win = get_desktop_window()
-    if win:
+    if win and win.window:
         win.show()
         return True
     if sys.platform == "win32":
@@ -215,12 +252,12 @@ def show_desktop_window() -> bool:
             ]:
                 hwnd = ctypes.windll.user32.FindWindowW(None, title)
                 if hwnd:
-                    ctypes.windll.user32.ShowWindow(hwnd, 9)
+                    ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
                     ctypes.windll.user32.SetForegroundWindow(hwnd)
                     return True
         except Exception:
             pass
-    return False
+    return launch_window_process(host=host, port=port)
 
 
 def hide_desktop_window() -> bool:

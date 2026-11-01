@@ -203,15 +203,19 @@ async def api_status():
 @app.post("/api/window/show")
 async def api_window_show():
     """Restore and bring native desktop window to front, or open in browser if web mode."""
-    from lecture_pipeline.gui.window import show_desktop_window
-    shown = show_desktop_window()
-    if not shown:
+    cfg = get_current_config()
+    mode = get_remembered_gui_mode()
+    gui_cfg = cfg.get("gui", {})
+    host = gui_cfg.get("host", "127.0.0.1")
+    port = int(gui_cfg.get("port", 8000))
+
+    if mode == "web":
         import webbrowser
-        cfg = get_current_config()
-        gui_cfg = cfg.get("gui", {})
-        host = gui_cfg.get("host", "127.0.0.1")
-        port = int(gui_cfg.get("port", 8000))
         webbrowser.open(f"http://{host}:{port}")
+        return {"status": "ok", "mode": "web", "shown": True}
+
+    from lecture_pipeline.gui.window import show_desktop_window
+    shown = show_desktop_window(host=host, port=port)
     return {"status": "ok", "shown": shown}
 
 

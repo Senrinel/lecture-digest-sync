@@ -28,7 +28,7 @@ from lecture_pipeline.gui.server import app
 CHROME_EXE = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 HOST = "127.0.0.1"
 PORT = 8000
-CDP_PORT = 9222
+CDP_PORT = 9444
 
 
 class ChromeCDPClient:

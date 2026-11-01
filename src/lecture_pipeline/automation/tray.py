@@ -121,12 +121,8 @@ class WatcherTray:
         """Right-click menu: 顯示桌面視窗."""
         try:
             self._ensure_backend_running()
-            from lecture_pipeline.gui.window import get_desktop_window, show_desktop_window
-            win = get_desktop_window()
-            if win and win.window:
-                show_desktop_window()
-            else:
-                subprocess.Popen([sys.executable, "-m", "lecture_pipeline.cli", "gui", "--mode", "window"])
+            from lecture_pipeline.gui.window import show_desktop_window
+            show_desktop_window()
         except Exception:
             pass
 
@@ -145,12 +141,8 @@ class WatcherTray:
             self._ensure_backend_running()
             import webbrowser
             webbrowser.open(self.server_url)
-            from lecture_pipeline.gui.window import get_desktop_window, show_desktop_window
-            win = get_desktop_window()
-            if win and win.window:
-                show_desktop_window()
-            else:
-                subprocess.Popen([sys.executable, "-m", "lecture_pipeline.cli", "gui", "--mode", "window"])
+            from lecture_pipeline.gui.window import show_desktop_window
+            show_desktop_window()
         except Exception:
             pass
 
@@ -207,7 +199,8 @@ class WatcherTray:
             except Exception:
                 pass
         try:
-            from lecture_pipeline.gui.window import get_desktop_window
+            from lecture_pipeline.gui.window import close_external_desktop_window, get_desktop_window
+            close_external_desktop_window()
             win = get_desktop_window()
             if win and win.window:
                 win.window.destroy()
