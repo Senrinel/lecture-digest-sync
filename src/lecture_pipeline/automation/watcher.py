@@ -860,6 +860,18 @@ def watch_inbox(
 
     set_low_process_priority()
 
+    # Automatically prune lingering work residuals from previous completed runs
+    try:
+        from lecture_pipeline.automation.pruner import clean_work_residuals
+        from lecture_pipeline.gui.bridge import get_current_config
+        c_cfg = get_current_config()
+        work_base = c_cfg.get("paths", {}).get("work_dir", "work")
+        freed = clean_work_residuals(work_base)
+        if freed > 0:
+            console.print(f"[dim]已自動清理暫存殘留音訊，釋放 {freed / (1024 * 1024):.1f} MB 空間[/dim]")
+    except Exception:
+        pass
+
     # Initialize auxiliary managers
     dead_letter = DeadLetterQuarantine(inbox_path, max_retries=3)
     offline_queue = OfflineUploadQueue()

@@ -17,6 +17,7 @@ from lecture_pipeline.automation.offline_queue import (
     is_internet_connected,
 )
 from lecture_pipeline.automation.pruner import (
+    clean_work_residuals,
     compress_audio_to_opus,
     get_record_archive_base_dir,
     prune_and_archive,
@@ -43,6 +44,7 @@ __all__ = [
     "QuotaManager",
     "WatcherTray",
     "acquire_processing_files",
+    "clean_work_residuals",
     "compress_audio_to_opus",
     "create_status_icon",
     "disable_autostart",

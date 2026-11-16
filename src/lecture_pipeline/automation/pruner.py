@@ -136,13 +136,20 @@ def prune_and_archive(
 
     archived_files: Dict[str, Path] = {}
 
-    # 1. Compress normalized WAV
+    # 1. Compress normalized WAV / FLAC
     norm_wav = w_dir / "00_normalized.wav"
+    norm_flac = w_dir / "00_normalized.flac"
     compressed_audio_dest = dest_dir / f"{course}_{date}_audio.opus"
 
+    source_for_compression = None
     if norm_wav.is_file():
+        source_for_compression = norm_wav
+    elif norm_flac.is_file():
+        source_for_compression = norm_flac
+
+    if source_for_compression:
         try:
-            actual_compressed = compress_audio_to_opus(norm_wav, compressed_audio_dest)
+            actual_compressed = compress_audio_to_opus(source_for_compression, compressed_audio_dest)
             archived_files["audio"] = actual_compressed
             console.print(
                 f"[green][OK] 壓縮音檔封存完成: {actual_compressed.name} "
@@ -150,8 +157,8 @@ def prune_and_archive(
             )
         except Exception as e:
             console.print(f"[yellow][WARN] 音檔壓縮失敗，保留原始檔封存: {e}[/yellow]")
-            fallback_dest = dest_dir / norm_wav.name
-            shutil.copy2(str(norm_wav), str(fallback_dest))
+            fallback_dest = dest_dir / source_for_compression.name
+            shutil.copy2(str(source_for_compression), str(fallback_dest))
             archived_files["audio"] = fallback_dest
 
     # 2. Archive cleaned lecture transcript
@@ -209,14 +216,72 @@ def prune_and_archive(
                 console.print(f"[dim][WARN] 暫存目錄清理警告: {e}[/dim]")
 
     if delete_norm_wav:
-        if norm_wav.is_file():
-            try:
-                norm_wav.unlink()
-                console.print(f"[dim]已刪除未壓縮原始檔: {norm_wav.name}[/dim]")
-            except Exception as e:
-                console.print(f"[dim][WARN] 原始檔清理警告: {e}[/dim]")
+        for f in [norm_wav, norm_flac]:
+            if f.is_file():
+                try:
+                    f.unlink()
+                    console.print(f"[dim]已刪除中間音訊檔: {f.name}[/dim]")
+                except Exception as e:
+                    console.print(f"[dim][WARN] 原始檔清理警告: {e}[/dim]")
 
     console.print(
         f"[bold green][OK] 課堂封存完成：{dest_dir} (保留壓縮音檔、文稿、筆記與 log)[/bold green]"
     )
     return archived_files
+
+
+def clean_work_residuals(work_base_dir: Path | str, max_age_days: float = 7.0) -> int:
+    """Scan and prune residual uncompressed 00_normalized.wav and .flac files from finished or stale jobs.
+
+    Args:
+        work_base_dir: Base directory for temporary pipeline outputs.
+        max_age_days: Maximum age in days before abandoned incomplete artifacts are considered stale.
+
+    Returns:
+        Total bytes freed.
+    """
+    import time
+
+    base = Path(work_base_dir).resolve()
+    if not base.is_dir():
+        return 0
+
+    freed_bytes = 0
+    now = time.time()
+    cutoff_time = now - (max_age_days * 86400)
+
+    for target_dir in base.rglob("*"):
+        if not target_dir.is_dir():
+            continue
+
+        # Check if directory contains lecture artifacts indicating completion
+        has_finished_artifacts = (
+            (target_dir / "03_summary.md").is_file()
+            or (target_dir / "02_cleaned.txt").is_file()
+            or (target_dir / "run.json").is_file()
+        )
+
+        # Remove residual uncompressed/companion audio files
+        for audio_name in ["00_normalized.wav", "00_normalized.flac"]:
+            residual = target_dir / audio_name
+            if residual.is_file():
+                is_stale = residual.stat().st_mtime < cutoff_time
+                if has_finished_artifacts or is_stale:
+                    try:
+                        size = residual.stat().st_size
+                        residual.unlink()
+                        freed_bytes += size
+                    except Exception:
+                        pass
+
+        # Also remove lingering chunks directory if finished or stale
+        chunks_dir = target_dir / "chunks"
+        if chunks_dir.is_dir():
+            try:
+                chunks_mtime = chunks_dir.stat().st_mtime
+                if has_finished_artifacts or chunks_mtime < cutoff_time:
+                    shutil.rmtree(str(chunks_dir))
+            except Exception:
+                pass
+
+    return freed_bytes

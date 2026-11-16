@@ -461,3 +461,71 @@ def test_generate_interactive_player(tmp_path: Path):
     assert "重點整理筆記" in content
     assert "audioPlayer" in content
 
+
+def test_prune_and_archive_cleans_flac_and_wav(tmp_path: Path):
+    """Verify prune_and_archive removes both 00_normalized.wav and companion 00_normalized.flac."""
+    from lecture_pipeline.automation.pruner import prune_and_archive
+
+    work_dir = tmp_path / "work" / "電磁學" / "20261030"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    chunks_dir = work_dir / "chunks"
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+    (chunks_dir / "chunk_001.wav").write_bytes(b"chunk1")
+
+    norm_wav = work_dir / "00_normalized.wav"
+    norm_flac = work_dir / "00_normalized.flac"
+    norm_wav.write_bytes(b"wav bytes")
+    norm_flac.write_bytes(b"flac bytes")
+
+    (work_dir / "02_cleaned.txt").write_text("課堂文字", encoding="utf-8")
+    (work_dir / "03_summary.md").write_text("# 摘要", encoding="utf-8")
+    (work_dir / "run.json").write_text("{}", encoding="utf-8")
+
+    archive_base = tmp_path / "Record"
+
+    with patch("lecture_pipeline.automation.pruner.compress_audio_to_opus") as mock_compress:
+        fake_opus = archive_base / "電磁學" / "20261030" / "電磁學_20261030_audio.opus"
+        fake_opus.parent.mkdir(parents=True, exist_ok=True)
+        fake_opus.write_bytes(b"opus")
+        mock_compress.return_value = fake_opus
+
+        archived = prune_and_archive(
+            work_dir=work_dir,
+            course="電磁學",
+            date="20261030",
+            record_base_dir=archive_base,
+            delete_chunks=True,
+            delete_norm_wav=True,
+        )
+
+        assert "audio" in archived
+        assert not norm_wav.exists()
+        assert not norm_flac.exists()
+        assert not chunks_dir.exists()
+
+
+def test_clean_work_residuals(tmp_path: Path):
+    """Verify clean_work_residuals cleans orphaned WAV/FLAC files in completed work directories."""
+    from lecture_pipeline.automation.pruner import clean_work_residuals
+
+    work_base = tmp_path / "work"
+    c1_dir = work_base / "電磁學" / "20261002"
+    c1_dir.mkdir(parents=True, exist_ok=True)
+    (c1_dir / "00_normalized.flac").write_bytes(b"x" * 1024)
+    (c1_dir / "02_cleaned.txt").write_text("ok", encoding="utf-8")
+
+    c2_dir = work_base / "光電子學" / "20260929"
+    c2_dir.mkdir(parents=True, exist_ok=True)
+    (c2_dir / "00_normalized.wav").write_bytes(b"y" * 2048)
+    (c2_dir / "03_summary.md").write_text("ok", encoding="utf-8")
+
+    c3_dir = work_base / "進行中課堂" / "20261116"
+    c3_dir.mkdir(parents=True, exist_ok=True)
+    (c3_dir / "00_normalized.flac").write_bytes(b"z" * 512)
+
+    freed = clean_work_residuals(work_base)
+    assert freed == 1024 + 2048
+    assert not (c1_dir / "00_normalized.flac").exists()
+    assert not (c2_dir / "00_normalized.wav").exists()
+    assert (c3_dir / "00_normalized.flac").exists()  # Incomplete directory preserved
+
