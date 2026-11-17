@@ -3,6 +3,7 @@
 from lecture_pipeline.export.drive_publisher import (
     DriveDocInfo,
     DrivePublishResult,
+    GoogleAuthRequiredError,
     GoogleDrivePublisher,
 )
 from lecture_pipeline.export.notebook_bundle import (
@@ -19,6 +20,7 @@ __all__ = [
     "prepare_notebook_bundle",
     "open_notebooklm_in_browser",
     "reveal_in_explorer",
+    "GoogleAuthRequiredError",
     "GoogleDrivePublisher",
     "DriveDocInfo",
     "DrivePublishResult",

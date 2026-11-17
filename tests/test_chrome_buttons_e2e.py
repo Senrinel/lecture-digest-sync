@@ -11,6 +11,7 @@ import asyncio
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -29,6 +30,15 @@ CHROME_EXE = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 HOST = "127.0.0.1"
 PORT = 8000
 CDP_PORT = 9444
+
+
+def _find_free_port(default_fallback: int) -> int:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            return int(s.getsockname()[1])
+    except Exception:
+        return default_fallback
 
 
 class ChromeCDPClient:
@@ -174,14 +184,27 @@ class ChromeCDPClient:
 
 @pytest.fixture(scope="module")
 def live_server_and_chrome():
-    """Starts local FastAPI server and Google Chrome with CDP remote debugging."""
+    """Starts isolated FastAPI server and Google Chrome with CDP remote debugging."""
+    global PORT, CDP_PORT
     assert os.path.exists(CHROME_EXE), f"Google Chrome executable must exist at: {CHROME_EXE}"
+
+    # Allocate ephemeral free ports so live LecturePipeline on port 8000 is never touched
+    PORT = _find_free_port(18000)
+    CDP_PORT = _find_free_port(19444)
 
     # Set test mode bypass for native dialogs
     os.environ["LECTURE_PIPELINE_TEST_MODE"] = "1"
 
-    config_path = Path("config.yaml")
-    orig_config_bytes = config_path.read_bytes() if config_path.exists() else None
+    orig_cwd = os.getcwd()
+    temp_ws_dir = Path(tempfile.mkdtemp(prefix="chrome_e2e_ws_"))
+    for sub in ["inbox", "work", "archive", "exports", "logs", "courses/Discrete Mathematics"]:
+        (temp_ws_dir / sub).mkdir(parents=True, exist_ok=True)
+    (temp_ws_dir / "courses" / "Discrete Mathematics" / "glossary.txt").write_text("Graph Theory\n", encoding="utf-8")
+    (temp_ws_dir / "config.yaml").write_text(
+        f"paths:\n  inbox_dir: inbox\n  work_dir: work\n  archive_dir: archive\n  logs_dir: logs\n  courses_dir: courses\n  exports_dir: exports\nexport:\n  export_dir: exports\ngui:\n  mode: web\n  host: {HOST}\n  port: {PORT}\n",
+        encoding="utf-8",
+    )
+    os.chdir(temp_ws_dir)
 
     # 1. Start Uvicorn in daemon thread
     server_config = uvicorn.Config(
@@ -208,7 +231,7 @@ def live_server_and_chrome():
                     break
         except Exception:
             pass
-    assert ready, "FastAPI server failed to start on 127.0.0.1:8000"
+    assert ready, f"FastAPI server failed to start on {HOST}:{PORT}"
 
     # 2. Launch Google Chrome
     temp_profile_dir = tempfile.mkdtemp(prefix="chrome_e2e_profile_")
@@ -254,8 +277,8 @@ def live_server_and_chrome():
             pass
         shutil.rmtree(temp_profile_dir, ignore_errors=True)
         server.should_exit = True
-        if orig_config_bytes is not None:
-            config_path.write_bytes(orig_config_bytes)
+        os.chdir(orig_cwd)
+        shutil.rmtree(temp_ws_dir, ignore_errors=True)
 
 
 @pytest.mark.asyncio

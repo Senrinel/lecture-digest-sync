@@ -149,6 +149,7 @@ class TestBlackBoxPipelineE2E:
                 archive_dir=archive,
                 upload_drive=False,
                 export_dir=exports,
+                record_archive_base_dir=tmp_path / "Record",
             )
 
             # Assertions:
@@ -163,11 +164,12 @@ class TestBlackBoxPipelineE2E:
             archived_file = archive / "演算法概論" / "20261020" / "演算法概論_20261020.mp3"
             assert archived_file.is_file()
 
-            # 3. Notebook bundle exported
+            # 3. Notebook bundle exported under true course & date (not 'Lecture/<today>')
             bundle_dir = result_work_dir / "notebook_bundle"
             assert bundle_dir.is_dir()
             exported_mds = list(bundle_dir.glob("*.md"))
             assert len(exported_mds) >= 2
+            assert (exports / "演算法概論" / "20261020").is_dir()
 
     @patch("lecture_pipeline.automation.watcher.notify_processing_started")
     @patch("lecture_pipeline.automation.watcher.get_stt_channel")
@@ -234,6 +236,7 @@ class TestBlackBoxPipelineE2E:
                 archive_dir=archive,
                 upload_drive=False,
                 export_dir=exports,
+                record_archive_base_dir=tmp_path / "Record",
             )
 
             # Verification:

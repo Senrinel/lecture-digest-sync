@@ -1,10 +1,18 @@
 """Unit tests for local faster-whisper channels (C4, C6, C7)."""
 
 import json
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _mock_backend_python_if_absent():
+    """Allow local whisper unit tests to run in clean stateless source checkouts without 2GB .venv."""
+    with patch("lecture_pipeline.stt.faster_whisper_base.find_backend_python", return_value=Path(sys.executable)):
+        yield
 from lecture_pipeline.state import ChunkInfo
 from lecture_pipeline.stt import (
     BreezeASRChannel,

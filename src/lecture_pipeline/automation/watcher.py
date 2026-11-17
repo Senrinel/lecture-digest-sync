@@ -32,6 +32,7 @@ from lecture_pipeline.state import (
     PreprocessOptions,
     RunState,
     SegmentationOptions,
+    load_run_state,
     save_run_state,
 )
 from lecture_pipeline.stt import get_stt_channel, save_stt_outputs
@@ -42,7 +43,10 @@ from lecture_pipeline.cleanup.base import CleanupResult, save_cleanup_outputs
 from lecture_pipeline.summary.summarizer import GeminiLectureSummarizer
 from lecture_pipeline.summary.base import SummaryResult, save_summary_outputs
 from lecture_pipeline.export.notebook_bundle import prepare_notebook_bundle
-from lecture_pipeline.export.drive_publisher import GoogleDrivePublisher
+from lecture_pipeline.export.drive_publisher import (
+    GoogleAuthRequiredError,
+    GoogleDrivePublisher,
+)
 from lecture_pipeline.glossary import load_course_glossary
 from lecture_pipeline.automation.notifier import (
     notify_corrupted_file,
@@ -70,6 +74,18 @@ import uuid
 
 _active_files_lock = threading.Lock()
 _active_processing_files: Dict[str, str] = {}
+
+_oauth_cooldown_lock = threading.Lock()
+_oauth_failed_token_mtime: Optional[float] = None
+
+
+def _get_token_mtime(token_path: Path | str = "token.json") -> float:
+    """Return token.json mtime or -1.0 if absent, used to detect external re-authorization."""
+    p = Path(token_path)
+    try:
+        return p.stat().st_mtime if p.is_file() else -1.0
+    except Exception:
+        return -1.0
 
 
 def acquire_processing_files(audio_files: List[Path], token: Optional[str] = None) -> bool:
@@ -666,10 +682,13 @@ def run_pipeline_for_group(
             except Exception:
                 target_export = "exports"
 
-        prepare_notebook_bundle(target_work_dir, export_dir=target_export)
         state.mark_stage("export")
-
         save_run_state(state, target_work_dir)
+        prepare_notebook_bundle(target_work_dir, export_dir=target_export)
+        # Re-sync state in memory so later steps preserve export metadata
+        refreshed_state = load_run_state(target_work_dir)
+        if refreshed_state is not None:
+            state = refreshed_state
 
         # 7. Google Drive Auto-Upload / Offline Queue
         if upload_drive:
@@ -689,13 +708,40 @@ def run_pipeline_for_group(
             online = is_internet_connected()
 
             if has_creds and online:
+                global _oauth_failed_token_mtime
+                cur_tok_mtime = _get_token_mtime()
+                with _oauth_cooldown_lock:
+                    allow_interactive = (
+                        _oauth_failed_token_mtime is None
+                        or _oauth_failed_token_mtime != cur_tok_mtime
+                    )
+
                 try:
                     console.print("[dim]正在上傳至 Google Drive 並轉為 Google Docs...[/dim]")
-                    publisher = GoogleDrivePublisher(credentials_file=Path("credentials.json"))
+                    publisher = GoogleDrivePublisher(
+                        credentials_file=Path("credentials.json"),
+                        interactive=allow_interactive,
+                        auth_timeout_sec=180,
+                    )
                     pub_res = publisher.publish_lecture(target_work_dir)
+                    with _oauth_cooldown_lock:
+                        _oauth_failed_token_mtime = None
                     console.print(f"[green][OK] Google Drive 資料夾：{pub_res.course_folder_link}[/green]")
                     log_watcher_event(f"已同步至 Google Drive：{pub_res.course_folder_link}")
                     notify_upload_success(primary_file.name, doc_url=pub_res.course_folder_link)
+                except (GoogleAuthRequiredError, TimeoutError) as auth_err:
+                    with _oauth_cooldown_lock:
+                        _oauth_failed_token_mtime = _get_token_mtime()
+                    console.print(f"[yellow][WARN] Google Drive 授權未完成 ({auth_err})，排入待上傳佇列並繼續後續課堂。[/yellow]")
+                    log_watcher_event(f"Google Drive 授權逾時或失效，已排入佇列 ({primary_file.name}): {auth_err}", level="WARNING")
+                    send_notification(
+                        title="Google Drive 憑證需重新授權",
+                        message=f"「{primary_file.name}」已本機整理完成並排入待上傳，請於控制介面重新授權後將自動補傳。",
+                    )
+                    if offline_queue:
+                        offline_queue.enqueue(target_work_dir, primary_file.name, parsed.course, parsed.date)
+                    else:
+                        notify_offline_pending(primary_file.name)
                 except Exception as e:
                     console.print(f"[yellow][WARN] Google Drive 同步失敗 ({e})，排入離線待上傳佇列。[/yellow]")
                     if offline_queue:
@@ -935,7 +981,10 @@ def watch_inbox(
                 # 1. Process pending offline uploads if internet is connected
                 if upload_drive and Path("credentials.json").is_file():
                     try:
-                        publisher = GoogleDrivePublisher(credentials_file=Path("credentials.json"))
+                        publisher = GoogleDrivePublisher(
+                            credentials_file=Path("credentials.json"),
+                            interactive=False,
+                        )
                         offline_queue.process_pending_uploads(publisher)
                     except Exception:
                         pass
@@ -962,6 +1011,11 @@ def watch_inbox(
                             b = _get_bridge()
                             if b and b.is_processing_active():
                                 break
+                            if b:
+                                try:
+                                    b.get_task_abort_event().clear()
+                                except Exception:
+                                    pass
                             watcher_token = f"watcher_{g_key}"
                             if not acquire_processing_files(files, token=watcher_token):
                                 continue
@@ -979,6 +1033,15 @@ def watch_inbox(
                                 )
                                 dead_letter.record_success(files)
                                 total_processed += 1
+                                if upload_drive and Path("credentials.json").is_file() and offline_queue.get_pending():
+                                    try:
+                                        q_pub = GoogleDrivePublisher(
+                                            credentials_file=Path("credentials.json"),
+                                            interactive=False,
+                                        )
+                                        offline_queue.process_pending_uploads(q_pub)
+                                    except Exception:
+                                        pass
                             except TimeoutError as te:
                                 console.print(f"[bold red][ERROR] 任務處理逾時 ({g_key}): {te}[/bold red]")
                                 log_watcher_event(f"任務處理逾時 ({g_key}): {te}", level="ERROR")

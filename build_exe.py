@@ -186,8 +186,8 @@ def run_pyinstaller_packaging() -> Path:
     if (ROOT / "prompts").is_dir() and not prompts_dst.is_dir():
         shutil.copytree(ROOT / "prompts", prompts_dst)
 
-    # Copy user environment and credential files if present
-    for cred_file in [".env", "credentials.json", "token.json"]:
+    # Copy base environment and OAuth client config if present (exclude dynamic user token.json)
+    for cred_file in [".env", "credentials.json"]:
         src_cred = ROOT / cred_file
         if src_cred.is_file():
             shutil.copy2(src_cred, dist_dir / cred_file)

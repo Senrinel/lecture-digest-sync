@@ -666,3 +666,25 @@ def test_index_html_player_empty_state_and_button_text(isolated_gui_env: Path) -
     assert 'id="player-lecture-meta" class="text-xs text-slate-400 mt-0.5"></p>' in html
 
 
+def test_google_docs_status_detects_expired_token_and_reauth_endpoint(isolated_gui_env: Path) -> None:
+    """Verify /api/status validates token health accurately instead of naive file existence."""
+    from unittest.mock import patch, MagicMock
+    from lecture_pipeline.gui import bridge
+
+    bridge._oauth_status_cache["checked_at"] = 0.0
+    (isolated_gui_env / "credentials.json").write_text('{"installed":{"client_id":"a","client_secret":"b"}}', encoding="utf-8")
+    (isolated_gui_env / "token.json").write_text('{"token":"bad"}', encoding="utf-8")
+
+    with patch("lecture_pipeline.export.drive_publisher.GoogleDrivePublisher.check_auth_status", return_value=(False, "憑證已過期 (需重新授權)")):
+        status = get_full_system_status()
+        assert status["google_docs"]["ok"] is False
+        assert "過期" in status["google_docs"]["label"]
+
+    client = TestClient(app)
+    with patch("lecture_pipeline.gui.bridge.threading.Thread") as mock_th:
+        res = client.post("/api/google/reauth")
+        assert res.status_code == 200
+        assert res.json()["status"] == "ok"
+        assert mock_th.called
+
+

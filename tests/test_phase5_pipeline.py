@@ -16,8 +16,9 @@ from lecture_pipeline.state import (
 runner = CliRunner()
 
 
-def test_cli_notebook_command(tmp_path: Path):
+def test_cli_notebook_command(tmp_path: Path, monkeypatch):
     """Verify CLI 'notebook' command produces bundle and updates run.json."""
+    monkeypatch.chdir(tmp_path)
     work_dir = tmp_path / "work" / "Discrete_Math" / "20261015"
     work_dir.mkdir(parents=True, exist_ok=True)
 

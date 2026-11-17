@@ -94,6 +94,9 @@ class OfflineUploadQueue:
     def process_pending_uploads(self, publisher: Any) -> int:
         """Process pending uploads if internet is connected.
 
+        Uses non-interactive authentication in the background queue loop so that
+        expired/missing OAuth tokens never block inbox monitoring for 30 minutes per item.
+
         Args:
             publisher: GoogleDrivePublisher instance.
 
@@ -107,27 +110,58 @@ class OfflineUploadQueue:
         if not queue:
             return 0
 
+        from lecture_pipeline.export.drive_publisher import (
+            GoogleAuthRequiredError,
+            GoogleDrivePublisher,
+        )
+
+        # Ensure background queue drains never spawn blocking browser OAuth prompts
+        restore_interactive = None
+        if isinstance(publisher, GoogleDrivePublisher):
+            restore_interactive = publisher.interactive
+            publisher.interactive = False
+            try:
+                publisher.get_service(interactive=False)
+            except (GoogleAuthRequiredError, FileNotFoundError, TimeoutError) as auth_err:
+                console.print(f"[yellow][WARN] 暫緩自動補傳佇列 ({len(queue)} 筆)：{auth_err}[/yellow]")
+                return 0
+            except Exception as auth_err:
+                console.print(f"[yellow][WARN] Google Drive 連線預檢失敗：{auth_err}[/yellow]")
+                return 0
+
         remaining: List[Dict[str, Any]] = []
         uploaded_count = 0
 
         console.print(f"\n[cyan]網路已恢復，開始處理待上傳佇列 ({len(queue)} 筆)...[/cyan]")
 
-        for item in queue:
-            w_dir = Path(item["work_dir"])
-            display_name = item.get("display_name", w_dir.name)
-            if not w_dir.is_dir():
-                # Directory removed, omit
-                continue
+        try:
+            for idx, item in enumerate(queue):
+                w_dir = Path(item["work_dir"])
+                display_name = item.get("display_name", w_dir.name)
+                if not w_dir.is_dir():
+                    # Directory removed, omit
+                    continue
 
-            try:
-                pub_res = publisher.publish_lecture(w_dir)
-                doc_link = pub_res.doc_link if hasattr(pub_res, "doc_link") else None
-                console.print(f"[green][OK] 佇列項目上傳成功：{display_name}[/green]")
-                notify_upload_success(display_name, doc_url=doc_link)
-                uploaded_count += 1
-            except Exception as e:
-                console.print(f"[yellow][WARN] 上傳重試失敗 ({display_name}): {e}，保留於佇列。[/yellow]")
-                remaining.append(item)
+                try:
+                    pub_res = publisher.publish_lecture(w_dir)
+                    doc_link = getattr(pub_res, "doc_link", None) or getattr(
+                        pub_res, "course_folder_link", None
+                    )
+                    console.print(f"[green][OK] 佇列項目上傳成功：{display_name}[/green]")
+                    notify_upload_success(display_name, doc_url=doc_link)
+                    uploaded_count += 1
+                except (GoogleAuthRequiredError, TimeoutError) as auth_err:
+                    console.print(
+                        f"[yellow][WARN] Google 授權中斷，保留剩餘 {len(queue) - idx} 筆待補傳 ({auth_err})。[/yellow]"
+                    )
+                    remaining.extend(queue[idx:])
+                    break
+                except Exception as e:
+                    console.print(f"[yellow][WARN] 上傳重試失敗 ({display_name}): {e}，保留於佇列。[/yellow]")
+                    remaining.append(item)
+        finally:
+            if restore_interactive is not None and isinstance(publisher, GoogleDrivePublisher):
+                publisher.interactive = restore_interactive
 
         self._save_queue(remaining)
         return uploaded_count

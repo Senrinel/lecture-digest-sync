@@ -37,12 +37,12 @@ Name: "sendtomenu"; Description: "建立右鍵「傳送到 (SendTo)」選單 (�
 Name: "autostart"; Description: "開機自動啟動背景監控服務"; GroupDescription: "自動化設定："; Flags: unchecked
 
 [Files]
-Source: "dist\LecturePipeline\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\LecturePipeline\*"; DestDir: "{app}"; Excludes: "config.yaml,token.json,.env,credentials.json"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\LecturePipeline\config.yaml"; DestDir: "{app}"; Flags: onlyifdoesntexist skipifsourcedoesntexist
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "icon.png"; DestDir: "{app}"; Flags: ignoreversion
-Source: ".env"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "credentials.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-Source: "token.json"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: ".env"; DestDir: "{app}"; Flags: onlyifdoesntexist skipifsourcedoesntexist
+Source: "credentials.json"; DestDir: "{app}"; Flags: onlyifdoesntexist skipifsourcedoesntexist
 
 [Icons]
 Name: "{autodesktop}\課堂錄音自動化系統"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; IconFilename: "{app}\icon.ico"; Comment: "啟動課堂錄音系統 (支援拖曳音檔)"

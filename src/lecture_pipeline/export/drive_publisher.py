@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import time
 import webbrowser
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -56,14 +57,37 @@ class DrivePublishResult(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
+class GoogleAuthRequiredError(RuntimeError):
+    """Raised when Google OAuth credentials are missing/expired and interactive auth is disabled or locked."""
+
+
+_oauth_flow_lock = threading.Lock()
+
+
+def _extract_query_param(uri: str, key: str) -> Optional[str]:
+    """Extract a query parameter from a callback URI string."""
+    from urllib.parse import parse_qs, urlparse
+
+    try:
+        parsed = urlparse(uri)
+        vals = parse_qs(parsed.query).get(key)
+        return vals[0] if vals else None
+    except Exception:
+        return None
+
+
 def _run_local_server_with_display(
     flow: InstalledAppFlow,
     port: int = 8080,
     timeout_seconds: Optional[int] = 1800,
+    token_file: Optional[Path] = None,
 ) -> Any:
-    """Run local server for OAuth with prominent URL printing and multi-method browser launch."""
+    """Run local server for OAuth with prominent URL printing, state protection, and clean polling."""
     import wsgiref.simple_server
     from google_auth_oauthlib.flow import _RedirectWSGIApp, _WSGIRequestHandler
+
+    class _ReusableWSGIServer(wsgiref.simple_server.WSGIServer):
+        allow_reuse_address = True
 
     success_html = (
         "<html><head><meta charset='utf-8'><title>Google Drive 授權成功</title></head>"
@@ -77,12 +101,13 @@ def _run_local_server_with_display(
         "localhost",
         port,
         wsgi_app,
+        server_class=_ReusableWSGIServer,
         handler_class=_WSGIRequestHandler,
     )
 
     try:
         flow.redirect_uri = f"http://localhost:{local_server.server_port}/"
-        auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+        auth_url, expected_state = flow.authorization_url(prompt="consent", access_type="offline")
 
         console.print("\n" + "=" * 70)
         console.print("[bold yellow]請點擊以下授權連結進行 Google 帳號授權：[/bold yellow]")
@@ -107,14 +132,37 @@ def _run_local_server_with_display(
         except Exception:
             pass
 
-        local_server.timeout = timeout_seconds
+        # Use short socket polling interval so external updates or timeouts remain responsive
+        local_server.timeout = 2.0
+        initial_token_mtime = token_file.stat().st_mtime if (token_file and token_file.is_file()) else None
 
-        # Loop until a request containing OAuth parameters arrives (ignores favicon etc.)
         start_wait = time.time()
-        while not wsgi_app.last_request_uri or ("code=" not in wsgi_app.last_request_uri and "error=" not in wsgi_app.last_request_uri):
+        while True:
             local_server.handle_request()
+
+            # Check if another thread/process already refreshed and saved a new token.json
+            if token_file and token_file.is_file():
+                cur_mtime = token_file.stat().st_mtime
+                if initial_token_mtime is None or cur_mtime > initial_token_mtime:
+                    try:
+                        updated_creds = Credentials.from_authorized_user_file(str(token_file), flow.oauth2session.scope)
+                        if updated_creds and (updated_creds.valid or updated_creds.refresh_token):
+                            return updated_creds
+                    except Exception:
+                        pass
+
+            uri = wsgi_app.last_request_uri
+            if uri and ("code=" in uri or "error=" in uri):
+                cb_state = _extract_query_param(uri, "state")
+                if cb_state and expected_state and cb_state != expected_state:
+                    # Ignore stale browser tab callbacks and wait for the current session callback
+                    console.print("[yellow][WARN] 收到舊授權分頁回傳 (state 不符)，請改用最新開啟的授權視窗。[/yellow]")
+                    wsgi_app.last_request_uri = None
+                else:
+                    break
+
             if timeout_seconds and (time.time() - start_wait > timeout_seconds):
-                raise TimeoutError("授權等候逾時（超過 30 分鐘），請重新執行授權。")
+                raise TimeoutError(f"授權等候逾時（超過 {timeout_seconds} 秒），請至控制介面重新授權。")
 
         if not wsgi_app.last_request_uri:
             raise RuntimeError("未收到有效的授權回傳網址。")
@@ -135,16 +183,55 @@ class GoogleDrivePublisher:
         credentials_file: str | Path = "credentials.json",
         token_file: str | Path = "token.json",
         scopes: Optional[List[str]] = None,
+        interactive: bool = True,
+        auth_timeout_sec: int = 1800,
     ):
         self.credentials_file = Path(credentials_file).resolve()
         self.token_file = Path(token_file).resolve()
         self.scopes = scopes or DEFAULT_SCOPES
+        self.interactive = interactive
+        self.auth_timeout_sec = auth_timeout_sec
         self._service = None
 
-    def get_service(self):
+    def check_auth_status(self, attempt_refresh: bool = True) -> Tuple[bool, str]:
+        """Check whether OAuth credentials are present and valid without opening a browser."""
+        if not self.credentials_file.is_file():
+            return False, "尚未設定 OAuth (缺少 credentials.json)"
+        if not self.token_file.is_file():
+            return False, "尚未完成 Google 帳號授權"
+
+        try:
+            creds = Credentials.from_authorized_user_file(str(self.token_file), self.scopes)
+        except Exception:
+            return False, "憑證格式毀損 (需重新授權)"
+
+        if creds and creds.valid:
+            return True, "Google Docs 已授權"
+
+        if creds and creds.expired and creds.refresh_token:
+            if not attempt_refresh:
+                return False, "存取權杖待更新"
+            try:
+                creds.refresh(Request())
+                with open(self.token_file, "w", encoding="utf-8") as token:
+                    token.write(creds.to_json())
+                return True, "Google Docs 已授權"
+            except Exception as e:
+                return False, f"憑證已過期或失效 (需重新授權: {e})"
+
+        return False, "憑證已過期 (需重新授權)"
+
+    def get_service(
+        self,
+        interactive: Optional[bool] = None,
+        timeout_seconds: Optional[int] = None,
+    ):
         """Authenticate and return Google Drive API v3 resource."""
         if self._service is not None:
             return self._service
+
+        allow_interactive = self.interactive if interactive is None else interactive
+        effective_timeout = self.auth_timeout_sec if timeout_seconds is None else timeout_seconds
 
         creds = None
         if self.token_file.is_file():
@@ -154,7 +241,7 @@ class GoogleDrivePublisher:
                 console.print(f"[yellow][WARN] 讀取現有 token.json 失敗 ({e})，重新啟動授權流程...[/yellow]")
                 creds = None
 
-        # If there are no (valid) credentials available, let the user log in.
+        # If there are no (valid) credentials available, refresh or trigger interactive login.
         if not creds or not creds.valid:
             if creds and creds.expired and creds.refresh_token:
                 try:
@@ -171,9 +258,26 @@ class GoogleDrivePublisher:
                         f"請自 Google Cloud Console 下載憑證並命名為 'credentials.json' 放置於程式目錄。"
                     )
 
-                console.print(f"\n[bold cyan]啟動 Google OAuth 2.0 授權流程...[/bold cyan]")
-                flow = InstalledAppFlow.from_client_secrets_file(str(self.credentials_file), self.scopes)
-                creds = _run_local_server_with_display(flow, port=8080)
+                if not allow_interactive:
+                    raise GoogleAuthRequiredError(
+                        "Google Drive 憑證已過期或尚未授權，已略過背景瀏覽器彈窗並保留於待上傳佇列。"
+                    )
+
+                if not _oauth_flow_lock.acquire(blocking=False):
+                    raise GoogleAuthRequiredError(
+                        "已有進行中的 Google OAuth 授權視窗，請在瀏覽器完成授權後系統將自動同步。"
+                    )
+                try:
+                    console.print(f"\n[bold cyan]啟動 Google OAuth 2.0 授權流程...[/bold cyan]")
+                    flow = InstalledAppFlow.from_client_secrets_file(str(self.credentials_file), self.scopes)
+                    creds = _run_local_server_with_display(
+                        flow,
+                        port=8080,
+                        timeout_seconds=effective_timeout,
+                        token_file=self.token_file,
+                    )
+                finally:
+                    _oauth_flow_lock.release()
 
             # Save the credentials for subsequent automated executions
             with open(self.token_file, "w", encoding="utf-8") as token:

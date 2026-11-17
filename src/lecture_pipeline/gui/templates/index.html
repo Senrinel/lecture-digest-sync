@@ -226,8 +226,8 @@
       </div>
 
       <!-- Google Docs 授權狀態 -->
-      <div id="status-docs-pill" onclick="showStatusDetail('Google Docs 授權：' + (window._lastStatus?.google_docs?.label || '已授權'))" class="h-8 hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl glass-card cursor-pointer bio-btn text-[11px] shrink-0" title="檢視 Google Docs 授權狀態">
-        <i data-lucide="cloud-check" class="w-3.5 h-3.5 text-indigo-400"></i>
+      <div id="status-docs-pill" onclick="handleGoogleDocsPillClick()" class="h-8 hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-xl glass-card cursor-pointer bio-btn text-[11px] shrink-0" title="檢視或重新授權 Google Docs">
+        <i id="status-docs-icon" data-lucide="cloud-check" class="w-3.5 h-3.5 text-indigo-400"></i>
         <span id="status-docs-label">Google Docs</span>
       </div>
 
@@ -3428,16 +3428,53 @@
     // =========================================================================
     // 系統狀態檢測與開機啟動
     // =========================================================================
+    function applyHeaderStatusUI(data) {
+      if (!data) return;
+      if (data.gpu && data.gpu.label) {
+        const el = document.getElementById('status-gpu-label');
+        if (el) el.innerText = data.gpu.label;
+      }
+      if (data.google_docs) {
+        const docsLabel = document.getElementById('status-docs-label');
+        const docsPill = document.getElementById('status-docs-pill');
+        if (docsLabel) {
+          docsLabel.innerText = data.google_docs.ok ? 'Google Docs' : 'Google Docs 需重授權';
+        }
+        if (docsPill) {
+          if (data.google_docs.ok) {
+            docsPill.classList.remove('border-amber-500/60', 'bg-amber-500/15', 'text-amber-300');
+          } else {
+            docsPill.classList.add('border-amber-500/60', 'bg-amber-500/15', 'text-amber-300');
+          }
+        }
+      }
+    }
+
+    async function handleGoogleDocsPillClick() {
+      const st = window._lastStatus?.google_docs;
+      if (st && st.ok === false) {
+        showToast('正在開啟 Google Docs 重新授權視窗...');
+        try {
+          const res = await fetch('/api/google/reauth', { method: 'POST' });
+          if (res.ok) {
+            const d = await res.json();
+            showToast(d.message || '請於瀏覽器完成授權');
+          }
+        } catch (e) {
+          showToast('無法觸發重新授權');
+        }
+      } else {
+        showStatusDetail('Google Docs 授權：' + (st?.label || '已授權'));
+      }
+    }
+
     async function loadStatusFromServer() {
       try {
         const res = await fetch('/api/status');
         if (res.ok) {
           const data = await res.json();
           window._lastStatus = data;
-          if (data.gpu && data.gpu.label) {
-            const el = document.getElementById('status-gpu-label');
-            if (el) el.innerText = data.gpu.label;
-          }
+          applyHeaderStatusUI(data);
           if (data.active_task) {
             updateWorkbenchTaskState(data.active_task);
           }
@@ -3452,11 +3489,8 @@
         if (res.ok) {
           const d = await res.json();
           window._lastStatus = d;
-          showToast(`檢測完成：GPU: ${d.gpu.label} · 網路: ${d.network.label}`);
-          if (d.gpu && d.gpu.label) {
-            const el = document.getElementById('status-gpu-label');
-            if (el) el.innerText = d.gpu.label;
-          }
+          applyHeaderStatusUI(d);
+          showToast(`檢測完成：GPU: ${d.gpu.label} · Google Docs: ${d.google_docs?.label || '未知'}`);
         } else {
           showToast('系統檢測完成');
         }

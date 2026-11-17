@@ -6,7 +6,10 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from lecture_pipeline.export.drive_publisher import GoogleDrivePublisher
+from lecture_pipeline.export.drive_publisher import (
+    GoogleAuthRequiredError,
+    GoogleDrivePublisher,
+)
 from lecture_pipeline.state import PreprocessOptions, RunState, SegmentationOptions, save_run_state
 
 
@@ -163,3 +166,78 @@ def test_publish_lecture_bundle_e2e(mock_creds_cls, mock_build, mock_work_dir: P
     assert len(result.docs) == 2
     assert result.docs[0].file_id == "doc_sum_1"
     assert result.docs[1].file_id == "doc_clean_2"
+
+
+@patch("lecture_pipeline.export.drive_publisher._run_local_server_with_display")
+@patch("lecture_pipeline.export.drive_publisher.Credentials")
+def test_publisher_non_interactive_raises_without_opening_browser(mock_creds_cls, mock_local_srv, tmp_path: Path):
+    """Verify interactive=False immediately raises GoogleAuthRequiredError without starting OAuth server."""
+    creds_file = tmp_path / "credentials.json"
+    creds_file.write_text('{"installed":{"client_id":"abc","client_secret":"def"}}', encoding="utf-8")
+    token_file = tmp_path / "token.json"
+    token_file.write_text('{"token":"x"}', encoding="utf-8")
+
+    fake_creds = MagicMock()
+    fake_creds.valid = False
+    fake_creds.expired = True
+    fake_creds.refresh_token = "old_refresh"
+    fake_creds.refresh.side_effect = RuntimeError("invalid_grant: Bad Request")
+    mock_creds_cls.from_authorized_user_file.return_value = fake_creds
+
+    publisher = GoogleDrivePublisher(
+        credentials_file=creds_file,
+        token_file=token_file,
+        interactive=False,
+    )
+    with pytest.raises(GoogleAuthRequiredError):
+        publisher.get_service()
+
+    assert mock_local_srv.call_count == 0
+
+
+@patch("lecture_pipeline.export.drive_publisher.Credentials")
+def test_publisher_check_auth_status_expired_refresh_fails(mock_creds_cls, tmp_path: Path):
+    """Verify check_auth_status accurately reports False when refresh token fails with invalid_grant."""
+    creds_file = tmp_path / "credentials.json"
+    creds_file.write_text("{}", encoding="utf-8")
+    token_file = tmp_path / "token.json"
+    token_file.write_text("{}", encoding="utf-8")
+
+    fake_creds = MagicMock()
+    fake_creds.valid = False
+    fake_creds.expired = True
+    fake_creds.refresh_token = "revoked"
+    fake_creds.refresh.side_effect = RuntimeError("invalid_grant")
+    mock_creds_cls.from_authorized_user_file.return_value = fake_creds
+
+    publisher = GoogleDrivePublisher(credentials_file=creds_file, token_file=token_file)
+    ok, label = publisher.check_auth_status(attempt_refresh=True)
+    assert ok is False
+    assert "過期" in label or "授權" in label
+
+
+def test_offline_queue_aborts_immediately_on_auth_required(tmp_path: Path):
+    """Verify OfflineUploadQueue stops retrying remaining items if GoogleAuthRequiredError occurs."""
+    from lecture_pipeline.automation.offline_queue import OfflineUploadQueue
+
+    q_dir = tmp_path / "pending_uploads"
+    oq = OfflineUploadQueue(queue_dir=q_dir)
+
+    d1 = tmp_path / "work" / "CourseA" / "20261116"
+    d2 = tmp_path / "work" / "CourseB" / "20261116"
+    d1.mkdir(parents=True)
+    d2.mkdir(parents=True)
+
+    oq.enqueue(d1, "LectureA.m4a", "CourseA", "20261116")
+    oq.enqueue(d2, "LectureB.m4a", "CourseB", "20261116")
+
+    fake_pub = MagicMock()
+    fake_pub.publish_lecture.side_effect = GoogleAuthRequiredError("token expired")
+
+    with patch("lecture_pipeline.automation.offline_queue.is_internet_connected", return_value=True):
+        cnt = oq.process_pending_uploads(fake_pub)
+
+    assert cnt == 0
+    # Crucial: aborted after first item without blocking or looping into item 2
+    assert fake_pub.publish_lecture.call_count == 1
+    assert len(oq.get_pending()) == 2

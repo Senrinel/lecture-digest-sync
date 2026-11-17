@@ -143,6 +143,8 @@ class TestBlackBoxFaultInjection:
                 audio_files=[audio_file],
                 channel_id="C1",
                 archive_dir=archive,
+                export_dir=tmp_path / "exports",
+                record_archive_base_dir=tmp_path / "Record",
                 upload_drive=False,
             )
 

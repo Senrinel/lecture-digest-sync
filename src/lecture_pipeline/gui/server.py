@@ -51,6 +51,7 @@ from lecture_pipeline.gui.bridge import (
     set_watcher_paused,
     start_processing_task,
     switch_gui_mode_action,
+    trigger_google_reauth,
     update_pipeline_config,
 )
 
@@ -198,6 +199,12 @@ async def serve_icon():
 async def api_status():
     """Retrieve full live status (hardware GPU, network, Google Docs auth, watcher)."""
     return get_full_system_status()
+
+
+@app.post("/api/google/reauth")
+async def api_google_reauth():
+    """Trigger interactive Google OAuth re-authorization flow."""
+    return trigger_google_reauth()
 
 
 @app.post("/api/window/show")

@@ -310,6 +310,105 @@ def set_watcher_paused(paused: bool) -> bool:
     return _watcher_paused
 
 
+_oauth_status_cache: Dict[str, Any] = {
+    "path": None,
+    "mtime": None,
+    "checked_at": 0.0,
+    "ok": False,
+    "label": "尚未設定 OAuth",
+}
+
+
+def _get_cached_google_auth_status(net_ok: bool) -> Dict[str, Any]:
+    """Validate token.json with mtime/TTL cache so invalid_grant is surfaced accurately without spamming requests."""
+    token_file = Path("token.json").resolve()
+    cred_file = Path("credentials.json").resolve()
+
+    if not cred_file.is_file():
+        return {"ok": False, "label": "尚未設定 OAuth (缺少 credentials.json)", "needs_reauth": True}
+    if not token_file.is_file():
+        return {"ok": False, "label": "尚未授權 (請登入 Google 帳號)", "needs_reauth": True}
+
+    try:
+        cur_mtime = token_file.stat().st_mtime
+    except Exception:
+        cur_mtime = None
+
+    now = time.time()
+    cache_hit = (
+        _oauth_status_cache.get("path") == str(token_file)
+        and _oauth_status_cache.get("mtime") == cur_mtime
+        and (now - float(_oauth_status_cache.get("checked_at", 0.0)) < 60.0)
+    )
+    if cache_hit:
+        ok_val = bool(_oauth_status_cache["ok"])
+        return {
+            "ok": ok_val,
+            "label": str(_oauth_status_cache["label"]),
+            "needs_reauth": not ok_val,
+        }
+
+    from lecture_pipeline.export.drive_publisher import GoogleDrivePublisher
+
+    pub = GoogleDrivePublisher(credentials_file=cred_file, token_file=token_file, interactive=False)
+    ok_val, msg = pub.check_auth_status(attempt_refresh=net_ok)
+
+    # Re-read mtime in case check_auth_status wrote a refreshed token.json
+    try:
+        new_mtime = token_file.stat().st_mtime
+    except Exception:
+        new_mtime = cur_mtime
+
+    _oauth_status_cache.update({
+        "path": str(token_file),
+        "mtime": new_mtime,
+        "checked_at": now,
+        "ok": ok_val,
+        "label": msg,
+    })
+    return {"ok": ok_val, "label": msg, "needs_reauth": not ok_val}
+
+
+def trigger_google_reauth() -> Dict[str, Any]:
+    """Start interactive Google OAuth re-authorization in background and flush pending uploads on success."""
+    cred_file = Path("credentials.json").resolve()
+    if not cred_file.is_file():
+        return {"status": "error", "message": "找不到 credentials.json 用戶端憑證"}
+
+    def _run_reauth():
+        try:
+            from lecture_pipeline.export.drive_publisher import GoogleDrivePublisher
+            from lecture_pipeline.automation.offline_queue import OfflineUploadQueue
+
+            pub = GoogleDrivePublisher(
+                credentials_file=cred_file,
+                token_file=Path("token.json").resolve(),
+                interactive=True,
+                auth_timeout_sec=1800,
+            )
+            # Force fresh interactive login if token is missing or invalid
+            ok, _ = pub.check_auth_status(attempt_refresh=True)
+            if not ok:
+                token_p = Path("token.json").resolve()
+                if token_p.is_file():
+                    try:
+                        token_p.unlink()
+                    except Exception:
+                        pass
+            pub.get_service(interactive=True, timeout_seconds=1800)
+            _oauth_status_cache["checked_at"] = 0.0
+            broadcaster.broadcast_sync({"type": "toast", "message": "Google Drive 重新授權成功，正在檢查待補傳課堂..."})
+            oq = OfflineUploadQueue()
+            if oq.get_pending():
+                oq.process_pending_uploads(pub)
+        except Exception as e:
+            _oauth_status_cache["checked_at"] = 0.0
+            broadcaster.broadcast_sync({"type": "toast", "message": f"Google Drive 授權未完成：{e}"})
+
+    threading.Thread(target=_run_reauth, daemon=True).start()
+    return {"status": "ok", "message": "已於瀏覽器開啟 Google 帳號授權頁面"}
+
+
 def get_full_system_status() -> Dict[str, Any]:
     """Collect real hardware, network, token, and watcher diagnostics."""
     # 1. GPU Check
@@ -338,10 +437,8 @@ def get_full_system_status() -> Dict[str, Any]:
     # 2. Internet Connection
     net_ok = is_internet_connected(timeout=2.0)
 
-    # 3. Google Docs OAuth status
-    token_file = Path("token.json")
-    cred_file = Path("credentials.json")
-    docs_authorized = token_file.is_file() and cred_file.is_file()
+    # 3. Google Docs OAuth status (validates refreshability instead of naive file-exists check)
+    docs_status = _get_cached_google_auth_status(net_ok)
 
     # 4. Disk space
     cfg = get_current_config()
@@ -365,10 +462,7 @@ def get_full_system_status() -> Dict[str, Any]:
             "ok": net_ok,
             "label": "連線正常" if net_ok else "離線模式 (佇列暫存)",
         },
-        "google_docs": {
-            "ok": docs_authorized,
-            "label": "Google Docs 已授權" if docs_authorized else "尚未設定 OAuth",
-        },
+        "google_docs": docs_status,
         "api_key": {
             "ok": gemini_key_set,
             "label": "Gemini API 金鑰已設定" if gemini_key_set else "缺少 GEMINI_API_KEY",
