@@ -8,7 +8,7 @@ Enhanced with:
 5. System tray icon with status badges and hover progress tooltips.
 6. Failed file handling: 3 retries moving to inbox/failed/.
 7. Task timeout limit (60 minutes).
-8. File cleanup & archival to C:\\Users\\LinKJ\\Pictures\\Record (Opus + cleaned + summary + log).
+8. File cleanup & archival to long-term storage directory (Opus + cleaned + summary + log).
 9. Offline network resilience & next-day quota deferral queue.
 """
 
@@ -227,6 +227,35 @@ def is_file_stable(filepath: Path, delay_sec: float = 2.0) -> bool:
         return False
 
 
+def is_missing_environment_dependency_error(exc: Optional[Exception]) -> bool:
+    """Return True when exception indicates missing local environment setup rather than corrupted audio."""
+    if exc is None:
+        return False
+    msg = str(exc).lower()
+    markers = [
+        "gemini_api_key",
+        "api key",
+        "找不到後端虛擬環境",
+        "找不到 ffmpeg",
+        "找不到 ffprobe",
+        "ffmpeg 未安裝",
+        "ffprobe 未安裝",
+        "ffmpeg not found",
+        "ffprobe not found",
+        "未安裝本機",
+        "無網路連線且未安裝",
+        "尚未安裝",
+        "本機後端尚未",
+        "not installed",
+        "api_key_invalid",
+    ]
+    if isinstance(exc, FileNotFoundError) and any(k in msg for k in ("ffmpeg", "ffprobe", "python")):
+        return True
+    if getattr(exc, "winerror", None) == 2 and any(k in msg for k in ("ffmpeg", "ffprobe")):
+        return True
+    return any(m in msg for m in markers)
+
+
 class DeadLetterQuarantine:
     """Tracks retry attempts per file and moves failed files after 3 failures."""
 
@@ -254,13 +283,14 @@ class DeadLetterQuarantine:
 
     def record_failure(self, audio_files: List[Path], exc: Optional[Exception] = None) -> bool:
         """Increment failure counts. If failures >= max_retries, move to inbox/failed/.
-        If exc is an API or quota error, never quarantine files!
+        Never quarantines audio when failure is due to API quota, cancellation, or missing system setup (FFmpeg/API Key/C7 venv).
         """
         is_os_path_error = isinstance(exc, OSError) and (
             getattr(exc, "winerror", None) == 123 or "語法錯誤" in str(exc)
         )
         if exc and (
             is_api_or_quota_error(exc)
+            or is_missing_environment_dependency_error(exc)
             or isinstance(exc, (InterruptedError, KeyboardInterrupt))
             or is_os_path_error
             or "任務已中止" in str(exc)
@@ -1085,6 +1115,25 @@ def watch_inbox(
                                             task_name=g_key,
                                             running=False,
                                         )
+                                elif is_missing_environment_dependency_error(e):
+                                    msg = f"系統環境尚未設定完成 ({g_key})：{e}"
+                                    console.print(f"[bold yellow][環境引導] {msg}[/bold yellow]")
+                                    log_watcher_event(msg, level="WARNING")
+                                    send_notification(
+                                        title="請先完成系統初始設定",
+                                        message=f"缺少必要元件或 API 金鑰，請開啟操作介面進行設定：{e}",
+                                    )
+                                    b = _get_bridge()
+                                    if b:
+                                        b.update_task_progress(
+                                            stage="等待環境設定",
+                                            progress=0,
+                                            detail=f"尚未設定完成：{e}",
+                                            task_name=g_key,
+                                            running=False,
+                                        )
+                                    if not once:
+                                        time.sleep(30.0)
                                 else:
                                     console.print(f"[bold red][ERROR] 處理 {g_key} 發生錯誤: {e}[/bold red]")
                                     log_watcher_event(f"處理失敗 ({g_key}): {e}", level="ERROR")

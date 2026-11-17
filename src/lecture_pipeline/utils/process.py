@@ -15,10 +15,12 @@ NO_WINDOW_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 def resolve_binary(name: str) -> str:
     """Resolve an executable binary path.
-    
-    On Windows, specifically detects Chocolatey shim wrappers for ffmpeg/ffprobe
-    and resolves directly to the actual binary in the lib directory to prevent
-    console allocation and shimgen popups.
+
+    Priority order on Windows:
+    1. Already a valid local file path.
+    2. Bundled portable binaries under app `bin/` or `_internal/bin/`.
+    3. Direct Chocolatey lib binary (bypassing console-spawning shimgen wrappers).
+    4. System PATH lookup via shutil.which.
     """
     if not name:
         return name
@@ -28,8 +30,22 @@ def resolve_binary(name: str) -> str:
     if path_candidate.is_file():
         return str(path_candidate.resolve())
 
-    base_name = path_candidate.name.lower()
     stem = path_candidate.stem.lower()
+    exe_name = f"{stem}.exe" if (sys.platform == "win32" and not path_candidate.suffix) else path_candidate.name
+
+    # Check app-local bin/ directories first (portable / installer-bundled binaries)
+    candidate_dirs = []
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        candidate_dirs.extend([exe_dir / "bin", exe_dir / "_internal" / "bin", exe_dir])
+    else:
+        proj_root = Path(__file__).resolve().parents[3]
+        candidate_dirs.extend([proj_root / "bin", Path.cwd() / "bin"])
+
+    for d in candidate_dirs:
+        local_bin = d / exe_name
+        if local_bin.is_file():
+            return str(local_bin.resolve())
 
     if sys.platform == "win32":
         # Known common locations for actual ffmpeg/ffprobe installed via Chocolatey

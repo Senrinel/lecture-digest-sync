@@ -101,3 +101,5 @@ benchmark/matrix/*
 .DS_Store
 Thumbs.db
 desktop.ini
+bin/
+*.corrupt.bak

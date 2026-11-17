@@ -252,50 +252,56 @@ def check_and_forward_to_existing_instance(args: list[str]) -> bool:
     return True
 
 
+_app_mutex_handle = None
+
+
+def _acquire_single_instance_mutex() -> None:
+    """Register named Windows Mutex so Inno Setup can detect active instances reliably."""
+    global _app_mutex_handle
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            _app_mutex_handle = ctypes.windll.kernel32.CreateMutexW(
+                None, False, "LecturePipelineSingleInstanceMutex"
+            )
+        except Exception:
+            pass
+
+
 def main() -> None:
     args = sys.argv[1:]
 
-    # Case 0: Initialize partitioned directories (used by Inno Setup installer)
+    # Case 0: Initialize partitioned directories and run self-repair (used by Inno Setup installer)
     if len(args) >= 4 and args[0] in ("--init-paths", "-ip"):
         inbox_dir = args[1]
         exports_dir = args[2]
         courses_dir = args[3]
+        record_archive_dir = args[4] if len(args) >= 5 else None
 
-        # Sanity check against ANSI mojibake from Inno Setup
-        docs_dir = Path.home() / "Documents" / "課堂錄音"
-        if any(c in inbox_dir for c in ["\ufffd", "Ұ", "?"]) or not inbox_dir:
-            inbox_dir = str(docs_dir / "收件匣")
-        if any(c in exports_dir for c in ["\ufffd", "Ұ", "?"]) or not exports_dir:
-            exports_dir = str(docs_dir / "筆記匯出")
-        if any(c in courses_dir for c in ["\ufffd", "Ұ", "?"]) or not courses_dir:
-            courses_dir = str(docs_dir / "科目詞庫")
+        from lecture_pipeline.utils.bootstrap import repair_and_init_environment
+        res = repair_and_init_environment(
+            inbox_dir=inbox_dir,
+            exports_dir=exports_dir,
+            courses_dir=courses_dir,
+            record_archive_dir=record_archive_dir,
+        )
+        p = res["paths"]
+        print(
+            f"[OK] 設定檔已成功初始化分區路徑：\n"
+            f"  Inbox: {p['inbox_dir']}\n"
+            f"  Exports: {p['exports_dir']}\n"
+            f"  Courses: {p['courses_dir']}\n"
+            f"  RecordArchive: {p['record_archive_dir']}"
+        )
+        if res["repairs"]:
+            print("  自癒修復項目：", "; ".join(res["repairs"]))
+        return
 
-        from lecture_pipeline.gui.bridge import get_config_file_path
-        cfg_file = get_config_file_path()
-        import yaml
-        cfg = {}
-        if cfg_file.is_file():
-            with open(cfg_file, "r", encoding="utf-8") as f:
-                cfg = yaml.safe_load(f) or {}
-        if "paths" not in cfg:
-            cfg["paths"] = {}
-        cfg["paths"]["inbox_dir"] = inbox_dir
-        cfg["paths"]["exports_dir"] = exports_dir
-        cfg["paths"]["courses_dir"] = courses_dir
-        if "export" not in cfg:
-            cfg["export"] = {}
-        cfg["export"]["export_dir"] = exports_dir
-
-        # Ensure directories exist
-        for d in [inbox_dir, exports_dir, courses_dir]:
-            try:
-                Path(d).mkdir(parents=True, exist_ok=True)
-            except Exception:
-                pass
-
-        with open(cfg_file, "w", encoding="utf-8") as f:
-            yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
-        print(f"[OK] 設定檔已成功初始化分區路徑：\n  Inbox: {inbox_dir}\n  Exports: {exports_dir}\n  Courses: {courses_dir}")
+    # Case 0.2: Explicit self-repair & preflight command
+    if len(args) == 1 and args[0] in ("--repair", "repair"):
+        from lecture_pipeline.utils.bootstrap import repair_and_init_environment
+        res = repair_and_init_environment()
+        print(f"[REPAIR_OK] 環境自檢與修復完成：{res}")
         return
 
     # Case 0.5: On-demand standalone UI window process (isolated from background daemon)
@@ -306,6 +312,13 @@ def main() -> None:
         parser.add_argument("--port", type=int, default=8000)
         parsed_w, _ = parser.parse_known_args(args)
 
+        from lecture_pipeline.utils.bootstrap import is_webview2_available
+        url = f"http://{parsed_w.host}:{parsed_w.port}"
+        if not is_webview2_available():
+            import webbrowser
+            webbrowser.open(url)
+            return
+
         from lecture_pipeline.gui.window import DesktopWindow, configure_webview2_environment
         from lecture_pipeline.gui.bridge import get_current_config
         configure_webview2_environment()
@@ -313,15 +326,18 @@ def main() -> None:
         gui_cfg = cfg.get("gui", {})
         w = gui_cfg.get("window_width", 1280)
         h = gui_cfg.get("window_height", 800)
-        url = f"http://{parsed_w.host}:{parsed_w.port}"
-        desktop = DesktopWindow(
-            url=url,
-            title="Lecture Digest Sync - 課堂錄音辨識與筆記同步系統",
-            width=w,
-            height=h,
-        )
-        desktop.create(hidden=False, standalone=True)
-        desktop.start()
+        try:
+            desktop = DesktopWindow(
+                url=url,
+                title="Lecture Digest Sync - 課堂錄音辨識與筆記同步系統",
+                width=w,
+                height=h,
+            )
+            desktop.create(hidden=False, standalone=True)
+            desktop.start()
+        except Exception:
+            import webbrowser
+            webbrowser.open(url)
         return
 
     # Case 1: Setup shortcuts
@@ -334,6 +350,7 @@ def main() -> None:
         from lecture_pipeline.export import drive_publisher
         from lecture_pipeline.gui import launcher
         from lecture_pipeline.automation import watcher
+        from lecture_pipeline.utils import bootstrap
         print("[TEST_OK] All critical modules imported successfully without errors!")
         return
 
@@ -351,7 +368,7 @@ def main() -> None:
 
     known_cli_commands = {
         "prep", "stt", "clean", "summary", "bundle", "export",
-        "bench", "autostart", "status", "watch", "env-check", "eval",
+        "bench", "autostart", "status", "watch", "env-check", "eval", "doctor", "quota", "info", "upload", "drive",
     }
     is_cli_subcommand = len(args) >= 1 and args[0].lower() in known_cli_commands
     is_gui_flag = any(
@@ -367,8 +384,16 @@ def main() -> None:
     if (is_gui_invocation or is_drag_and_drop) and check_and_forward_to_existing_instance(args):
         return
 
+    # Ensure environment, folders, and state files are valid & self-repaired before normal launch
+    try:
+        from lecture_pipeline.utils.bootstrap import repair_and_init_environment
+        repair_and_init_environment()
+    except Exception:
+        pass
+
     # Case 2: No arguments or explicit GUI trigger -> Launch full GUI + Tray + Watcher
     if is_gui_invocation:
+        _acquire_single_instance_mutex()
         from lecture_pipeline.gui.window import configure_webview2_environment
         configure_webview2_environment()
         from lecture_pipeline.gui import launch_gui

@@ -307,7 +307,33 @@
 
       <!-- ================= 1. 錄音處理 (STUDIO VIEW) ================= -->
       <section id="view-studio" class="space-y-6">
-        
+
+        <!-- 初次安裝 / 缺少必要設定引導橫幅 (僅於環境未就緒時顯示，非阻斷式) -->
+        <div id="onboarding-banner" class="hidden glass-surface rounded-3xl p-4 md:p-5 border border-amber-500/40 bg-amber-500/10 shadow-xl">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div class="space-y-1.5">
+              <div class="flex items-center gap-2 text-sm font-bold text-amber-300">
+                <i data-lucide="sparkles" class="w-4 h-4 text-amber-400"></i>
+                <span>偵測到系統尚未完成必要環境設定（首次安裝或遺失設定）</span>
+              </div>
+              <p id="onboarding-banner-desc" class="text-xs text-slate-300 leading-relaxed">
+                請設定 Gemini API 金鑰並確認 FFmpeg 已就緒，即可開始處理課堂錄音。Google Docs / Drive 為選用功能，未設定時仍可正常產出本機筆記。
+              </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 shrink-0">
+              <button onclick="openSetupWizard()" class="bio-btn px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-xs flex items-center gap-1.5 shadow-md">
+                <i data-lucide="wand-2" class="w-3.5 h-3.5"></i> 開啟初次設定精靈
+              </button>
+              <button onclick="runRepairEnvironment()" class="bio-btn px-3 py-2 rounded-xl glass-card border border-white/15 text-xs font-medium flex items-center gap-1.5">
+                <i data-lucide="wrench" class="w-3.5 h-3.5 text-cyan-400"></i> 一鍵檢測修復
+              </button>
+              <button onclick="dismissOnboardingBanner()" class="bio-btn px-2.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-[11px] text-slate-400">
+                稍後提醒
+              </button>
+            </div>
+          </div>
+        </div>
+
         <!-- 標題與操作按鈕 -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
@@ -706,10 +732,10 @@
             <div class="glass-card rounded-2xl p-3.5 space-y-1.5">
               <div class="flex justify-between items-center">
                 <label class="font-semibold text-slate-200 dark:text-slate-200 light:text-slate-800">2. 錄音封存目錄 (Archive)</label>
-                <button onclick="resetSingleParam('dir-archive', 'C:\\Users\\LinKJ\\Pictures\\Record')" class="bio-btn text-[10px] text-slate-400 hover:text-indigo-400">重置預設</button>
+                <button onclick="resetSingleParam('dir-archive', window._defaultRecordArchiveDir || 'record_archive')" class="bio-btn text-[10px] text-slate-400 hover:text-indigo-400">重置預設</button>
               </div>
               <div class="flex gap-2">
-                <input type="text" id="dir-archive" value="C:\Users\LinKJ\Pictures\Record" class="flex-1 bg-black/25 dark:bg-black/30 light:bg-black/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono">
+                <input type="text" id="dir-archive" value="" placeholder="例如：使用者文件\課堂錄音\錄音封存" class="flex-1 bg-black/25 dark:bg-black/30 light:bg-black/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono">
                 <button onclick="browseSystemFolder('dir-archive')" class="bio-btn px-2.5 py-1 rounded-xl glass-card text-[11px] hover:text-white">變更...</button>
                 <button onclick="openSystemFolder('dir-archive')" class="bio-btn px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-[11px]">開啟</button>
               </div>
@@ -759,6 +785,62 @@
             <p class="text-[11px] text-slate-400 leading-relaxed">
               調整介面顯示比例 (70% 至 150%)。
             </p>
+          </div>
+        </div>
+
+        <!-- 環境依賴、API 金鑰與憑證設定 -->
+        <div id="settings-setup-card" class="glass-surface rounded-3xl p-5 md:p-6 space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 class="font-bold text-sm flex items-center gap-2">
+                <i data-lucide="key-round" class="w-4 h-4 text-amber-400"></i> 系統憑證、FFmpeg 與環境自我修復
+              </h3>
+              <p class="text-[11px] text-slate-400 mt-0.5">在此設定 Gemini API 金鑰、匯入 Google OAuth 憑證 (credentials.json)，或一鍵修復安裝環境。</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <button onclick="openSetupWizard()" class="bio-btn px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white flex items-center gap-1.5">
+                <i data-lucide="wand-2" class="w-3.5 h-3.5"></i> 設定引導精靈
+              </button>
+              <button onclick="runRepairEnvironment()" class="bio-btn px-3 py-1.5 rounded-xl glass-card text-xs font-medium flex items-center gap-1.5">
+                <i data-lucide="wrench" class="w-3.5 h-3.5 text-cyan-400"></i> 一鍵環境修復
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            <div class="glass-card rounded-2xl p-3.5 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-semibold">Gemini API 金鑰（必要）</span>
+                <span id="settings-api-badge" class="px-2 py-0.5 rounded-full text-[10px] bg-white/10 text-slate-300">檢測中</span>
+              </div>
+              <p class="text-[11px] text-slate-400">用於雲端轉錄與 AI 課堂重點筆記整理。</p>
+              <button onclick="openSetupWizard()" class="bio-btn w-full py-1.5 rounded-xl bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/30 text-[11px]">
+                輸入 / 驗證 API 金鑰
+              </button>
+            </div>
+
+            <div class="glass-card rounded-2xl p-3.5 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-semibold">Google OAuth（選用）</span>
+                <span id="settings-docs-badge" class="px-2 py-0.5 rounded-full text-[10px] bg-white/10 text-slate-300">檢測中</span>
+              </div>
+              <p class="text-[11px] text-slate-400">同步產出至 Google Docs / Drive（未設定仍可產出本機檔）。</p>
+              <div class="flex gap-1.5">
+                <button onclick="openSetupWizard()" class="bio-btn flex-1 py-1.5 rounded-xl glass-card text-[11px]">匯入憑證</button>
+                <button onclick="handleGoogleDocsPillClick()" class="bio-btn flex-1 py-1.5 rounded-xl bg-blue-600/30 hover:bg-blue-600/50 text-blue-200 border border-blue-500/30 text-[11px]">前往授權</button>
+              </div>
+            </div>
+
+            <div class="glass-card rounded-2xl p-3.5 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-semibold">FFmpeg 音訊引擎</span>
+                <span id="settings-ffmpeg-badge" class="px-2 py-0.5 rounded-full text-[10px] bg-white/10 text-slate-300">檢測中</span>
+              </div>
+              <p id="settings-ffmpeg-path" class="text-[11px] text-slate-400 truncate">檢測執行檔位置中...</p>
+              <button onclick="installFfmpegAction()" class="bio-btn w-full py-1.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/30 text-[11px]">
+                下載 / 修復本機 FFmpeg
+              </button>
+            </div>
           </div>
         </div>
 
@@ -951,98 +1033,116 @@
             <h2 id="ui-diag-title" class="text-xl md:text-2xl font-bold tracking-tight">系統狀態檢測</h2>
             <p id="ui-diag-subtitle" class="text-xs text-slate-400 mt-1">檢測 GPU、語音辨識模組、API 連線、磁碟空間與背景服務狀態</p>
           </div>
-          <button onclick="refreshSystemDiagnostics()" class="bio-btn px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white flex items-center gap-2 shadow-lg">
-            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> <span id="ui-diag-recheck-btn">重新檢測</span>
-          </button>
+          <div class="flex flex-wrap items-center gap-2">
+            <button onclick="runRepairEnvironment()" class="bio-btn px-3.5 py-2 rounded-xl glass-card text-xs font-medium flex items-center gap-1.5">
+              <i data-lucide="wrench" class="w-3.5 h-3.5 text-cyan-400"></i> <span>一鍵修復環境</span>
+            </button>
+            <button onclick="refreshSystemDiagnostics()" class="bio-btn px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white flex items-center gap-2 shadow-lg">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> <span id="ui-diag-recheck-btn">重新檢測</span>
+            </button>
+          </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
-          <div class="p-4 rounded-2xl glass-surface border border-emerald-500/30 flex items-start justify-between">
-            <div class="space-y-1">
+        <div id="diagnostics-cards-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+          <div id="diag-os-card" class="p-4 rounded-2xl glass-surface border border-white/10 flex items-start justify-between gap-2">
+            <div class="space-y-1 min-w-0">
               <div class="font-bold text-sm flex items-center gap-2">
-                <i data-lucide="monitor" class="w-4 h-4 text-cyan-400"></i> 作業系統環境
+                <i data-lucide="monitor" class="w-4 h-4 text-cyan-400 shrink-0"></i> 作業系統環境
               </div>
-              <p class="text-slate-400">Windows 11 / Python 3.12 (UTF-8)</p>
+              <p id="diag-os-text" class="text-slate-400 break-words">檢測中...</p>
             </div>
-            <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold text-[10px]">正常</span>
+            <span id="diag-os-badge" class="px-2 py-0.5 rounded-full bg-white/10 text-slate-300 border border-white/15 font-semibold text-[10px] shrink-0">待檢</span>
           </div>
 
-          <div class="p-4 rounded-2xl glass-surface border border-emerald-500/30 flex items-start justify-between">
-            <div class="space-y-1">
+          <div id="diag-gpu-card" class="p-4 rounded-2xl glass-surface border border-white/10 flex items-start justify-between gap-2">
+            <div class="space-y-1 min-w-0">
               <div class="font-bold text-sm flex items-center gap-2">
-                <i data-lucide="zap" class="w-4 h-4 text-yellow-400"></i> GPU 顯示卡
+                <i data-lucide="zap" class="w-4 h-4 text-yellow-400 shrink-0"></i> GPU 顯示卡
               </div>
-              <p class="text-slate-400">RTX 4060 8GB (CUDA 12.x)</p>
+              <p id="diag-gpu-text" class="text-slate-400 break-words">檢測中...</p>
             </div>
-            <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold text-[10px]">正常</span>
+            <span id="diag-gpu-badge" class="px-2 py-0.5 rounded-full bg-white/10 text-slate-300 border border-white/15 font-semibold text-[10px] shrink-0">待檢</span>
           </div>
 
-          <div class="p-4 rounded-2xl glass-surface border border-emerald-500/30 flex items-start justify-between">
-            <div class="space-y-1">
+          <div id="diag-stt-card" class="p-4 rounded-2xl glass-surface border border-white/10 flex items-start justify-between gap-2">
+            <div class="space-y-1 min-w-0">
               <div class="font-bold text-sm flex items-center gap-2">
-                <i data-lucide="layers" class="w-4 h-4 text-indigo-400"></i> 本機 STT 引擎 (C7)
+                <i data-lucide="layers" class="w-4 h-4 text-indigo-400 shrink-0"></i> 本機 STT 引擎 (C7)
               </div>
-              <p class="text-slate-400">CTranslate2 後端就緒 (CUDA 設備: 1)</p>
+              <p id="diag-stt-text" class="text-slate-400 break-words">檢測中...</p>
             </div>
-            <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold text-[10px]">就緒</span>
+            <span id="diag-stt-badge" class="px-2 py-0.5 rounded-full bg-white/10 text-slate-300 border border-white/15 font-semibold text-[10px] shrink-0">待檢</span>
           </div>
 
-          <div class="p-4 rounded-2xl glass-surface border border-emerald-500/30 flex items-start justify-between">
-            <div class="space-y-1">
+          <div id="diag-ffmpeg-card" class="p-4 rounded-2xl glass-surface border border-white/10 flex items-start justify-between gap-2">
+            <div class="space-y-1.5 min-w-0 flex-1">
               <div class="font-bold text-sm flex items-center gap-2">
-                <i data-lucide="music" class="w-4 h-4 text-purple-400"></i> 音訊處理工具 (FFmpeg)
+                <i data-lucide="music" class="w-4 h-4 text-purple-400 shrink-0"></i> 音訊處理工具 (FFmpeg)
               </div>
-              <p class="text-slate-400">已安裝 (支援 Opus 與 AAC 編解碼)</p>
+              <p id="diag-ffmpeg-text" class="text-slate-400 break-words">檢測中...</p>
+              <button id="btn-diag-install-ffmpeg" onclick="installFfmpegAction()" class="hidden bio-btn px-2.5 py-1 rounded-lg bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 text-[10px] border border-purple-500/40">一鍵安裝 FFmpeg</button>
             </div>
-            <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold text-[10px]">正常</span>
+            <span id="diag-ffmpeg-badge" class="px-2 py-0.5 rounded-full bg-white/10 text-slate-300 border border-white/15 font-semibold text-[10px] shrink-0">待檢</span>
           </div>
 
-          <div class="p-4 rounded-2xl glass-surface border border-emerald-500/30 flex items-start justify-between">
-            <div class="space-y-1">
+          <div id="diag-api-card" class="p-4 rounded-2xl glass-surface border border-white/10 flex items-start justify-between gap-2">
+            <div class="space-y-1.5 min-w-0 flex-1">
               <div class="font-bold text-sm flex items-center gap-2">
-                <i data-lucide="cloud" class="w-4 h-4 text-cyan-400"></i> Gemini API 連線
+                <i data-lucide="cloud" class="w-4 h-4 text-cyan-400 shrink-0"></i> Gemini API 連線
               </div>
-              <p class="text-slate-400">API 金鑰驗證正常</p>
+              <p id="diag-api-text" class="text-slate-400 break-words">檢測中...</p>
+              <button id="btn-diag-set-key" onclick="openSetupWizard()" class="hidden bio-btn px-2.5 py-1 rounded-lg bg-amber-500/25 hover:bg-amber-500/40 text-amber-200 text-[10px] border border-amber-500/40">設定 API 金鑰</button>
             </div>
-            <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold text-[10px]">正常</span>
+            <span id="diag-api-badge" class="px-2 py-0.5 rounded-full bg-white/10 text-slate-300 border border-white/15 font-semibold text-[10px] shrink-0">待檢</span>
           </div>
 
-          <div class="p-4 rounded-2xl glass-surface border border-emerald-500/30 flex items-start justify-between">
-            <div class="space-y-1">
+          <div id="diag-docs-card" class="p-4 rounded-2xl glass-surface border border-white/10 flex items-start justify-between gap-2">
+            <div class="space-y-1.5 min-w-0 flex-1">
               <div class="font-bold text-sm flex items-center gap-2">
-                <i data-lucide="file-check" class="w-4 h-4 text-blue-400"></i> Google Drive / Docs 授權
+                <i data-lucide="file-check" class="w-4 h-4 text-blue-400 shrink-0"></i> Google Drive / Docs 授權
               </div>
-              <p class="text-slate-400">憑證與 token.json 已設定</p>
+              <p id="diag-docs-text" class="text-slate-400 break-words">檢測中...</p>
+              <button id="btn-diag-google-auth" onclick="openSetupWizard()" class="hidden bio-btn px-2.5 py-1 rounded-lg bg-blue-600/30 hover:bg-blue-600/50 text-blue-200 text-[10px] border border-blue-500/40">匯入憑證 / 授權</button>
             </div>
-            <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold text-[10px]">已授權</span>
+            <span id="diag-docs-badge" class="px-2 py-0.5 rounded-full bg-white/10 text-slate-300 border border-white/15 font-semibold text-[10px] shrink-0">待檢</span>
           </div>
 
-          <div class="p-4 rounded-2xl glass-surface border border-emerald-500/30 flex items-start justify-between">
-            <div class="space-y-1">
+          <div id="diag-disk-card" class="p-4 rounded-2xl glass-surface border border-white/10 flex items-start justify-between gap-2">
+            <div class="space-y-1 min-w-0">
               <div class="font-bold text-sm flex items-center gap-2">
-                <i data-lucide="hard-drive" class="w-4 h-4 text-emerald-400"></i> 磁碟空間
+                <i data-lucide="hard-drive" class="w-4 h-4 text-emerald-400 shrink-0"></i> 磁碟空間
               </div>
-              <p class="text-slate-400">工作磁區剩餘 76.75 GB (最低需求: 3.0 GB)</p>
+              <p id="diag-disk-text" class="text-slate-400 break-words">檢測中...</p>
             </div>
-            <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold text-[10px]">正常</span>
+            <span id="diag-disk-badge" class="px-2 py-0.5 rounded-full bg-white/10 text-slate-300 border border-white/15 font-semibold text-[10px] shrink-0">待檢</span>
           </div>
 
-          <div class="p-4 rounded-2xl glass-surface border border-white/10 flex items-start justify-between">
-            <div class="space-y-1">
+          <div id="diag-webview2-card" class="p-4 rounded-2xl glass-surface border border-white/10 flex items-start justify-between gap-2">
+            <div class="space-y-1 min-w-0">
               <div class="font-bold text-sm flex items-center gap-2">
-                <i data-lucide="power" class="w-4 h-4 text-slate-400"></i> Windows 開機自動啟動
+                <i data-lucide="app-window" class="w-4 h-4 text-sky-400 shrink-0"></i> WebView2 桌面元件
               </div>
-              <p class="text-slate-400">設定開機自動啟動背景監控</p>
+              <p id="diag-webview2-text" class="text-slate-400 break-words">檢測中...</p>
             </div>
-            <button onclick="enableWindowsStartup()" class="bio-btn px-2.5 py-1 rounded-lg bg-indigo-600/30 text-indigo-300 text-[10px] border border-indigo-500/40">啟用</button>
+            <span id="diag-webview2-badge" class="px-2 py-0.5 rounded-full bg-white/10 text-slate-300 border border-white/15 font-semibold text-[10px] shrink-0">待檢</span>
           </div>
 
-          <div class="p-4 rounded-2xl glass-surface border border-emerald-500/30 flex items-start justify-between">
+          <div id="diag-autostart-card" class="p-4 rounded-2xl glass-surface border border-white/10 flex items-start justify-between gap-2">
+            <div class="space-y-1 min-w-0">
+              <div class="font-bold text-sm flex items-center gap-2">
+                <i data-lucide="power" class="w-4 h-4 text-slate-400 shrink-0"></i> Windows 開機自動啟動
+              </div>
+              <p id="diag-autostart-text" class="text-slate-400 break-words">檢測中...</p>
+            </div>
+            <button id="btn-windows-startup" onclick="enableWindowsStartup()" class="bio-btn px-2.5 py-1 rounded-lg bg-indigo-600/30 text-indigo-300 text-[10px] border border-indigo-500/40 shrink-0">啟用</button>
+          </div>
+
+          <div id="diag-queue-card" class="p-4 rounded-2xl glass-surface border border-white/10 flex items-start justify-between">
             <div class="space-y-1">
               <div class="font-bold text-sm flex items-center gap-2">
                 <i data-lucide="clock" class="w-4 h-4 text-cyan-400"></i> 離線待處理佇列
               </div>
-              <p class="text-slate-400">待處理佇列共 0 筆</p>
+              <p id="diag-queue-text" class="text-slate-400">檢測中...</p>
             </div>
             <span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold text-[10px]">無待處理</span>
           </div>
@@ -1252,6 +1352,96 @@
       <div class="flex justify-end gap-2 pt-3 border-t border-white/10">
         <button onclick="closeTimetableModal()" class="bio-btn px-4 py-2 rounded-xl glass-card text-xs">取消</button>
         <button onclick="saveTimetableRule()" class="bio-btn px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white shadow-md">儲存規則</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ================= 初次安裝 / 環境自我修復精靈 MODAL ================= -->
+  <dialog id="setup-wizard-modal" class="glass-surface border border-white/15 rounded-3xl p-6 text-slate-100 max-w-2xl w-full shadow-2xl">
+    <div class="space-y-4">
+      <div class="flex items-center justify-between border-b border-white/10 pb-3">
+        <div>
+          <h3 class="font-bold text-base flex items-center gap-2">
+            <i data-lucide="wand-2" class="w-4 h-4 text-amber-400"></i> 初次設定與環境自我修復精靈
+          </h3>
+          <p class="text-[11px] text-slate-400 mt-0.5">依照下列步驟完成設定；常見環境異常可直接點擊修復，不會覆蓋既有筆記與憑證。</p>
+        </div>
+        <button onclick="closeSetupWizard()" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>
+
+      <div class="space-y-3 max-h-[70vh] overflow-y-auto pr-1 text-xs">
+        <!-- Step 1: FFmpeg & Runtime -->
+        <div class="glass-card rounded-2xl p-4 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-sm">1. 基礎音訊與介面環境（FFmpeg / WebView2）</span>
+            <span id="wizard-ffmpeg-badge" class="px-2 py-0.5 rounded-full text-[10px] bg-white/10 text-slate-300">檢測中</span>
+          </div>
+          <p id="wizard-ffmpeg-desc" class="text-[11px] text-slate-400">FFmpeg 負責讀取與轉檔 M4A / MP3 / OPUS / WAV 錄音檔。若未安裝，可直接免管理員權限下載至本程式目錄。</p>
+          <p id="wizard-webview2-desc" class="text-[11px] text-slate-400"></p>
+          <div class="flex flex-wrap gap-2 pt-1">
+            <button onclick="installFfmpegAction()" class="bio-btn px-3 py-1.5 rounded-xl bg-purple-600/35 hover:bg-purple-600/55 text-purple-200 border border-purple-500/40 text-xs">
+              一鍵安裝 / 修復本機 FFmpeg
+            </button>
+            <button onclick="runRepairEnvironment()" class="bio-btn px-3 py-1.5 rounded-xl glass-card text-xs">
+              一鍵修復目錄與設定檔
+            </button>
+          </div>
+        </div>
+
+        <!-- Step 2: Gemini API Key -->
+        <div class="glass-card rounded-2xl p-4 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-sm">2. Gemini API 金鑰（必要）</span>
+            <span id="wizard-api-badge" class="px-2 py-0.5 rounded-full text-[10px] bg-white/10 text-slate-300">檢測中</span>
+          </div>
+          <p class="text-[11px] text-slate-400 leading-relaxed">
+            前往 Google AI Studio (<span class="font-mono text-cyan-300">https://aistudio.google.com/apikey</span>) 建立並複製 API 金鑰後貼於下方，系統將自動寫入 <span class="font-mono">.env</span>。
+          </p>
+          <div class="flex flex-col sm:flex-row gap-2">
+            <input type="password" id="wizard-gemini-key" placeholder="貼上 AIza... 開頭的 GEMINI_API_KEY" class="flex-1 bg-black/30 border border-white/15 rounded-xl px-3 py-2 text-xs font-mono">
+            <button onclick="submitWizardGeminiKey()" class="bio-btn px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shrink-0">
+              儲存並驗證連線
+            </button>
+          </div>
+          <label class="flex items-center gap-2 text-[11px] text-slate-400 cursor-pointer">
+            <input type="checkbox" id="wizard-verify-key" checked class="rounded border-slate-700 bg-slate-800 text-indigo-600">
+            <span>儲存後立即連線至 Gemini 驗證金鑰是否有效</span>
+          </label>
+          <div id="wizard-gemini-msg" class="hidden text-[11px] px-3 py-2 rounded-xl"></div>
+        </div>
+
+        <!-- Step 3: Google OAuth (Optional) -->
+        <div class="glass-card rounded-2xl p-4 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-sm">3. Google Docs / Drive 雲端同步（選用）</span>
+            <span id="wizard-oauth-badge" class="px-2 py-0.5 rounded-full text-[10px] bg-white/10 text-slate-300">檢測中</span>
+          </div>
+          <p class="text-[11px] text-slate-400 leading-relaxed">
+            若不啟用雲端同步，本程式仍會在 <span class="font-mono">exports</span> 資料夾產出完整的 Markdown、TXT 與 Word 筆記。若要同步至 Google Docs，請選擇自 Google Cloud Console 下載的桌面版 <span class="font-mono">credentials.json</span> 並完成授權：
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <input type="file" id="wizard-creds-file" accept=".json,application/json" onchange="handleWizardCredentialsFileChange(this.files)" class="hidden">
+            <button onclick="document.getElementById('wizard-creds-file').click()" class="bio-btn px-3 py-1.5 rounded-xl glass-card text-xs">
+              選擇 credentials.json 檔案匯入
+            </button>
+            <button onclick="triggerGoogleReauthFromWizard()" class="bio-btn px-3 py-1.5 rounded-xl bg-blue-600/35 hover:bg-blue-600/55 text-blue-200 border border-blue-500/40 text-xs">
+              開啟瀏覽器進行 Google OAuth 授權
+            </button>
+          </div>
+          <details class="text-[11px] text-slate-400">
+            <summary class="cursor-pointer hover:text-slate-200">或直接貼上 credentials.json 內容</summary>
+            <div class="mt-2 space-y-2">
+              <textarea id="wizard-creds-json" rows="3" placeholder='{"installed":{"client_id":"...","client_secret":"..."}}' class="w-full bg-black/30 border border-white/15 rounded-xl p-2 text-[11px] font-mono"></textarea>
+              <button onclick="submitWizardCredentialsText()" class="bio-btn px-3 py-1.5 rounded-xl bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-200 text-xs">儲存貼上的憑證 JSON</button>
+            </div>
+          </details>
+          <div id="wizard-oauth-msg" class="hidden text-[11px] px-3 py-2 rounded-xl"></div>
+        </div>
+      </div>
+
+      <div class="flex justify-between items-center pt-3 border-t border-white/10">
+        <button onclick="closeSetupWizard(); switchTab('settings');" class="bio-btn px-3.5 py-2 rounded-xl glass-card text-xs">前往目錄與詳細設定</button>
+        <button onclick="closeSetupWizard()" class="bio-btn px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white shadow-md">完成並關閉</button>
       </div>
     </div>
   </dialog>
@@ -2478,7 +2668,8 @@
           const paths = cfg.paths || {};
           const exportCfg = cfg.export || {};
           if (paths.inbox_dir) document.getElementById('dir-inbox').value = paths.inbox_dir;
-          if (paths.archive_dir) document.getElementById('dir-archive').value = paths.archive_dir;
+          const recArchive = paths.record_archive_dir || paths.archive_dir;
+          if (recArchive) document.getElementById('dir-archive').value = recArchive;
           if (paths.exports_dir || exportCfg.export_dir) document.getElementById('dir-export').value = paths.exports_dir || exportCfg.export_dir;
           if (paths.logs_dir) document.getElementById('dir-logs').value = paths.logs_dir;
         }
@@ -2490,7 +2681,7 @@
       if (key === 'dir-inbox') {
         payload.params.paths = { inbox_dir: value };
       } else if (key === 'dir-archive') {
-        payload.params.paths = { archive_dir: value };
+        payload.params.paths = { record_archive_dir: value };
       } else if (key === 'dir-export') {
         payload.params.paths = { exports_dir: value };
         payload.params.export = { export_dir: value };
@@ -3434,11 +3625,14 @@
         const el = document.getElementById('status-gpu-label');
         if (el) el.innerText = data.gpu.label;
       }
+      if (data.default_paths && data.default_paths.record_archive_dir) {
+        window._defaultRecordArchiveDir = data.default_paths.record_archive_dir;
+      }
       if (data.google_docs) {
         const docsLabel = document.getElementById('status-docs-label');
         const docsPill = document.getElementById('status-docs-pill');
         if (docsLabel) {
-          docsLabel.innerText = data.google_docs.ok ? 'Google Docs' : 'Google Docs 需重授權';
+          docsLabel.innerText = data.google_docs.ok ? 'Google Docs' : 'Google Docs 需設定/授權';
         }
         if (docsPill) {
           if (data.google_docs.ok) {
@@ -3450,9 +3644,329 @@
       }
     }
 
+    function _applyDiagStyle(cardId, badgeId, textId, textVal, badgeVal, tone) {
+      const card = document.getElementById(cardId);
+      const badge = badgeId ? document.getElementById(badgeId) : (card ? card.querySelector('span:last-child') : null);
+      const txt = document.getElementById(textId);
+      if (txt && textVal !== undefined) txt.innerText = textVal;
+      const borderMap = {
+        ok: 'border-emerald-500/30',
+        warn: 'border-amber-500/40',
+        error: 'border-rose-500/40',
+        neutral: 'border-white/10',
+      };
+      const badgeMap = {
+        ok: ['bg-emerald-500/15', 'text-emerald-400', 'border-emerald-500/30'],
+        warn: ['bg-amber-500/15', 'text-amber-300', 'border-amber-500/40'],
+        error: ['bg-rose-500/15', 'text-rose-300', 'border-rose-500/40'],
+        neutral: ['bg-white/10', 'text-slate-300', 'border-white/15'],
+      };
+      if (card) {
+        Object.values(borderMap).forEach(cls => card.classList.remove(cls));
+        card.classList.add(borderMap[tone] || borderMap.neutral);
+      }
+      if (badge) {
+        if (badgeVal !== undefined) badge.innerText = badgeVal;
+        Object.values(badgeMap).flat().forEach(cls => badge.classList.remove(cls));
+        (badgeMap[tone] || badgeMap.neutral).forEach(cls => badge.classList.add(cls));
+      }
+    }
+
+    function renderDiagnosticsCards(data) {
+      if (!data) return;
+
+      _applyDiagStyle('diag-os-card', 'diag-os-badge', 'diag-os-text',
+        data.os_info?.label || 'Windows / Python 環境',
+        '正常', 'ok'
+      );
+
+      _applyDiagStyle('diag-gpu-card', 'diag-gpu-badge', 'diag-gpu-text',
+        data.gpu?.ok ? `${data.gpu.name} (可用 ${data.gpu.vram_free} · 驅動 ${data.gpu.driver})` : '未偵測到 CUDA GPU（改用 CPU / 雲端模式）',
+        data.gpu?.ok ? '可用' : 'CPU 模式',
+        data.gpu?.ok ? 'ok' : 'warn'
+      );
+
+      const sttOk = !!data.local_stt?.ok;
+      _applyDiagStyle('diag-stt-card', 'diag-stt-badge', 'diag-stt-text',
+        data.local_stt?.label || '本機 STT 狀態未知',
+        sttOk ? '就緒' : '雲端替代',
+        sttOk ? 'ok' : 'warn'
+      );
+
+      const ffOk = !!data.ffmpeg?.ok;
+      const ffInstalling = !!data.ffmpeg?.installing;
+      _applyDiagStyle('diag-ffmpeg-card', 'diag-ffmpeg-badge', 'diag-ffmpeg-text',
+        ffInstalling ? '正在背景下載並解壓縮 FFmpeg...' : (data.ffmpeg?.label || '未偵測到 FFmpeg'),
+        ffInstalling ? '安裝中' : (ffOk ? '正常' : '缺失'),
+        ffInstalling ? 'warn' : (ffOk ? 'ok' : 'error')
+      );
+      const ffBtn = document.getElementById('btn-diag-install-ffmpeg');
+      if (ffBtn) ffBtn.classList.toggle('hidden', ffOk || ffInstalling);
+
+      const apiOk = !!data.api_key?.ok;
+      _applyDiagStyle('diag-api-card', 'diag-api-badge', 'diag-api-text',
+        data.api_key?.label || '尚未設定 GEMINI_API_KEY',
+        apiOk ? '已設定' : '未設定',
+        apiOk ? 'ok' : 'error'
+      );
+      const keyBtn = document.getElementById('btn-diag-set-key');
+      if (keyBtn) keyBtn.classList.toggle('hidden', apiOk);
+
+      const docsOk = !!data.google_docs?.ok;
+      const hasCreds = !!data.google_docs?.has_credentials;
+      _applyDiagStyle('diag-docs-card', 'diag-docs-badge', 'diag-docs-text',
+        data.google_docs?.label || '尚未設定 Google OAuth',
+        docsOk ? '已授權' : (hasCreds ? '需授權' : '未啟用(選用)'),
+        docsOk ? 'ok' : 'warn'
+      );
+      const docsBtn = document.getElementById('btn-diag-google-auth');
+      if (docsBtn) docsBtn.classList.toggle('hidden', docsOk);
+
+      const diskOk = data.disk?.ok !== false;
+      _applyDiagStyle('diag-disk-card', 'diag-disk-badge', 'diag-disk-text',
+        `工作磁區剩餘 ${data.disk?.free_gb ?? '未知'} GB（建議預留 2.0 GB 以上）`,
+        diskOk ? '正常' : '空間偏低',
+        diskOk ? 'ok' : 'error'
+      );
+
+      const wvOk = !!data.webview2?.ok;
+      _applyDiagStyle('diag-webview2-card', 'diag-webview2-badge', 'diag-webview2-text',
+        data.webview2?.label || 'WebView2 狀態未知',
+        wvOk ? '已安裝' : '瀏覽器模式',
+        wvOk ? 'ok' : 'warn'
+      );
+
+      const asEnabled = !!data.autostart?.enabled;
+      _applyDiagStyle('diag-autostart-card', null, 'diag-autostart-text',
+        data.autostart?.label || '尚未設定開機自動啟動',
+        undefined,
+        asEnabled ? 'ok' : 'neutral'
+      );
+      const startupBtn = document.getElementById('btn-windows-startup');
+      if (startupBtn) {
+        startupBtn.innerText = asEnabled ? '停用' : '啟用';
+      }
+
+      const pendingCnt = data.pending_uploads?.count ?? 0;
+      _applyDiagStyle('diag-queue-card', null, 'diag-queue-text',
+        data.pending_uploads?.label || `待處理佇列共 ${pendingCnt} 筆`,
+        `${pendingCnt} 筆`,
+        pendingCnt > 0 ? 'warn' : 'ok'
+      );
+    }
+
+    function updateOnboardingUI(data) {
+      if (!data) return;
+      const missingItems = [];
+      if (!data.api_key?.ok) missingItems.push('Gemini API 金鑰（必要）');
+      if (!data.ffmpeg?.ok) missingItems.push('FFmpeg 音訊引擎（必要）');
+
+      const banner = document.getElementById('onboarding-banner');
+      const bannerDesc = document.getElementById('onboarding-banner-desc');
+      const dismissed = sessionStorage.getItem('lp_onboarding_dismissed') === '1';
+      if (banner) {
+        if (missingItems.length > 0 && !dismissed) {
+          banner.classList.remove('hidden');
+          if (bannerDesc) {
+            bannerDesc.innerText = `尚待完成必要設定：${missingItems.join('、')}。請點擊「開啟初次設定精靈」完成設定；Google Docs / Drive 為選用項目，未設定仍可完整產出本機筆記。`;
+          }
+        } else {
+          banner.classList.add('hidden');
+        }
+      }
+
+      // Settings summary card badges
+      const apiBadge = document.getElementById('settings-api-badge');
+      if (apiBadge) {
+        apiBadge.innerText = data.api_key?.ok ? '已設定' : '未設定（必要）';
+        apiBadge.className = `px-2 py-0.5 rounded-full text-[10px] ${data.api_key?.ok ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}`;
+      }
+      const docsBadge = document.getElementById('settings-docs-badge');
+      if (docsBadge) {
+        docsBadge.innerText = data.google_docs?.ok ? '已授權' : (data.google_docs?.has_credentials ? '待授權' : '未設定(選用)');
+        docsBadge.className = `px-2 py-0.5 rounded-full text-[10px] ${data.google_docs?.ok ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`;
+      }
+      const ffBadge = document.getElementById('settings-ffmpeg-badge');
+      if (ffBadge) {
+        ffBadge.innerText = data.ffmpeg?.installing ? '安裝中...' : (data.ffmpeg?.ok ? '已就緒' : '未安裝');
+        ffBadge.className = `px-2 py-0.5 rounded-full text-[10px] ${data.ffmpeg?.ok ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`;
+      }
+      const ffPathEl = document.getElementById('settings-ffmpeg-path');
+      if (ffPathEl) {
+        ffPathEl.innerText = data.ffmpeg?.path || data.ffmpeg?.label || '未找到 ffmpeg.exe';
+      }
+
+      // Wizard badges
+      const wFf = document.getElementById('wizard-ffmpeg-badge');
+      if (wFf) wFf.innerText = data.ffmpeg?.installing ? '安裝中...' : (data.ffmpeg?.ok ? '已就緒' : '需要安裝');
+      const wWv = document.getElementById('wizard-webview2-desc');
+      if (wWv) wWv.innerText = data.webview2?.label || '';
+      const wApi = document.getElementById('wizard-api-badge');
+      if (wApi) wApi.innerText = data.api_key?.ok ? '已設定' : '必要 · 尚未設定';
+      const wOauth = document.getElementById('wizard-oauth-badge');
+      if (wOauth) wOauth.innerText = data.google_docs?.ok ? '已授權' : (data.google_docs?.has_credentials ? '已有憑證 · 待授權' : '選用 · 未匯入憑證');
+    }
+
+    function openSetupWizard() {
+      const dlg = document.getElementById('setup-wizard-modal');
+      if (dlg) {
+        if (window._lastStatus) updateOnboardingUI(window._lastStatus);
+        if (typeof dlg.showModal === 'function' && !dlg.open) {
+          dlg.showModal();
+        }
+      }
+    }
+
+    function closeSetupWizard() {
+      const dlg = document.getElementById('setup-wizard-modal');
+      if (dlg && dlg.open) dlg.close();
+    }
+
+    function dismissOnboardingBanner() {
+      sessionStorage.setItem('lp_onboarding_dismissed', '1');
+      const banner = document.getElementById('onboarding-banner');
+      if (banner) banner.classList.add('hidden');
+    }
+
+    async function submitWizardGeminiKey() {
+      const input = document.getElementById('wizard-gemini-key');
+      const verifyEl = document.getElementById('wizard-verify-key');
+      const msgEl = document.getElementById('wizard-gemini-msg');
+      const apiKey = (input ? input.value : '').trim();
+      const verify = verifyEl ? verifyEl.checked : true;
+      if (!apiKey) {
+        showToast('請輸入 Gemini API 金鑰');
+        return;
+      }
+      if (msgEl) {
+        msgEl.className = 'text-[11px] px-3 py-2 rounded-xl bg-white/10 text-slate-300';
+        msgEl.innerText = verify ? '正在儲存並連線驗證金鑰...' : '正在儲存金鑰...';
+        msgEl.classList.remove('hidden');
+      }
+      try {
+        const res = await fetch('/api/setup/gemini-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ api_key: apiKey, verify }),
+        });
+        const d = await res.json();
+        const ok = d.status === 'ok';
+        if (msgEl) {
+          msgEl.className = `text-[11px] px-3 py-2 rounded-xl ${ok ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'}`;
+          msgEl.innerText = d.message || (ok ? '金鑰已儲存' : '金鑰設定失敗');
+          msgEl.classList.remove('hidden');
+        }
+        showToast(d.message || (ok ? 'Gemini API 金鑰已設定' : 'API 金鑰設定失敗'));
+        await loadStatusFromServer();
+      } catch (e) {
+        showToast('儲存 API 金鑰失敗');
+      }
+    }
+
+    async function handleWizardCredentialsFileChange(files) {
+      if (!files || !files.length) return;
+      const fd = new FormData();
+      fd.append('file', files[0]);
+      await _uploadCredentialsPayload(fd, false);
+    }
+
+    async function submitWizardCredentialsText() {
+      const ta = document.getElementById('wizard-creds-json');
+      const raw = (ta ? ta.value : '').trim();
+      if (!raw) {
+        showToast('請貼上 credentials.json 內容');
+        return;
+      }
+      await _uploadCredentialsPayload(raw, true);
+    }
+
+    async function _uploadCredentialsPayload(bodyData, isJsonText) {
+      const msgEl = document.getElementById('wizard-oauth-msg');
+      try {
+        const opts = isJsonText
+          ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyData }
+          : { method: 'POST', body: bodyData };
+        const res = await fetch('/api/setup/credentials', opts);
+        const d = await res.json();
+        const ok = d.status === 'ok';
+        if (msgEl) {
+          msgEl.className = `text-[11px] px-3 py-2 rounded-xl ${ok ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'}`;
+          msgEl.innerText = d.message || (ok ? 'credentials.json 已匯入' : '匯入失敗');
+          msgEl.classList.remove('hidden');
+        }
+        showToast(d.message || (ok ? '已匯入 credentials.json' : '匯入憑證失敗'));
+        await loadStatusFromServer();
+      } catch (e) {
+        showToast('匯入 credentials.json 失敗');
+      }
+    }
+
+    async function triggerGoogleReauthFromWizard() {
+      const msgEl = document.getElementById('wizard-oauth-msg');
+      try {
+        const res = await fetch('/api/google/reauth', { method: 'POST' });
+        const d = await res.json();
+        const ok = d.status !== 'error';
+        if (msgEl) {
+          msgEl.className = `text-[11px] px-3 py-2 rounded-xl ${ok ? 'bg-blue-500/15 text-blue-300 border border-blue-500/30' : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'}`;
+          msgEl.innerText = d.message || '請於瀏覽器完成 Google 授權';
+          msgEl.classList.remove('hidden');
+        }
+        showToast(d.message || '請於瀏覽器完成 Google 授權');
+      } catch (e) {
+        showToast('無法觸發 Google 授權流程');
+      }
+    }
+
+    let _ffmpegPollTimer = null;
+    async function installFfmpegAction() {
+      showToast('正在檢查並安裝本機 FFmpeg...');
+      try {
+        const res = await fetch('/api/setup/install-ffmpeg', { method: 'POST' });
+        const d = await res.json();
+        showToast(d.message || '已觸發 FFmpeg 安裝');
+        await loadStatusFromServer();
+        if (d.status === 'started' && !_ffmpegPollTimer) {
+          let polls = 0;
+          _ffmpegPollTimer = setInterval(async () => {
+            polls += 1;
+            await loadStatusFromServer();
+            const st = window._lastStatus;
+            if (!st?.ffmpeg?.installing || polls > 80) {
+              clearInterval(_ffmpegPollTimer);
+              _ffmpegPollTimer = null;
+              if (st?.ffmpeg?.ok) {
+                showToast('FFmpeg 安裝與驗證完成');
+              }
+            }
+          }, 1500);
+        }
+      } catch (e) {
+        showToast('無法啟動 FFmpeg 安裝程序');
+      }
+    }
+
+    async function runRepairEnvironment() {
+      showToast('正在檢測並自動修復工作環境...');
+      try {
+        const res = await fetch('/api/setup/repair', { method: 'POST' });
+        const d = await res.json();
+        showToast(d.message || '環境檢測與修復完成');
+        await loadStatusFromServer();
+        await loadBackendConfigPaths();
+      } catch (e) {
+        showToast('執行環境自我修復失敗');
+      }
+    }
+
     async function handleGoogleDocsPillClick() {
       const st = window._lastStatus?.google_docs;
       if (st && st.ok === false) {
+        if (!st.has_credentials) {
+          openSetupWizard();
+          showToast('請先匯入 Google OAuth credentials.json 憑證檔');
+          return;
+        }
         showToast('正在開啟 Google Docs 重新授權視窗...');
         try {
           const res = await fetch('/api/google/reauth', { method: 'POST' });
@@ -3475,6 +3989,8 @@
           const data = await res.json();
           window._lastStatus = data;
           applyHeaderStatusUI(data);
+          renderDiagnosticsCards(data);
+          updateOnboardingUI(data);
           if (data.active_task) {
             updateWorkbenchTaskState(data.active_task);
           }
@@ -3490,7 +4006,9 @@
           const d = await res.json();
           window._lastStatus = d;
           applyHeaderStatusUI(d);
-          showToast(`檢測完成：GPU: ${d.gpu.label} · Google Docs: ${d.google_docs?.label || '未知'}`);
+          renderDiagnosticsCards(d);
+          updateOnboardingUI(d);
+          showToast(`檢測完成：GPU: ${d.gpu.label} · FFmpeg: ${d.ffmpeg?.ok ? '正常' : '缺失'} · Google Docs: ${d.google_docs?.label || '未設定'}`);
         } else {
           showToast('系統檢測完成');
         }
@@ -3499,8 +4017,23 @@
       }
     }
 
-    function enableWindowsStartup() {
-      showToast('已設定 Windows 開機自動啟動');
+    async function enableWindowsStartup() {
+      try {
+        const res = await fetch('/api/setup/autostart', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        if (res.ok) {
+          const d = await res.json();
+          showToast(d.message || (d.enabled ? '已設定 Windows 開機自動啟動' : '已取消開機自動啟動'));
+          await loadStatusFromServer();
+        } else {
+          showToast('切換 Windows 開機啟動失敗');
+        }
+      } catch (e) {
+        showToast('無法連線至開機啟動設定服務');
+      }
     }
 
     // 課表同步

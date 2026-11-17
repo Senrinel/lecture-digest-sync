@@ -257,6 +257,13 @@ def show_desktop_window(host: str = "127.0.0.1", port: int = 8000) -> bool:
                     return True
         except Exception:
             pass
+
+    from lecture_pipeline.utils.bootstrap import is_webview2_available
+    if not is_webview2_available():
+        import webbrowser
+        webbrowser.open(f"http://{host}:{port}")
+        return True
+
     return launch_window_process(host=host, port=port)
 
 

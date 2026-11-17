@@ -108,6 +108,11 @@ def launch_gui(
     else:
         active_mode = get_remembered_gui_mode()
 
+    from lecture_pipeline.utils.bootstrap import is_webview2_available
+    if active_mode in ("window", "both") and not is_webview2_available():
+        print("[WARN] 未偵測到 Microsoft Edge WebView2 Runtime，已自動切換為「網頁瀏覽器模式」。")
+        active_mode = "web"
+
     server_host = host or gui_cfg.get("host", "127.0.0.1")
     server_port = int(port or gui_cfg.get("port", 8000))
     url = f"http://{server_host}:{server_port}"

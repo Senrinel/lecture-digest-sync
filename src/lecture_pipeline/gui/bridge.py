@@ -321,8 +321,9 @@ _oauth_status_cache: Dict[str, Any] = {
 
 def _get_cached_google_auth_status(net_ok: bool) -> Dict[str, Any]:
     """Validate token.json with mtime/TTL cache so invalid_grant is surfaced accurately without spamming requests."""
-    token_file = Path("token.json").resolve()
-    cred_file = Path("credentials.json").resolve()
+    base_dir = CONFIG_FILE_PATH.parent
+    token_file = (base_dir / "token.json").resolve()
+    cred_file = (base_dir / "credentials.json").resolve()
 
     if not cred_file.is_file():
         return {"ok": False, "label": "尚未設定 OAuth (缺少 credentials.json)", "needs_reauth": True}
@@ -371,7 +372,9 @@ def _get_cached_google_auth_status(net_ok: bool) -> Dict[str, Any]:
 
 def trigger_google_reauth() -> Dict[str, Any]:
     """Start interactive Google OAuth re-authorization in background and flush pending uploads on success."""
-    cred_file = Path("credentials.json").resolve()
+    base_dir = CONFIG_FILE_PATH.parent
+    cred_file = (base_dir / "credentials.json").resolve()
+    token_p = (base_dir / "token.json").resolve()
     if not cred_file.is_file():
         return {"status": "error", "message": "找不到 credentials.json 用戶端憑證"}
 
@@ -382,19 +385,17 @@ def trigger_google_reauth() -> Dict[str, Any]:
 
             pub = GoogleDrivePublisher(
                 credentials_file=cred_file,
-                token_file=Path("token.json").resolve(),
+                token_file=token_p,
                 interactive=True,
                 auth_timeout_sec=1800,
             )
             # Force fresh interactive login if token is missing or invalid
             ok, _ = pub.check_auth_status(attempt_refresh=True)
-            if not ok:
-                token_p = Path("token.json").resolve()
-                if token_p.is_file():
-                    try:
-                        token_p.unlink()
-                    except Exception:
-                        pass
+            if not ok and token_p.is_file():
+                try:
+                    token_p.unlink()
+                except Exception:
+                    pass
             pub.get_service(interactive=True, timeout_seconds=1800)
             _oauth_status_cache["checked_at"] = 0.0
             broadcaster.broadcast_sync({"type": "toast", "message": "Google Drive 重新授權成功，正在檢查待補傳課堂..."})
@@ -409,8 +410,91 @@ def trigger_google_reauth() -> Dict[str, Any]:
     return {"status": "ok", "message": "已於瀏覽器開啟 Google 帳號授權頁面"}
 
 
+_ffmpeg_install_state: Dict[str, Any] = {"running": False, "message": "", "progress": 0}
+
+
+def setup_gemini_api_key_action(api_key: str, verify: bool = True) -> Dict[str, Any]:
+    """Validate and save GEMINI_API_KEY into .env and process environment."""
+    from lecture_pipeline.utils.bootstrap import save_gemini_api_key
+    ok, msg = save_gemini_api_key(api_key=api_key, verify=verify)
+    return {"status": "ok" if ok else "error", "ok": ok, "message": msg}
+
+
+def setup_credentials_action(raw_bytes: bytes) -> Dict[str, Any]:
+    """Validate and save Google Cloud OAuth credentials.json."""
+    from lecture_pipeline.utils.bootstrap import save_google_credentials_json
+    ok, msg = save_google_credentials_json(raw_bytes)
+    if ok:
+        _oauth_status_cache["checked_at"] = 0.0
+    return {"status": "ok" if ok else "error", "ok": ok, "message": msg}
+
+
+def install_ffmpeg_action() -> Dict[str, Any]:
+    """Trigger background download and installation of portable FFmpeg/FFprobe binaries."""
+    from lecture_pipeline.utils.bootstrap import check_ffmpeg_ready, install_ffmpeg_locally
+
+    already_ok, msg, path = check_ffmpeg_ready()
+    if already_ok:
+        return {"status": "ok", "ok": True, "message": msg, "running": False}
+
+    if _ffmpeg_install_state["running"]:
+        return {"status": "ok", "ok": True, "message": "FFmpeg 正在下載安裝中...", "running": True}
+
+    def _run():
+        _ffmpeg_install_state.update({"running": True, "message": "準備下載 FFmpeg...", "progress": 5})
+        def _cb(m: str, pct: int):
+            _ffmpeg_install_state.update({"message": m, "progress": pct})
+            broadcaster.broadcast_sync({"type": "toast", "message": f"FFmpeg 安裝 ({pct}%): {m}"})
+
+        try:
+            ok_dl, res_msg = install_ffmpeg_locally(progress_cb=_cb)
+            _ffmpeg_install_state.update({"running": False, "message": res_msg, "progress": 100 if ok_dl else 0})
+            broadcaster.broadcast_sync({"type": "toast", "message": res_msg})
+        except Exception as e:
+            _ffmpeg_install_state.update({"running": False, "message": str(e), "progress": 0})
+            broadcaster.broadcast_sync({"type": "toast", "message": f"FFmpeg 安裝失敗：{e}"})
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "ok", "ok": True, "message": "已開始自動下載安裝 FFmpeg...", "running": True}
+
+
+def repair_environment_action() -> Dict[str, Any]:
+    """Run environment config, folder, and corrupted state self-repair."""
+    from lecture_pipeline.utils.bootstrap import repair_and_init_environment
+    res = repair_and_init_environment(config_path=CONFIG_FILE_PATH)
+    _oauth_status_cache["checked_at"] = 0.0
+    repairs = res.get("repairs", [])
+    summary = "環境與設定正常，無須修復項目。" if not repairs else "修復完成：" + "；".join(repairs)
+    return {"status": "ok", "message": summary, "repairs": repairs, "paths": res.get("paths", {})}
+
+
+def toggle_autostart_action(enabled: Optional[bool] = None) -> Dict[str, Any]:
+    """Enable, disable, or toggle real Windows Startup registration."""
+    from lecture_pipeline.automation.autostart import disable_autostart, enable_autostart, get_autostart_status
+    cur = get_autostart_status()
+    target = (not cur["enabled"]) if enabled is None else bool(enabled)
+    try:
+        if target:
+            p = enable_autostart()
+            return {"status": "ok", "enabled": True, "path": str(p), "message": "已啟用 Windows 開機自動啟動背景監控。"}
+        disable_autostart()
+        return {"status": "ok", "enabled": False, "path": cur["path"], "message": "已關閉 Windows 開機自動啟動。"}
+    except Exception as e:
+        return {"status": "error", "enabled": cur["enabled"], "message": f"設定開機啟動失敗：{e}"}
+
+
 def get_full_system_status() -> Dict[str, Any]:
-    """Collect real hardware, network, token, and watcher diagnostics."""
+    """Collect real hardware, network, FFmpeg, token, autostart, and watcher diagnostics."""
+    from lecture_pipeline.automation.autostart import get_autostart_status
+    from lecture_pipeline.automation.offline_queue import OfflineUploadQueue
+    from lecture_pipeline.utils.bootstrap import (
+        check_ffmpeg_ready,
+        check_local_stt_ready,
+        get_os_summary,
+        is_valid_api_key_value,
+        is_webview2_available,
+    )
+
     # 1. GPU Check
     gpu_name = "未偵測到 GPU"
     vram_free = "0 MB"
@@ -446,11 +530,29 @@ def get_full_system_status() -> Dict[str, Any]:
     inbox_dir = paths.get("inbox_dir", "inbox")
     disk_ok, disk_free_gb = check_disk_space(inbox_dir, min_free_gb=2.0)
 
-    # 5. Gemini API Key check
-    gemini_key_set = bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
+    # 5. Gemini API Key check (filters out template placeholders)
+    raw_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    gemini_key_set = is_valid_api_key_value(raw_key)
+
+    # 6. FFmpeg, WebView2, Local STT, Autostart, Queue
+    ffmpeg_ok, ffmpeg_label, ffmpeg_path = check_ffmpeg_ready()
+    local_stt_ok, local_stt_label = check_local_stt_ready()
+    webview2_ok = is_webview2_available()
+    as_info = get_autostart_status()
+    try:
+        pending_cnt = len(OfflineUploadQueue().get_pending())
+    except Exception:
+        pending_cnt = 0
+
+    has_creds_file = (CONFIG_FILE_PATH.parent / "credentials.json").is_file()
+    needs_onboarding = (not gemini_key_set) or (not ffmpeg_ok)
 
     return {
         "mode": get_remembered_gui_mode(),
+        "os_info": {
+            "ok": True,
+            "label": get_os_summary(),
+        },
         "gpu": {
             "ok": gpu_ok,
             "name": gpu_name,
@@ -462,14 +564,44 @@ def get_full_system_status() -> Dict[str, Any]:
             "ok": net_ok,
             "label": "連線正常" if net_ok else "離線模式 (佇列暫存)",
         },
-        "google_docs": docs_status,
+        "ffmpeg": {
+            "ok": ffmpeg_ok,
+            "label": ffmpeg_label,
+            "path": ffmpeg_path,
+            "installing": _ffmpeg_install_state["running"],
+        },
+        "webview2": {
+            "ok": webview2_ok,
+            "label": "Microsoft Edge WebView2 已安裝" if webview2_ok else "未安裝 WebView2（已自動改用瀏覽器模式）",
+        },
+        "local_stt": {
+            "ok": local_stt_ok,
+            "label": local_stt_label,
+        },
+        "google_docs": {
+            **docs_status,
+            "has_credentials": has_creds_file,
+        },
         "api_key": {
             "ok": gemini_key_set,
-            "label": "Gemini API 金鑰已設定" if gemini_key_set else "缺少 GEMINI_API_KEY",
+            "label": "Gemini API 金鑰已設定" if gemini_key_set else "尚未設定 GEMINI_API_KEY（必要）",
         },
         "disk": {
             "ok": disk_ok,
             "free_gb": disk_free_gb,
+        },
+        "autostart": {
+            "ok": True,
+            "enabled": bool(as_info.get("enabled")),
+            "label": "已啟用開機自動啟動" if as_info.get("enabled") else "尚未啟用開機啟動",
+        },
+        "pending_uploads": {
+            "count": pending_cnt,
+            "label": f"待補傳佇列共 {pending_cnt} 筆" if pending_cnt else "待處理佇列共 0 筆",
+        },
+        "needs_onboarding": needs_onboarding,
+        "default_paths": {
+            "record_archive_dir": str(Path.home() / "Documents" / "課堂錄音" / "錄音封存"),
         },
         "watcher": {
             "paused": is_watcher_paused(),

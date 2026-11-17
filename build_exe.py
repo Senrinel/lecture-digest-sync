@@ -46,6 +46,34 @@ def find_iscc() -> Path | None:
     return None
 
 
+def _find_real_ffmpeg_binary(exe_name: str) -> Path | None:
+    """Locate a standalone FFmpeg/FFprobe executable (>5 MB), skipping Chocolatey shims."""
+    candidates: list[Path] = [
+        ROOT / "bin" / exe_name,
+        Path(os.environ.get("ChocolateyInstall", r"C:\ProgramData\chocolatey"))
+        / "lib"
+        / "ffmpeg"
+        / "tools"
+        / "ffmpeg"
+        / "bin"
+        / exe_name,
+    ]
+    winget_pkgs = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Packages"
+    if winget_pkgs.is_dir():
+        candidates.extend(winget_pkgs.glob(f"Gyan.FFmpeg*/**/bin/{exe_name}"))
+    which_hit = shutil.which(exe_name)
+    if which_hit:
+        candidates.append(Path(which_hit))
+
+    for cand in candidates:
+        try:
+            if cand.is_file() and cand.stat().st_size > 5_000_000:
+                return cand
+        except OSError:
+            continue
+    return None
+
+
 def run_obfuscation_pipeline() -> None:
     """Run dual-layer obfuscation and native compilation."""
     print("=" * 75)
@@ -140,6 +168,8 @@ def run_pyinstaller_packaging() -> Path:
         "--hidden-import=unittest",
         "--hidden-import=lecture_pipeline.utils",
         "--hidden-import=lecture_pipeline.utils.process",
+        "--hidden-import=lecture_pipeline.utils.bootstrap",
+        "--hidden-import=winreg",
         "--collect-all=jieba",
         "--collect-all=opencc",
         "--collect-all=webview",
@@ -186,12 +216,33 @@ def run_pyinstaller_packaging() -> Path:
     if (ROOT / "prompts").is_dir() and not prompts_dst.is_dir():
         shutil.copytree(ROOT / "prompts", prompts_dst)
 
-    # Copy base environment and OAuth client config if present (exclude dynamic user token.json)
-    for cred_file in [".env", "credentials.json"]:
-        src_cred = ROOT / cred_file
-        if src_cred.is_file():
-            shutil.copy2(src_cred, dist_dir / cred_file)
-            print(f"  [憑證同步] 已複製 {cred_file} 至發布執行目錄")
+    # Copy .env.example template unconditionally so clean devices have an editable reference
+    env_example = ROOT / ".env.example"
+    if env_example.is_file():
+        shutil.copy2(env_example, dist_dir / ".env.example")
+
+    # Copy base environment and OAuth client config if present (skip when building clean public release)
+    clean_release = "--clean-release" in sys.argv or os.environ.get("LECTURE_CLEAN_RELEASE") == "1"
+    if not clean_release:
+        for cred_file in [".env", "credentials.json"]:
+            src_cred = ROOT / cred_file
+            if src_cred.is_file():
+                shutil.copy2(src_cred, dist_dir / cred_file)
+                print(f"  [憑證同步] 已複製 {cred_file} 至發布執行目錄")
+    else:
+        print("  [純淨發布模式] 已跳過本機 .env 與 credentials.json 複製")
+
+    # Bundle standalone FFmpeg/FFprobe binaries (>5 MB, excluding Chocolatey shims)
+    bin_dir = dist_dir / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    for ff_exe in ["ffmpeg.exe", "ffprobe.exe"]:
+        real_bin = _find_real_ffmpeg_binary(ff_exe)
+        if real_bin:
+            shutil.copy2(real_bin, bin_dir / ff_exe)
+            size_mb = round(real_bin.stat().st_size / (1024 * 1024), 1)
+            print(f"  [內建引擎] 已打包獨立版 {ff_exe} ({size_mb} MB) 至 bin\\")
+        else:
+            print(f"  [警告] 建置機找不到獨立版 {ff_exe}，目標電腦初次啟動時可透過精靈自動下載。")
 
     # Ensure unittest is present in _internal (required by googleapiclient / httplib2 / pyparsing)
     import unittest
@@ -201,7 +252,7 @@ def run_pyinstaller_packaging() -> Path:
         shutil.copytree(unittest_src, unittest_dst)
         print("  [相依補強] 已直接補充 unittest 至 _internal/ 目錄")
 
-    for folder in ["inbox", "exports", "archive"]:
+    for folder in ["inbox", "exports", "archive", "courses"]:
         (dist_dir / folder).mkdir(exist_ok=True)
 
     print(f"PyInstaller 打包完成，執行檔位於: {dist_dir / 'LecturePipeline.exe'}")
@@ -210,10 +261,10 @@ def run_pyinstaller_packaging() -> Path:
     exe_file = dist_dir / "LecturePipeline.exe"
     print("正在驗證執行檔相容性...")
     res = subprocess.run([str(exe_file), "--test-import"], capture_output=True, text=True, cwd=str(dist_dir))
-    if "[TEST_OK]" in res.stdout or res.returncode == 0:
+    if res.returncode == 0 and "[TEST_OK]" in res.stdout:
         print("執行檔核心模組導入驗證通過。")
     else:
-        print("執行檔驗證失敗：", res.stdout, res.stderr)
+        raise RuntimeError(f"執行檔驗證失敗 (rc={res.returncode}):\n{res.stdout}\n{res.stderr}")
 
     return dist_dir
 

@@ -1,13 +1,13 @@
 paths:
-  inbox_dir: C:\Users\LinKJ\Documents\課堂錄音\收件匣
+  inbox_dir: inbox
   work_dir: work
   archive_dir: archive
-  record_archive_dir: C:\Users\LinKJ\Pictures\Record
+  record_archive_dir: record_archive
   logs_dir: logs
   benchmark_dir: benchmark
   prompts_dir: prompts
-  courses_dir: C:\Users\LinKJ\Documents\課堂錄音\科目詞庫
-  exports_dir: C:\Users\LinKJ\Documents\課堂錄音\筆記匯出
+  courses_dir: courses
+  exports_dir: exports
 preprocessing:
   hp: 100Hz
   loud: -19LUFS
@@ -42,29 +42,21 @@ summarize:
   template: fabric_summarize_lecture.md
   thinking_budget: 1024
 export:
-  export_dir: C:\Users\LinKJ\Documents\課堂錄音\筆記匯出
+  export_dir: exports
   auto_open_notebooklm: false
   notebooklm_url: https://notebooklm.google.com/
 quota_policy:
   on_quota_exhausted: local_then_defer
   daily_reset_hour_utc: 8
 timetable:
-  enabled: true
+  enabled: false
   Monday: null
-  Tuesday:
-  - time: 9:00-11:00
-    course: 人文通識：世界文明史
-  - time: 11:00-13:00
-    course: 人文通識：藝術欣賞
-  - time: 13:00-16:00
-    course: 光電子學
-  - time: 16:00-18:00
-    course: 科技英文導讀
+  Tuesday: null
   Wednesday: null
   Thursday: null
-  Friday:
-  - time: 09:00-12:00
-    course: 電磁學
+  Friday: null
+  Saturday: null
+  Sunday: null
 gui:
   mode: window
   host: 127.0.0.1

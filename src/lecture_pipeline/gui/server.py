@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -38,6 +38,7 @@ from lecture_pipeline.gui.bridge import (
     get_lecture_content,
     get_remembered_gui_mode,
     get_timetable_rules,
+    install_ffmpeg_action,
     is_processing_active,
     is_watcher_paused,
     open_file_in_desktop,
@@ -45,12 +46,16 @@ from lecture_pipeline.gui.bridge import (
     open_folder_in_desktop,
     pause_processing_task,
     rename_lecture,
+    repair_environment_action,
     resolve_export_lecture_file,
     save_remembered_gui_mode,
     save_timetable_rules,
     set_watcher_paused,
+    setup_credentials_action,
+    setup_gemini_api_key_action,
     start_processing_task,
     switch_gui_mode_action,
+    toggle_autostart_action,
     trigger_google_reauth,
     update_pipeline_config,
 )
@@ -205,6 +210,71 @@ async def api_status():
 async def api_google_reauth():
     """Trigger interactive Google OAuth re-authorization flow."""
     return trigger_google_reauth()
+
+
+class GeminiKeyRequest(BaseModel):
+    api_key: str
+    verify: bool = True
+
+
+class AutostartRequest(BaseModel):
+    enabled: Optional[bool] = None
+
+
+@app.post("/api/setup/gemini-key")
+async def api_setup_gemini_key(req: GeminiKeyRequest):
+    """Save and optionally verify Gemini API key in .env and current process."""
+    return setup_gemini_api_key_action(api_key=req.api_key, verify=req.verify)
+
+
+@app.post("/api/setup/credentials")
+async def api_setup_credentials(request: Request):
+    """Upload or paste Google OAuth credentials.json (multipart upload or raw JSON body)."""
+    content_type = (request.headers.get("content-type") or "").lower()
+    raw_bytes = b""
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        uploaded = form.get("file")
+        if uploaded is None:
+            for item in form.values():
+                if hasattr(item, "read"):
+                    uploaded = item
+                    break
+        if uploaded is None or not hasattr(uploaded, "read"):
+            raise HTTPException(status_code=400, detail="未收到 credentials.json 檔案")
+        raw_bytes = await uploaded.read()
+    else:
+        raw_bytes = await request.body()
+        if "application/json" in content_type and raw_bytes:
+            try:
+                import json as _json
+                parsed = _json.loads(raw_bytes.decode("utf-8"))
+                if isinstance(parsed, dict) and isinstance(parsed.get("content"), str):
+                    raw_bytes = parsed["content"].encode("utf-8")
+            except Exception:
+                pass
+    if not raw_bytes or not raw_bytes.strip():
+        raise HTTPException(status_code=400, detail="credentials.json 內容不可為空")
+    return setup_credentials_action(raw_bytes)
+
+
+@app.post("/api/setup/install-ffmpeg")
+async def api_setup_install_ffmpeg():
+    """Start background installation of portable FFmpeg/FFprobe."""
+    return install_ffmpeg_action()
+
+
+@app.post("/api/setup/repair")
+async def api_setup_repair():
+    """Run one-click environment validation and self-repair."""
+    return repair_environment_action()
+
+
+@app.post("/api/setup/autostart")
+async def api_setup_autostart(req: Optional[AutostartRequest] = Body(default=None)):
+    """Enable, disable, or toggle Windows startup background launch."""
+    enabled = req.enabled if req is not None else None
+    return toggle_autostart_action(enabled=enabled)
 
 
 @app.post("/api/window/show")

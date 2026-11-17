@@ -24,7 +24,7 @@ from lecture_pipeline.utils import resolve_binary, silent_run
 
 console = Console(legacy_windows=False)
 
-DEFAULT_RECORD_DIR = Path(r"C:\Users\LinKJ\Pictures\Record")
+DEFAULT_RECORD_DIR = Path.home() / "Documents" / "課堂錄音" / "錄音封存"
 
 
 def get_record_archive_base_dir(config_path: Path | str = "config.yaml") -> Path:

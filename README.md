@@ -53,7 +53,7 @@
    - 支援 **Windows 原生視窗 (Microsoft Edge WebView2)**、**瀏覽器網頁** 與 **雙軌同時** 三種模式，設定自動記憶。
    - 整合 Windows 系統匣小圖示（System Tray），即時顯示閒置💤、處理🔄、上傳⏫、暫停⏸️ 狀態，支援右鍵選單快速操作。
 8. **單一觸發程式模擬封裝 EXE 體驗**：
-   - 專案根目錄整合為單一主程式 [`main.py`](file:///c:/Users/LinKJ/Desktop/ASR系統/main.py) 與批次檔 [`啟動系統.bat`](file:///c:/Users/LinKJ/Desktop/ASR系統/啟動系統.bat)。
+   - 專案根目錄整合為單一主程式 `main.py` 與批次檔 `啟動系統.bat`。
    - 雙擊直接開啟 GUI + 背景常駐監控 + 系統列小圖示；支援將音檔或資料夾直接拖曳至圖示上進行一鍵整理。
 9. **純本機零 API 課堂詞庫自動萃取**：
    - 支援直接拖曳課程講義 PDF/TXT，以純本機正則與統計模型解析專有名詞、縮寫與雙語對照，直接儲存於真實檔案 `courses/<科目>/glossary.txt`。
@@ -195,9 +195,23 @@ GEMINI_API_KEY="AIzaSyYourGeminiApiKeyHere..."
 
 ## 🚀 快速上手 (Quick Start)
 
-### 方案 A：雙擊單一啟動腳本 (完整模擬 .exe 體驗) ⭐⭐⭐⭐⭐
+### 方案 0：Windows 獨立安裝檔（免 Python 環境 / 推薦一般使用者） ⭐⭐⭐⭐⭐
 
-雙擊專案根目錄的 [`啟動系統.bat`](file:///c:/Users/LinKJ/Desktop/ASR系統/啟動系統.bat)（或執行命令 `uv run python main.py`）：
+1. 下載並執行 `Setup_LecturePipeline_v0.1.0.exe`（無需 Windows 管理員權限、無需事先安裝 Python 或 FFmpeg）。
+2. 安裝精靈將引導設定四個工作資料夾（`收件匣`、`筆記匯出`、`科目詞庫`、`錄音封存`），並內建獨立版 FFmpeg 與 WebView2 備援降級（若系統未安裝 WebView2 Runtime，會自動改以系統預設瀏覽器開啟操作介面）。
+3. 初次開啟後，依照主畫面頂部的**初次設定精靈**：
+   - **必要**：輸入 Gemini API 金鑰並測試連線（自動寫入 `.env`）。
+   - **選用**：匯入 Google OAuth `credentials.json` 並授權 Google 帳號以同步至 Google Docs（未設定時仍可完整產出本機 Markdown / TXT / Word 筆記）。
+4. **自我檢測與重新安裝修復**：若設定檔 (`config.yaml` / `.env` / 狀態檔) 誤損、工作目錄遭刪除或更換電腦造成路徑異常：
+   - 可於程式右上角「系統狀態」頁面點擊 **「一鍵修復環境」**；
+   - 或直接**重新執行安裝程式**（會自動關閉駐留背景行程、保留既有 `token.json` 與設定、備份損毀檔並重建環境）；
+   - 或執行命令列修復：`LecturePipeline.exe --repair`（原始碼環境為 `uv run python main.py --repair`）。
+
+---
+
+### 方案 A：雙擊單一啟動腳本 (原始碼開發模擬 .exe 體驗) ⭐⭐⭐⭐⭐
+
+雙擊專案根目錄的 `啟動系統.bat`（或執行命令 `uv run python main.py`）：
 1. **自動開啟視覺化 GUI**：自動載入上次記憶的模式（原生獨立視窗 / 網頁瀏覽器 / 同時雙開）。
 2. **自動啟動背景即時監看**：背景線程自動常駐監控 `inbox/` 收件夾，只要放入錄音檔即刻自動辨識整理。
 3. **自動啟動 Windows 系統匣小圖示 (System Tray)**：工作列右下角顯示狀態徽章，支援右鍵選單快速操作。
@@ -212,7 +226,7 @@ GEMINI_API_KEY="AIzaSyYourGeminiApiKeyHere..."
 2. **日常使用方式**：
    - **方式一（桌面拖曳）**：直接把錄音檔（或整個錄音資料夾）拖曳到桌面的捷徑圖示上放開。
    - **方式二（右鍵傳送）**：在任何音檔或資料夾上點右鍵 ➜「傳送到」➜「課堂錄音自動整理」。
-   - **方式三（專案內執行）**：直接將檔案或資料夾拖曳至專案根目錄的 [`啟動系統.bat`](file:///c:/Users/LinKJ/Desktop/ASR系統/啟動系統.bat) 上。
+   - **方式三（專案內執行）**：直接將檔案或資料夾拖曳至專案根目錄的 `啟動系統.bat` 上。
 3. 系統將自動掃描音檔、智慧分組上下半堂、執行轉錄與整理，並自動發布 Google Docs！
 
 ### 方案 C：CLI 命終端全手動流程
@@ -242,7 +256,8 @@ uv run python main.py run "inbox/演算法_20261016.mp3"
 | `main.py bundle <dir>` | 執行 Phase 5：打包 NotebookLM 專用檔案組並匯出至 Exports | `--open-browser` |
 | `main.py upload <dir>` | 建立 Google Drive 課程資料夾並自動轉換為原生 Google Docs | `--no-browser` |
 | `main.py watch` | 啟動資料夾無人值守監看服務（含檔案鎖、壞檔隔離、系統匣） | `-i inbox`, `--channel C1` |
-| `main.py doctor` | 【系統健檢診斷中心】一鍵掃描 GPU、CUDA、FFmpeg、API 金鑰與磁碟 | 無 |
+| `main.py doctor` | 【系統健檢診斷中心】一鍵掃描 OS、GPU、FFmpeg、API 金鑰、WebView2 與磁碟 | 無 |
+| `main.py --repair` | 【環境自我修復】備份重建損毀 YAML/JSON、清理無效跨機路徑並重建缺漏資料夾 | `--init-paths` |
 | `main.py autostart` | 管理 Windows 開機無感自動背景監看服務 | `enable`, `disable`, `status` |
 | `main.py extract-glossary` | 純本機零 API 解析講義/投影片，自動提取專有名詞與縮寫 | `<course> <file_or_dir>` |
 | `main.py bench` | 執行多通道 STT 評測，計算 CER、術語召回率並產出 HTML 報表 | `-c C1,C7`, `-a <audio>` |
@@ -258,7 +273,7 @@ paths:
   inbox_dir: "inbox"
   work_dir: "work"
   archive_dir: "archive"
-  record_archive_dir: "C:\\Users\\LinKJ\\Pictures\\Record"
+  record_archive_dir: "record_archive"
   logs_dir: "logs"
   benchmark_dir: "benchmark"
   prompts_dir: "prompts"
@@ -382,7 +397,7 @@ ASR系統/
 ## 🛡️ 工業級容錯防護、安全沙箱與節流策略
 
 1. **Exports 筆記安全刪除沙箱**：
-   - 在 [`bridge.py`](file:///c:/Users/LinKJ/Desktop/ASR系統/src/lecture_pipeline/gui/bridge.py) 中強制加入路徑沙箱驗證：所有 GUI 課堂刪除操作嚴格限定在 `exports/` 目錄內，**絕對阻擋並拒絕刪除任何原始錄音庫或長期封存目錄**。
+   - 在 `src/lecture_pipeline/gui/bridge.py` 中強制加入路徑沙箱驗證：所有 GUI 課堂刪除操作嚴格限定在 `exports/` 目錄內，**絕對阻擋並拒絕刪除任何原始錄音庫或長期封存目錄**。
 2. **API 呼叫防 429 節流延遲**：
    - 內建智慧呼叫冷卻機制，在長時分段調用 Gemini API 時自動加入微延遲，徹底杜絕觸發 Google Cloud 429 Resource Exhausted 限制。
 3. **低優先權背景執行 (Zero Lag)**：
@@ -408,4 +423,4 @@ uv run pytest
 
 ## 📄 授權條款
 
-本專案採用 [MIT License](file:///c:/Users/LinKJ/Desktop/ASR系統/LICENSE) 授權條款開源發布。
+本專案採用 [MIT License](LICENSE) 授權條款開源發布。

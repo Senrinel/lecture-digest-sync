@@ -934,7 +934,7 @@ def watch_command(
     archive_storage: Optional[str] = typer.Option(
         None,
         "--archive-storage",
-        help="自訂封存目錄 (預設 C:\\Users\\LinKJ\\Pictures\\Record)",
+        help="自訂封存目錄 (預設為 config.yaml 的 record_archive_dir 或使用者文件/課堂錄音/錄音封存)",
     ),
 ) -> None:
     """執行資料夾背景監看、錯誤重試與自動封存流程。"""
