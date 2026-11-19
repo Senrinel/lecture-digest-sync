@@ -150,10 +150,22 @@ class WatcherTray:
         """Right-click menu: 開啟 Inbox 資料夾."""
         try:
             self.inbox_dir.mkdir(parents=True, exist_ok=True)
-            if hasattr(os, "startfile"):
+            from lecture_pipeline.gui.bridge import open_folder_in_desktop
+            if open_folder_in_desktop(self.inbox_dir):
+                return
+        except Exception:
+            pass
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(
+                    ["explorer.exe", str(self.inbox_dir)],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                )
+            elif hasattr(os, "startfile"):
                 os.startfile(str(self.inbox_dir))
-            else:
-                subprocess.Popen(["explorer", str(self.inbox_dir)])
         except Exception:
             pass
 
@@ -182,10 +194,22 @@ class WatcherTray:
             self.log_file.parent.mkdir(parents=True, exist_ok=True)
             if not self.log_file.is_file():
                 self.log_file.touch()
-            if hasattr(os, "startfile"):
+            from lecture_pipeline.gui.bridge import open_file_in_desktop
+            if open_file_in_desktop(self.log_file):
+                return
+        except Exception:
+            pass
+        try:
+            if sys.platform == "win32":
+                subprocess.Popen(
+                    ["notepad.exe", str(self.log_file)],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                )
+            elif hasattr(os, "startfile"):
                 os.startfile(str(self.log_file))
-            else:
-                subprocess.Popen(["notepad.exe", str(self.log_file)])
         except Exception:
             pass
 

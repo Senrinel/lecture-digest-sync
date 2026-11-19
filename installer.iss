@@ -13,9 +13,8 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-CloseApplications=yes
-CloseApplicationsFilter=*.exe,*.dll
-RestartApplications=yes
+CloseApplications=no
+RestartApplications=no
 DefaultDirName={autopf}\LecturePipeline
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
@@ -80,6 +79,20 @@ begin
   Result := HadExistingConfig;
 end;
 
+procedure EvacuateLockedDll(const FilePath: String);
+var
+  Target: String;
+begin
+  if FileExists(FilePath) then
+  begin
+    if not DeleteFile(FilePath) then
+    begin
+      Target := ExpandConstant('{tmp}\') + ExtractFileName(FilePath) + '.locked';
+      RenameFile(FilePath, Target);
+    end;
+  end;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
@@ -88,6 +101,11 @@ begin
   // 自動結束背景駐留的 LecturePipeline.exe，防止覆蓋更新或自我修復時發生檔案鎖定錯誤
   Exec('taskkill.exe', '/F /IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(400);
+  // 若先前的外部程序（如舊版帶入 _internal 至 PATH 的編輯器）仍映射舊版 CRT/Python DLL，先改名移出以避免 DeleteFile 失敗
+  EvacuateLockedDll(ExpandConstant('{app}\_internal\VCRUNTIME140.dll'));
+  EvacuateLockedDll(ExpandConstant('{app}\_internal\VCRUNTIME140_1.dll'));
+  EvacuateLockedDll(ExpandConstant('{app}\_internal\msvcp140.dll'));
+  EvacuateLockedDll(ExpandConstant('{app}\_internal\python312.dll'));
   Result := '';
 end;
 

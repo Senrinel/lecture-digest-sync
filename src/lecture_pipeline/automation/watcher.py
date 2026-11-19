@@ -46,6 +46,7 @@ from lecture_pipeline.export.notebook_bundle import prepare_notebook_bundle
 from lecture_pipeline.export.drive_publisher import (
     GoogleAuthRequiredError,
     GoogleDrivePublisher,
+    sync_metadata_to_export_dir,
 )
 from lecture_pipeline.glossary import load_course_glossary
 from lecture_pipeline.automation.notifier import (
@@ -77,6 +78,84 @@ _active_processing_files: Dict[str, str] = {}
 
 _oauth_cooldown_lock = threading.Lock()
 _oauth_failed_token_mtime: Optional[float] = None
+
+
+def _get_app_base_dir() -> Path:
+    """Return base application directory anchored to bridge CONFIG_FILE_PATH or executable."""
+    b = _get_bridge()
+    if b and hasattr(b, "CONFIG_FILE_PATH"):
+        try:
+            cfg_p = Path(b.CONFIG_FILE_PATH)
+            if cfg_p.is_absolute():
+                return cfg_p.parent.resolve()
+            if cfg_p.is_file():
+                return cfg_p.resolve().parent
+        except Exception:
+            pass
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path.cwd().resolve()
+
+
+def _resolve_runtime_file(filename: str) -> Path:
+    """Resolve runtime file/dir relative to CWD if present there (preserving test isolation), else app base dir."""
+    local = Path(filename)
+    if local.exists():
+        return local.resolve()
+    return (_get_app_base_dir() / filename).resolve()
+
+
+class _CrossProcessWorkLock:
+    """Non-blocking OS-level lock file preventing two daemon instances from racing on the same work_dir."""
+
+    def __init__(self, work_dir: Path) -> None:
+        self.lock_path = work_dir / ".pipeline.lock"
+        self._fd: Optional[int] = None
+        self.acquired: bool = False
+
+    def acquire(self) -> bool:
+        try:
+            self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(str(self.lock_path), os.O_CREAT | os.O_RDWR)
+            try:
+                if sys.platform == "win32":
+                    import msvcrt
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self._fd = fd
+                self.acquired = True
+                return True
+            except OSError:
+                os.close(fd)
+                return False
+        except Exception:
+            return False
+
+    def release(self) -> None:
+        if self._fd is not None:
+            try:
+                if sys.platform == "win32":
+                    import msvcrt
+                    os.lseek(self._fd, 0, os.SEEK_SET)
+                    msvcrt.locking(self._fd, msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(self._fd, fcntl.LOCK_UN)
+            except Exception:
+                pass
+            try:
+                os.close(self._fd)
+            except Exception:
+                pass
+            self._fd = None
+        if self.acquired:
+            try:
+                self.lock_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+            self.acquired = False
 
 
 def _get_token_mtime(token_path: Path | str = "token.json") -> float:
@@ -164,7 +243,7 @@ _watcher_logger = None
 def _get_watcher_logger() -> logging.Logger:
     global _watcher_logger
     if _watcher_logger is None:
-        log_dir = Path("logs")
+        log_dir = _resolve_runtime_file("logs")
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / "watcher.log"
         logger = logging.getLogger("lecture_pipeline.watcher")
@@ -438,6 +517,12 @@ def run_pipeline_for_group(
     target_work_dir = parsed.work_dir
     target_work_dir.mkdir(parents=True, exist_ok=True)
 
+    work_lock = _CrossProcessWorkLock(target_work_dir)
+    if not work_lock.acquire():
+        release_processing_files(audio_files, token=lock_token)
+        console.print(f"[yellow]另一程序正在處理 {target_work_dir}，略過重疊執行[/yellow]")
+        return target_work_dir
+
     file_display = ", ".join(f.name for f in audio_files)
     console.print(f"\n[bold cyan]開始處理：{parsed.display_tag}[/bold cyan]")
     log_watcher_event(f"開始處理課堂：{parsed.display_tag}，檔案：{file_display}")
@@ -551,14 +636,24 @@ def run_pipeline_for_group(
                     else:
                         raise
 
-        # 3. STT Transcription (Stage Checkpoint: resume if raw transcription exists)
+        # 3. STT Transcription (Stage Checkpoint: resume only if complete raw transcription exists)
         check_aborted()
         raw_json_file = target_work_dir / "01_raw.json"
         raw_txt_file = target_work_dir / "01_raw.txt"
         transcription: Optional[FullTranscription] = None
         if raw_json_file.is_file() and raw_json_file.stat().st_size > 0:
             try:
-                transcription = FullTranscription.model_validate_json(raw_json_file.read_text(encoding="utf-8"))
+                candidate = FullTranscription.model_validate_json(raw_json_file.read_text(encoding="utf-8"))
+                if chunks and candidate.chunks and len(candidate.chunks) < len(chunks):
+                    console.print(
+                        f"[yellow][WARN] 偵測到不完整的逐字稿斷點 ({len(candidate.chunks)}/{len(chunks)} 段)，將重新執行 STT...[/yellow]"
+                    )
+                    log_watcher_event(
+                        f"偵測到不完整的逐字稿斷點 [{parsed.course} | {parsed.date}] ({len(candidate.chunks)}/{len(chunks)} 段)，重新執行語音轉錄",
+                        level="WARNING",
+                    )
+                elif candidate.full_text and candidate.full_text.strip():
+                    transcription = candidate
             except Exception:
                 transcription = None
 
@@ -578,6 +673,8 @@ def run_pipeline_for_group(
         if transcription and transcription.full_text.strip():
             console.print(f"[bold green][OK] 偵測到既有逐字稿 ({len(transcription.full_text)} 字)，直接接續，略過 STT 階段[/bold green]")
             report_progress("語音轉錄", 60, "沿用既有轉錄文字...")
+            state.metadata["stt_channel"] = transcription.channel_name or channel_id
+            state.metadata["stt_total_chars"] = len(transcription.full_text.strip())
             state.mark_stage("stt")
         else:
             actual_channel_id = channel_id
@@ -600,7 +697,11 @@ def run_pipeline_for_group(
                 )
 
             transcription = execute_stage_with_retry("語音轉錄", 50, do_stt)
+            if not transcription or not transcription.full_text or not transcription.full_text.strip():
+                raise RuntimeError(f"課堂 {parsed.display_tag} 語音轉錄結果為空，中止後續整理與上傳。")
             save_stt_outputs(transcription, target_work_dir)
+            state.metadata["stt_channel"] = transcription.channel_name or actual_channel_id
+            state.metadata["stt_total_chars"] = len(transcription.full_text.strip())
             state.mark_stage("stt")
 
         glossary = load_course_glossary(parsed.course) if parsed.course != "Unsorted" else []
@@ -745,7 +846,7 @@ def run_pipeline_for_group(
         if not target_export:
             try:
                 from lecture_pipeline.state import load_config
-                c_cfg = load_config(Path("config.yaml"))
+                c_cfg = load_config(_resolve_runtime_file("config.yaml"))
                 target_export = c_cfg.get("export", {}).get("export_dir", "exports")
             except Exception:
                 target_export = "exports"
@@ -757,6 +858,7 @@ def run_pipeline_for_group(
         refreshed_state = load_run_state(target_work_dir)
         if refreshed_state is not None:
             state = refreshed_state
+        sync_metadata_to_export_dir(target_work_dir, state=state, explicit_export_dir=target_export)
 
         # 7. Google Drive Auto-Upload / Offline Queue
         if upload_drive:
@@ -772,12 +874,14 @@ def run_pipeline_for_group(
                     running=True,
                 )
 
-            has_creds = Path("credentials.json").is_file()
+            creds_path = _resolve_runtime_file("credentials.json")
+            token_path = _resolve_runtime_file("token.json")
+            has_creds = creds_path.is_file()
             online = is_internet_connected()
 
             if has_creds and online:
                 global _oauth_failed_token_mtime
-                cur_tok_mtime = _get_token_mtime()
+                cur_tok_mtime = _get_token_mtime(token_path)
                 with _oauth_cooldown_lock:
                     allow_interactive = (
                         _oauth_failed_token_mtime is None
@@ -787,21 +891,30 @@ def run_pipeline_for_group(
                 try:
                     console.print("[dim]正在上傳至 Google Drive 並轉為 Google Docs...[/dim]")
                     publisher = GoogleDrivePublisher(
-                        credentials_file=Path("credentials.json"),
+                        credentials_file=creds_path,
+                        token_file=token_path,
                         interactive=allow_interactive,
                         auth_timeout_sec=180,
                     )
                     pub_res = publisher.publish_lecture(target_work_dir)
                     with _oauth_cooldown_lock:
                         _oauth_failed_token_mtime = None
+                    summary_link = (
+                        pub_res.docs[0].web_link
+                        if getattr(pub_res, "docs", None)
+                        else pub_res.course_folder_link
+                    )
                     console.print(f"[green][OK] Google Drive 資料夾：{pub_res.course_folder_link}[/green]")
-                    log_watcher_event(f"已同步至 Google Drive：{pub_res.course_folder_link}")
+                    log_watcher_event(
+                        f"已同步至 Google Drive [{parsed.course} | {parsed.date}]：{pub_res.course_folder_link}"
+                        + (f" (文件：{summary_link})" if summary_link and summary_link != pub_res.course_folder_link else "")
+                    )
                     notify_upload_success(primary_file.name, doc_url=pub_res.course_folder_link)
                 except (GoogleAuthRequiredError, TimeoutError) as auth_err:
                     with _oauth_cooldown_lock:
-                        _oauth_failed_token_mtime = _get_token_mtime()
+                        _oauth_failed_token_mtime = _get_token_mtime(token_path)
                     console.print(f"[yellow][WARN] Google Drive 授權未完成 ({auth_err})，排入待上傳佇列並繼續後續課堂。[/yellow]")
-                    log_watcher_event(f"Google Drive 授權逾時或失效，已排入佇列 ({primary_file.name}): {auth_err}", level="WARNING")
+                    log_watcher_event(f"Google Drive 授權逾時或失效 [{parsed.course} | {parsed.date}] ({primary_file.name}): {auth_err}", level="WARNING")
                     send_notification(
                         title="Google Drive 憑證需重新授權",
                         message=f"「{primary_file.name}」已本機整理完成並排入待上傳，請於控制介面重新授權後將自動補傳。",
@@ -812,12 +925,18 @@ def run_pipeline_for_group(
                         notify_offline_pending(primary_file.name)
                 except Exception as e:
                     console.print(f"[yellow][WARN] Google Drive 同步失敗 ({e})，排入離線待上傳佇列。[/yellow]")
+                    log_watcher_event(f"Google Drive 同步失敗 [{parsed.course} | {parsed.date}] ({primary_file.name}): {e}", level="ERROR")
                     if offline_queue:
                         offline_queue.enqueue(target_work_dir, primary_file.name, parsed.course, parsed.date)
                     else:
                         notify_offline_pending(primary_file.name)
             else:
-                if not online:
+                if not has_creds:
+                    log_watcher_event(
+                        f"找不到 Google OAuth 憑證 ({creds_path})，已將 {primary_file.name} 排入待補傳佇列",
+                        level="WARNING",
+                    )
+                elif not online:
                     console.print(f"[yellow]無網路連線，將 {primary_file.name} 加入離線佇列。[/yellow]")
                 if offline_queue:
                     offline_queue.enqueue(target_work_dir, primary_file.name, parsed.course, parsed.date)
@@ -902,6 +1021,7 @@ def run_pipeline_for_group(
                 b.notify_task_error(str(exc), task_name=parsed.display_tag)
         raise
     finally:
+        work_lock.release()
         release_processing_files(audio_files, token=lock_token)
 
 
@@ -988,7 +1108,7 @@ def watch_inbox(
 
     # Initialize auxiliary managers
     dead_letter = DeadLetterQuarantine(inbox_path, max_retries=3)
-    offline_queue = OfflineUploadQueue()
+    offline_queue = OfflineUploadQueue(queue_dir=_resolve_runtime_file("pending_uploads"))
     quota_manager = QuotaManager()
 
     # System tray setup
@@ -1047,15 +1167,18 @@ def watch_inbox(
                     continue
 
                 # 1. Process pending offline uploads if internet is connected
-                if upload_drive and Path("credentials.json").is_file():
+                creds_file = _resolve_runtime_file("credentials.json")
+                token_file = _resolve_runtime_file("token.json")
+                if upload_drive and creds_file.is_file():
                     try:
                         publisher = GoogleDrivePublisher(
-                            credentials_file=Path("credentials.json"),
+                            credentials_file=creds_file,
+                            token_file=token_file,
                             interactive=False,
                         )
                         offline_queue.process_pending_uploads(publisher)
-                    except Exception:
-                        pass
+                    except Exception as q_err:
+                        log_watcher_event(f"背景離線補傳檢查異常: {q_err}", level="WARNING")
 
                 # 2. Check if active processing task is running from GUI
                 b = _get_bridge()
@@ -1101,15 +1224,16 @@ def watch_inbox(
                                 )
                                 dead_letter.record_success(files)
                                 total_processed += 1
-                                if upload_drive and Path("credentials.json").is_file() and offline_queue.get_pending():
+                                if upload_drive and creds_file.is_file() and offline_queue.get_pending():
                                     try:
                                         q_pub = GoogleDrivePublisher(
-                                            credentials_file=Path("credentials.json"),
+                                            credentials_file=creds_file,
+                                            token_file=token_file,
                                             interactive=False,
                                         )
                                         offline_queue.process_pending_uploads(q_pub)
-                                    except Exception:
-                                        pass
+                                    except Exception as q_err2:
+                                        log_watcher_event(f"課後補傳檢查異常: {q_err2}", level="WARNING")
                             except TimeoutError as te:
                                 console.print(f"[bold red][ERROR] 任務處理逾時 ({g_key}): {te}[/bold red]")
                                 log_watcher_event(f"任務處理逾時 ({g_key}): {te}", level="ERROR")

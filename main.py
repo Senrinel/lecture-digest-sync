@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 class SafeWriter:
@@ -186,14 +187,23 @@ def check_and_forward_to_existing_instance(args: list[str]) -> bool:
     import urllib.request
     import urllib.error
 
-    url_status = f"http://{host}:{port}/api/status"
-    try:
-        req = urllib.request.Request(url_status, headers={"User-Agent": "LecturePipeline-SingleInstance"})
-        with urllib.request.urlopen(req, timeout=1.0) as resp:
-            if resp.status != 200:
-                return False
-    except Exception:
-        # No running instance
+    is_alive = False
+    for endpoint in ("/api/ping", "/api/status"):
+        url_probe = f"http://{host}:{port}{endpoint}"
+        try:
+            req = urllib.request.Request(url_probe, headers={"User-Agent": "LecturePipeline-SingleInstance"})
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
+                if resp.status == 200:
+                    is_alive = True
+                    break
+        except urllib.error.HTTPError as he:
+            if he.code == 404 and endpoint == "/api/ping":
+                continue
+            break
+        except Exception:
+            break
+
+    if not is_alive:
         return False
 
     # Server is alive! Check arguments for drag-and-drop or explicit processing
@@ -253,19 +263,28 @@ def check_and_forward_to_existing_instance(args: list[str]) -> bool:
 
 
 _app_mutex_handle = None
+_ERROR_ALREADY_EXISTS = 183
 
 
-def _acquire_single_instance_mutex() -> None:
-    """Register named Windows Mutex so Inno Setup can detect active instances reliably."""
+def _acquire_single_instance_mutex() -> bool:
+    """Acquire named Windows Mutex and return False if another GUI/daemon instance already owns it."""
     global _app_mutex_handle
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            _app_mutex_handle = ctypes.windll.kernel32.CreateMutexW(
-                None, False, "LecturePipelineSingleInstanceMutex"
-            )
-        except Exception:
-            pass
+    if sys.platform != "win32":
+        return True
+    try:
+        import ctypes
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = kernel32.CreateMutexW(None, False, "LecturePipelineSingleInstanceMutex")
+        last_err = ctypes.get_last_error()
+        if not handle:
+            return True
+        if last_err == _ERROR_ALREADY_EXISTS:
+            kernel32.CloseHandle(handle)
+            return False
+        _app_mutex_handle = handle
+        return True
+    except Exception:
+        return True
 
 
 def main() -> None:
@@ -393,7 +412,13 @@ def main() -> None:
 
     # Case 2: No arguments or explicit GUI trigger -> Launch full GUI + Tray + Watcher
     if is_gui_invocation:
-        _acquire_single_instance_mutex()
+        if not _acquire_single_instance_mutex():
+            for _ in range(6):
+                if check_and_forward_to_existing_instance(args):
+                    return
+                time.sleep(0.5)
+            print("[OK] 背景監控服務已在執行，已略過重複啟動。")
+            return
         from lecture_pipeline.gui.window import configure_webview2_environment
         configure_webview2_environment()
         from lecture_pipeline.gui import launch_gui

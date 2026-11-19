@@ -7,6 +7,7 @@ for 1-click citation and live sync in Google NotebookLM.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import threading
@@ -62,6 +63,89 @@ class GoogleAuthRequiredError(RuntimeError):
 
 
 _oauth_flow_lock = threading.Lock()
+
+
+def _escape_drive_query(value: str) -> str:
+    """Escape backslashes and single quotes for Google Drive search queries."""
+    return str(value).replace("\\", "\\\\").replace("'", "\\'")
+
+
+def sync_metadata_to_export_dir(
+    work_dir: Path | str,
+    state: Any = None,
+    explicit_export_dir: Optional[Path | str] = None,
+) -> Optional[Path]:
+    """Mirror run/Drive metadata into the corresponding exports/<course>/<date>/run.json."""
+    target_work_dir = Path(work_dir).resolve()
+    run_state = state or load_run_state(target_work_dir)
+    if run_state is None:
+        return None
+
+    exp_dir: Optional[Path] = None
+    mirrored = run_state.metadata.get("export_mirrored_dir") if isinstance(run_state.metadata, dict) else None
+    if mirrored:
+        cand = Path(mirrored)
+        if cand.is_dir():
+            exp_dir = cand
+    if exp_dir is None and explicit_export_dir:
+        cand = Path(explicit_export_dir).resolve() / run_state.course / run_state.date
+        if cand.is_dir():
+            exp_dir = cand
+    if exp_dir is None or not exp_dir.is_dir():
+        return None
+
+    run_json_path = exp_dir / "run.json"
+    existing: Dict[str, Any] = {}
+    if run_json_path.is_file():
+        try:
+            existing = json.loads(run_json_path.read_text(encoding="utf-8"))
+            if not isinstance(existing, dict):
+                existing = {}
+        except Exception:
+            existing = {}
+
+    state_meta = run_state.metadata if isinstance(run_state.metadata, dict) else {}
+    existing_meta = existing.get("metadata") if isinstance(existing.get("metadata"), dict) else {}
+    merged_meta = dict(existing_meta)
+    for k in (
+        "stt_channel",
+        "stt_total_chars",
+        "export_bundle_dir",
+        "export_mirrored_dir",
+        "drive_course_folder_link",
+        "drive_summary_doc_link",
+        "drive_cleaned_doc_link",
+    ):
+        if k in state_meta and state_meta[k] is not None:
+            merged_meta[k] = state_meta[k]
+
+    drive_status = run_state.stage_status.get("drive_upload") if isinstance(run_state.stage_status, dict) else None
+    if drive_status:
+        merged_meta["drive_upload_status"] = drive_status
+
+    folder_link = merged_meta.get("drive_course_folder_link") or existing.get("drive_link")
+    summary_link = merged_meta.get("drive_summary_doc_link")
+    docs_url = summary_link or folder_link or existing.get("docs_url")
+
+    payload: Dict[str, Any] = dict(existing)
+    payload.update({
+        "course": run_state.course,
+        "date": run_state.date,
+        "source_filename": run_state.source_filename,
+        "updated_at": datetime.now().isoformat(),
+        "metadata": merged_meta,
+    })
+    if merged_meta.get("stt_channel"):
+        payload["channel"] = merged_meta["stt_channel"]
+    if docs_url:
+        payload["docs_url"] = docs_url
+    if folder_link:
+        payload["drive_link"] = folder_link
+
+    tmp_path = run_json_path.with_suffix(".json.tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(str(tmp_path), str(run_json_path))
+    return run_json_path
 
 
 def _extract_query_param(uri: str, key: str) -> Optional[str]:
@@ -297,13 +381,15 @@ class GoogleDrivePublisher:
         """Find existing folder or create new one in Google Drive."""
         service = self.get_service()
 
+        escaped_name = _escape_drive_query(folder_name)
         query_parts = [
-            f"name = '{folder_name}'",
+            f"name = '{escaped_name}'",
             "mimeType = 'application/vnd.google-apps.folder'",
             "trashed = false",
         ]
         if parent_id:
-            query_parts.append(f"'{parent_id}' in parents")
+            escaped_parent = _escape_drive_query(parent_id)
+            query_parts.append(f"'{escaped_parent}' in parents")
 
         query = " and ".join(query_parts)
         response = (
@@ -352,9 +438,11 @@ class GoogleDrivePublisher:
         service = self.get_service()
 
         # Check if document with same title already exists in the course folder
+        escaped_title = _escape_drive_query(doc_title)
+        escaped_parent = _escape_drive_query(parent_folder_id)
         query = (
-            f"name = '{doc_title}' and "
-            f"'{parent_folder_id}' in parents and "
+            f"name = '{escaped_title}' and "
+            f"'{escaped_parent}' in parents and "
             f"trashed = false"
         )
         res = service.files().list(q=query, spaces="drive", fields="files(id, name, webViewLink)").execute()
@@ -478,6 +566,7 @@ class GoogleDrivePublisher:
             state.metadata["drive_summary_doc_link"] = doc_summary.web_link
             state.metadata["drive_cleaned_doc_link"] = doc_cleaned.web_link
             save_run_state(state, target_work_dir)
+            sync_metadata_to_export_dir(target_work_dir, state=state)
 
         res = DrivePublishResult(
             course=course,

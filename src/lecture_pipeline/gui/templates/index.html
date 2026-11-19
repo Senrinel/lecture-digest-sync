@@ -750,7 +750,7 @@
                 <button onclick="resetSingleParam('dir-inbox', 'inbox')" class="bio-btn text-[10px] text-slate-400 hover:text-indigo-400">重置預設</button>
               </div>
               <div class="flex gap-2">
-                <input type="text" id="dir-inbox" value="inbox" class="flex-1 bg-black/25 dark:bg-black/30 light:bg-black/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono">
+                <input type="text" id="dir-inbox" value="inbox" onchange="syncSingleParamToBackend(this.id, this.value); saveState();" class="flex-1 bg-black/25 dark:bg-black/30 light:bg-black/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono">
                 <button onclick="browseSystemFolder('dir-inbox')" class="bio-btn px-2.5 py-1 rounded-xl glass-card text-[11px] hover:text-white">變更...</button>
                 <button onclick="openSystemFolder('dir-inbox')" class="bio-btn px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-[11px]">開啟</button>
               </div>
@@ -763,7 +763,7 @@
                 <button onclick="resetSingleParam('dir-archive', window._defaultRecordArchiveDir || 'record_archive')" class="bio-btn text-[10px] text-slate-400 hover:text-indigo-400">重置預設</button>
               </div>
               <div class="flex gap-2">
-                <input type="text" id="dir-archive" value="" placeholder="例如：使用者文件\課堂錄音\錄音封存" class="flex-1 bg-black/25 dark:bg-black/30 light:bg-black/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono">
+                <input type="text" id="dir-archive" value="" onchange="syncSingleParamToBackend(this.id, this.value); saveState();" placeholder="例如：使用者文件\課堂錄音\錄音封存" class="flex-1 bg-black/25 dark:bg-black/30 light:bg-black/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono">
                 <button onclick="browseSystemFolder('dir-archive')" class="bio-btn px-2.5 py-1 rounded-xl glass-card text-[11px] hover:text-white">變更...</button>
                 <button onclick="openSystemFolder('dir-archive')" class="bio-btn px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-[11px]">開啟</button>
               </div>
@@ -776,7 +776,7 @@
                 <button onclick="resetSingleParam('dir-export', 'exports')" class="bio-btn text-[10px] text-slate-400 hover:text-indigo-400">重置預設</button>
               </div>
               <div class="flex gap-2">
-                <input type="text" id="dir-export" value="exports" class="flex-1 bg-black/25 dark:bg-black/30 light:bg-black/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono">
+                <input type="text" id="dir-export" value="exports" onchange="syncSingleParamToBackend(this.id, this.value); saveState();" class="flex-1 bg-black/25 dark:bg-black/30 light:bg-black/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono">
                 <button onclick="browseSystemFolder('dir-export')" class="bio-btn px-2.5 py-1 rounded-xl glass-card text-[11px] hover:text-white">變更...</button>
                 <button onclick="openSystemFolder('dir-export')" class="bio-btn px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-[11px]">開啟</button>
               </div>
@@ -789,7 +789,7 @@
                 <button onclick="resetSingleParam('dir-logs', 'logs')" class="bio-btn text-[10px] text-slate-400 hover:text-indigo-400">重置預設</button>
               </div>
               <div class="flex gap-2">
-                <input type="text" id="dir-logs" value="logs" class="flex-1 bg-black/25 dark:bg-black/30 light:bg-black/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono">
+                <input type="text" id="dir-logs" value="logs" onchange="syncSingleParamToBackend(this.id, this.value); saveState();" class="flex-1 bg-black/25 dark:bg-black/30 light:bg-black/5 border border-white/10 rounded-xl px-3 py-1.5 text-xs font-mono">
                 <button onclick="browseSystemFolder('dir-logs')" class="bio-btn px-2.5 py-1 rounded-xl glass-card text-[11px] hover:text-white">變更...</button>
                 <button onclick="openSystemFolder('dir-logs')" class="bio-btn px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-[11px]">開啟</button>
               </div>
@@ -2593,6 +2593,7 @@
         }
         if (state.params) {
           Object.keys(state.params).forEach(k => {
+            if (k.startsWith('dir-')) return;
             const val = state.params[k];
             const numEl = document.getElementById(`num-${k}`);
             const rangeEl = document.getElementById(`range-${k}`);
@@ -2764,23 +2765,37 @@
     // =========================================================================
     // 本機資料夾與檔案開啟
     // =========================================================================
+    window._backendPaths = window._backendPaths || {};
+    window._backendPathsPromise = null;
+
     async function openSystemFolder(inputIdOrPath) {
+      if (window._backendPathsPromise) {
+        try { await window._backendPathsPromise; } catch (e) {}
+      }
       let pathVal = inputIdOrPath;
       const el = document.getElementById(inputIdOrPath);
-      if (el) pathVal = el.value;
-      if (!pathVal) pathVal = 'archive';
-      
+      if (el) {
+        pathVal = (el.value || '').trim() || window._backendPaths[inputIdOrPath] || '';
+      }
+      if (!pathVal) {
+        if (inputIdOrPath === 'dir-archive') pathVal = window._defaultRecordArchiveDir || 'archive';
+        else if (inputIdOrPath === 'dir-inbox') pathVal = 'inbox';
+        else if (inputIdOrPath === 'dir-export') pathVal = 'exports';
+        else if (inputIdOrPath === 'dir-logs') pathVal = 'logs';
+        else pathVal = 'archive';
+      }
+
       try {
         const res = await fetch('/api/system/open-folder', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path: pathVal }),
         });
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
-          const data = await res.json();
-          showToast(`已開啟資料夾：${data.path}`);
+          showToast(`已開啟資料夾：${data.path || pathVal}`);
         } else {
-          showToast(`無法開啟資料夾：${pathVal}`);
+          showToast(`無法開啟資料夾：${data.detail || pathVal}`);
         }
       } catch (e) {
         showToast(`開啟資料夾失敗：${e.message || e}`);
@@ -2788,8 +2803,11 @@
     }
 
     async function browseSystemFolder(inputId) {
+      if (window._backendPathsPromise) {
+        try { await window._backendPathsPromise; } catch (e) {}
+      }
       const el = document.getElementById(inputId);
-      const currentDir = el ? el.value : '';
+      const currentDir = (el ? el.value : '') || window._backendPaths[inputId] || '';
       try {
         const res = await fetch('/api/system/browse-folder', {
           method: 'POST',
@@ -2800,10 +2818,16 @@
           const data = await res.json();
           if (data.status === 'ok' && data.path) {
             if (el) el.value = data.path;
+            window._backendPaths[inputId] = data.path;
             saveState();
             showToast(`已選取資料夾：${data.path}`);
             syncSingleParamToBackend(inputId, data.path);
+          } else {
+            showToast('已取消選取資料夾');
           }
+        } else {
+          const err = await res.json().catch(() => ({}));
+          showToast(`開啟目錄選擇視窗失敗：${err.detail || res.status}`);
         }
       } catch (e) {
         showToast('選取資料夾已取消或發生錯誤');
@@ -2817,31 +2841,68 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ lecture_id: lectureId, file_type: fileType }),
         });
-        if (res.ok) {
-          const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.path) {
           showToast(`已於本機開啟：${data.path.split(/[\\/]/).pop()}`);
         } else {
-          showToast(`找不到對應的筆記檔案：${lectureId}`);
+          showToast(`無法開啟筆記檔案：${data.detail || lectureId}`);
         }
       } catch (e) {
-        showToast('開啟檔案失敗');
+        showToast(`開啟檔案失敗：${e.message || e}`);
       }
     }
 
-    async function loadBackendConfigPaths() {
+    async function openLectureFolderById(lectureId) {
+      if (!lectureId) {
+        showToast('找不到課堂識別碼');
+        return;
+      }
       try {
-        const res = await fetch('/api/config');
+        const res = await fetch(`/api/lecture/${encodeURIComponent(lectureId)}/open-folder`, {
+          method: 'POST'
+        });
+        const data = await res.json().catch(() => ({}));
         if (res.ok) {
-          const cfg = await res.json();
-          const paths = cfg.paths || {};
-          const exportCfg = cfg.export || {};
-          if (paths.inbox_dir) document.getElementById('dir-inbox').value = paths.inbox_dir;
-          const recArchive = paths.record_archive_dir || paths.archive_dir;
-          if (recArchive) document.getElementById('dir-archive').value = recArchive;
-          if (paths.exports_dir || exportCfg.export_dir) document.getElementById('dir-export').value = paths.exports_dir || exportCfg.export_dir;
-          if (paths.logs_dir) document.getElementById('dir-logs').value = paths.logs_dir;
+          showToast(`已在檔案總管開啟：${data.path || lectureId}`);
+        } else {
+          showToast(`開啟資料夾失敗：${data.detail || lectureId}`);
         }
-      } catch (e) {}
+      } catch (e) {
+        showToast(`開啟資料夾請求失敗：${e.message || e}`);
+      }
+    }
+
+    function loadBackendConfigPaths() {
+      const p = (async () => {
+        try {
+          const res = await fetch('/api/config');
+          if (res.ok) {
+            const cfg = await res.json();
+            const paths = cfg.paths || {};
+            const exportCfg = cfg.export || {};
+            if (paths.inbox_dir) {
+              document.getElementById('dir-inbox').value = paths.inbox_dir;
+              window._backendPaths['dir-inbox'] = paths.inbox_dir;
+            }
+            const recArchive = paths.record_archive_dir || paths.archive_dir;
+            if (recArchive) {
+              document.getElementById('dir-archive').value = recArchive;
+              window._backendPaths['dir-archive'] = recArchive;
+            }
+            const expDir = paths.exports_dir || exportCfg.export_dir;
+            if (expDir) {
+              document.getElementById('dir-export').value = expDir;
+              window._backendPaths['dir-export'] = expDir;
+            }
+            if (paths.logs_dir) {
+              document.getElementById('dir-logs').value = paths.logs_dir;
+              window._backendPaths['dir-logs'] = paths.logs_dir;
+            }
+          }
+        } catch (e) {}
+      })();
+      window._backendPathsPromise = p;
+      return p;
     }
 
     async function syncSingleParamToBackend(key, value) {
@@ -3068,24 +3129,26 @@
       todayList.forEach(item => {
         const tr = document.createElement('tr');
         tr.className = 'hover:bg-white/5 transition';
+        const safeIdAttr = JSON.stringify(item.id || '').replace(/"/g, '&quot;');
         const docsBadge = item.docs_url 
-          ? `<a href="${item.docs_url}" target="_blank" class="text-emerald-400 hover:underline flex items-center gap-1"><i data-lucide="cloud-check" class="w-3.5 h-3.5"></i> 已同步</a>`
+          ? `<a href="${escapeHtml(item.docs_url)}" target="_blank" rel="noopener noreferrer" class="text-emerald-400 hover:underline flex items-center gap-1"><i data-lucide="cloud-check" class="w-3.5 h-3.5"></i> 已同步</a>`
           : `<span class="text-slate-400 flex items-center gap-1"><i data-lucide="check" class="w-3.5 h-3.5"></i> 本機就緒</span>`;
 
         tr.innerHTML = `
           <td class="py-3 px-4 font-medium flex items-center gap-2.5">
             <i data-lucide="file-check" class="w-4 h-4 text-emerald-400 shrink-0"></i>
             <div>
-              <div class="font-semibold text-slate-200 dark:text-slate-100 light:text-slate-900">${item.title}</div>
-              <div class="text-[11px] text-slate-400">${item.date || ''} · ${item.course || ''}</div>
+              <div class="font-semibold text-slate-200 dark:text-slate-100 light:text-slate-900">${escapeHtml(item.title)}</div>
+              <div class="text-[11px] text-slate-400">${escapeHtml(item.date || '')} · ${escapeHtml(item.course || '')}</div>
             </div>
           </td>
-          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-mono">${item.channel || 'C1 (Flash)'}</span></td>
+          <td class="py-3 px-4"><span class="px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-mono">${escapeHtml(item.channel || 'C1 (Flash)')}</span></td>
           <td class="py-3 px-4 font-mono">${(item.char_count || 0).toLocaleString()} 字</td>
           <td class="py-3 px-4">${docsBadge}</td>
           <td class="py-3 px-4 text-right space-x-2">
-            <button onclick="openLectureFile('${item.id}', 'summary')" class="bio-btn px-2.5 py-1 rounded-lg glass-card text-slate-200 hover:text-white" title="開啟 Markdown 筆記">開啟筆記</button>
-            <button onclick="jumpToLectureInHistory('${item.id}')" class="bio-btn px-2.5 py-1 rounded-lg bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-600/50">播放器</button>
+            <button onclick="openLectureFile(${safeIdAttr}, 'summary')" class="bio-btn px-2.5 py-1 rounded-lg glass-card text-slate-200 hover:text-white" title="開啟 Markdown 筆記">開啟筆記</button>
+            <button onclick="openLectureFolderById(${safeIdAttr})" class="bio-btn px-2.5 py-1 rounded-lg glass-card text-amber-300 hover:text-white" title="在檔案總管開啟此課堂目錄">開啟資料夾</button>
+            <button onclick="jumpToLectureInHistory(${safeIdAttr})" class="bio-btn px-2.5 py-1 rounded-lg bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-600/50">播放器</button>
           </td>
         `;
         tbody.appendChild(tr);
@@ -3429,18 +3492,7 @@
         showToast('請先選取一堂課堂');
         return;
       }
-      try {
-        const res = await fetch(`/api/lecture/${encodeURIComponent(currentSelectedLecture.id)}/open-folder`, {
-          method: 'POST'
-        });
-        if (res.ok) {
-          showToast('已在檔案總管開啟課堂目錄');
-        } else {
-          showToast('開啟資料夾失敗');
-        }
-      } catch (e) {
-        showToast('請求失敗：' + e);
-      }
+      await openLectureFolderById(currentSelectedLecture.id);
     }
 
     async function promptRenameLecture() {

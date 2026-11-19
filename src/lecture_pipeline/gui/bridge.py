@@ -39,6 +39,110 @@ def get_config_file_path() -> Path:
 CONFIG_FILE_PATH = get_config_file_path()
 
 
+def _get_app_base_dir() -> Path:
+    """Return base directory anchored to CONFIG_FILE_PATH or executable location."""
+    try:
+        cfg_path = Path(CONFIG_FILE_PATH)
+        if cfg_path.is_absolute():
+            return cfg_path.parent.resolve()
+        if cfg_path.is_file():
+            return cfg_path.resolve().parent
+    except Exception:
+        pass
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path.cwd().resolve()
+
+
+def _resolve_app_path(target: Path | str) -> Path:
+    """Resolve target path against app base directory when relative."""
+    p = Path(os.path.expanduser(str(target)))
+    if not p.is_absolute():
+        p = _get_app_base_dir() / p
+    return p.resolve()
+
+
+def _clean_desktop_env() -> Dict[str, str]:
+    """Return process environment cleaned of PyInstaller/Electron variables for desktop launches."""
+    env = os.environ.copy()
+    strip_dirs: List[str] = []
+    for raw_dir in (
+        getattr(sys, "_MEIPASS", None),
+        env.get("_MEIPASS"),
+        env.get("_MEIPASS2"),
+    ):
+        if raw_dir:
+            norm = os.path.normcase(os.path.normpath(str(raw_dir))).rstrip("\\/")
+            if norm and norm not in strip_dirs:
+                strip_dirs.append(norm)
+
+    for base_candidate in (
+        Path(sys.executable).resolve().parent / "_internal",
+        _get_app_base_dir() / "_internal",
+    ):
+        norm = os.path.normcase(os.path.normpath(str(base_candidate))).rstrip("\\/")
+        if norm and norm not in strip_dirs:
+            strip_dirs.append(norm)
+
+    for key in ("_MEIPASS", "_MEIPASS2", "PYTHONHOME", "PYTHONPATH", "ELECTRON_RUN_AS_NODE"):
+        env.pop(key, None)
+
+    if strip_dirs:
+        sep = os.path.normcase(os.sep)
+        for path_key in [k for k in list(env.keys()) if k.upper() == "PATH"]:
+            raw_path = env.get(path_key, "")
+            if not raw_path:
+                continue
+            kept_parts: List[str] = []
+            for part in raw_path.split(os.pathsep):
+                if not part:
+                    continue
+                norm_part = os.path.normcase(os.path.normpath(part)).rstrip("\\/")
+                if any(
+                    norm_part == s or norm_part.startswith(s + sep)
+                    for s in strip_dirs
+                ):
+                    continue
+                kept_parts.append(part)
+            env[path_key] = os.pathsep.join(kept_parts)
+
+    return env
+
+
+def _resolve_vscode_executable() -> Optional[str]:
+    """Resolve native VS Code executable (`Code.exe` / `code`) avoiding `.cmd` shell wrappers."""
+    if sys.platform != "win32":
+        return shutil.which("code")
+
+    candidates: List[Path] = []
+    which_hit = shutil.which("code") or shutil.which("code.cmd")
+    if which_hit:
+        wp = Path(which_hit).resolve()
+        if wp.suffix.lower() == ".exe":
+            return str(wp)
+        if wp.parent.name.lower() == "bin":
+            candidates.append(wp.parent.parent / "Code.exe")
+
+    local_app_data = os.environ.get("LOCALAPPDATA", "")
+    if local_app_data:
+        candidates.append(Path(local_app_data) / "Programs" / "Microsoft VS Code" / "Code.exe")
+    for env_key, default_pf in (("ProgramFiles", r"C:\Program Files"), ("ProgramFiles(x86)", r"C:\Program Files (x86)")):
+        pf = os.environ.get(env_key, default_pf)
+        if pf:
+            candidates.append(Path(pf) / "Microsoft VS Code" / "Code.exe")
+
+    for cand in candidates:
+        try:
+            if cand.is_file():
+                return str(cand.resolve())
+        except OSError:
+            continue
+
+    if which_hit and Path(which_hit).suffix.lower() in (".exe", ".com"):
+        return str(Path(which_hit).resolve())
+    return None
+
+
 class EventBroadcaster:
     """Manages connected WebSockets and broadcasts live progress, logs, and events."""
 
@@ -616,27 +720,144 @@ def get_full_system_status() -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 _lecture_cache: Dict[str, Path] = {}
-_drive_links_cache: Dict[str, str] = {}
+_drive_log_cache: Dict[str, Any] = {"path": "", "mtime": -1.0, "entries": []}
 
 
-def _get_drive_link_from_logs(course_or_id: str) -> Optional[str]:
-    """Extract Google Drive link for a lecture or course from watcher.log if available."""
-    if course_or_id in _drive_links_cache:
-        return _drive_links_cache[course_or_id]
+def _strip_bundle_header(text: str) -> str:
+    """Strip NotebookLM export header boilerplate so character counts reflect actual lecture content."""
+    if not text:
+        return ""
+    if text.startswith("# 【") and "\n> **課程名稱" in text[:600]:
+        parts = text.split("\n---\n", 1)
+        if len(parts) == 2:
+            return parts[1].strip()
+    return text.strip()
 
-    log_file = Path("logs/watcher.log")
+
+def _extract_drive_links_from_run_dict(rdata: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
+    """Extract (docs_url, drive_folder_url) from a parsed run.json dictionary."""
+    if not isinstance(rdata, dict):
+        return None, None
+    meta = rdata.get("metadata") if isinstance(rdata.get("metadata"), dict) else {}
+    folder_link = rdata.get("drive_link") or meta.get("drive_course_folder_link")
+    summary_link = rdata.get("docs_url") or meta.get("drive_summary_doc_link")
+    docs_url = summary_link or folder_link
+    return (str(docs_url) if docs_url else None), (str(folder_link) if folder_link else None)
+
+
+def _index_work_runs_by_export_dir(work_dir: Path) -> Dict[str, Path]:
+    """Map resolved export_mirrored_dir -> newest matching work run.json path."""
+    mapping: Dict[str, tuple[float, Path]] = {}
+    if not work_dir.is_dir():
+        return {}
+    try:
+        for rj in work_dir.rglob("run.json"):
+            if not rj.is_file():
+                continue
+            try:
+                rdata = json.loads(rj.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            meta = rdata.get("metadata") if isinstance(rdata.get("metadata"), dict) else {}
+            exp_mirrored = meta.get("export_mirrored_dir")
+            if not exp_mirrored:
+                continue
+            try:
+                key = str(Path(exp_mirrored).resolve()).lower()
+                mt = rj.stat().st_mtime
+            except OSError:
+                continue
+            if key not in mapping or mt > mapping[key][0]:
+                mapping[key] = (mt, rj)
+    except Exception:
+        pass
+    return {k: v[1] for k, v in mapping.items()}
+
+
+def _find_matching_work_run_json(
+    export_item_dir: Path,
+    course_name: str,
+    date_str: str,
+    work_dir: Path,
+    export_dir_index: Optional[Dict[str, Path]] = None,
+) -> Optional[Path]:
+    """Locate the work/<course>/<date>/run.json corresponding to a specific exported lecture directory."""
+    if not work_dir.is_dir():
+        return None
+
+    clean_d = date_str.replace("-", "") if date_str else ""
+    date_candidates = [d for d in (export_item_dir.name, clean_d, f"20{clean_d}" if len(clean_d) == 6 else "") if d]
+    course_candidates = []
+    for c in (course_name, export_item_dir.parent.name):
+        if c and c not in course_candidates:
+            course_candidates.append(c)
+
+    for c in course_candidates:
+        for dv in date_candidates:
+            cand = work_dir / c / dv / "run.json"
+            if cand.is_file():
+                return cand
+
+    if export_dir_index is None:
+        export_dir_index = _index_work_runs_by_export_dir(work_dir)
+    try:
+        resolved_key = str(export_item_dir.resolve()).lower()
+        if resolved_key in export_dir_index:
+            return export_dir_index[resolved_key]
+    except OSError:
+        pass
+    return None
+
+
+def _get_drive_link_from_logs(course_or_id: str, date_str: str = "") -> Optional[str]:
+    """Extract course+date-matched Google Drive/Docs link from watcher.log without cross-lecture leaks."""
+    if not course_or_id:
+        return None
+
+    log_file = _resolve_app_path("logs/watcher.log")
     if not log_file.is_file():
         return None
 
     try:
-        content = log_file.read_text(encoding="utf-8", errors="ignore")
-        matches = re.findall(r"已同步至 Google Drive：(https://drive\.google\.com/[^\s\r\n]+)", content)
-        if matches:
-            link = matches[-1]
-            _drive_links_cache[course_or_id] = link
-            return link
-    except Exception:
-        pass
+        stat = log_file.stat()
+        mtime = stat.st_mtime
+    except OSError:
+        return None
+
+    log_key = str(log_file)
+    if _drive_log_cache["path"] != log_key or _drive_log_cache["mtime"] != mtime:
+        entries: List[tuple[str, str, str, str]] = []
+        try:
+            content = log_file.read_text(encoding="utf-8", errors="ignore")
+            url_pat = re.compile(r"(https://(?:drive|docs)\.google\.com/[^\s\r\n)\]]+)")
+            tag_pat = re.compile(r"\[([^\|\[\]]+?)\s*\|\s*([0-9_]+)\]")
+            for line in content.splitlines():
+                if "已同步至 Google Drive" not in line:
+                    continue
+                um = url_pat.search(line)
+                if not um:
+                    continue
+                url = um.group(1)
+                tm = tag_pat.search(line)
+                if tm:
+                    entries.append((tm.group(1).strip(), tm.group(2).strip(), line, url))
+                else:
+                    entries.append(("", "", line, url))
+        except Exception:
+            entries = []
+        _drive_log_cache["path"] = log_key
+        _drive_log_cache["mtime"] = mtime
+        _drive_log_cache["entries"] = entries
+
+    clean_d = date_str.replace("-", "") if date_str else ""
+    for entry_course, entry_date, raw_line, url in reversed(_drive_log_cache["entries"]):
+        if entry_course:
+            if entry_course == course_or_id:
+                if not clean_d or entry_date.startswith(clean_d) or clean_d in entry_date:
+                    return url
+        else:
+            if course_or_id in raw_line and (not clean_d or clean_d in raw_line):
+                return url
     return None
 
 
@@ -671,9 +892,9 @@ def resolve_lecture_audio_path(
     cfg = get_current_config()
     paths = cfg.get("paths", {})
     rec_archive_str = paths.get("record_archive_dir")
-    rec_archive = Path(rec_archive_str).resolve() if rec_archive_str else None
-    archive_dir = Path(paths.get("archive_dir", "archive")).resolve()
-    work_dir = Path(paths.get("work_dir", "work")).resolve()
+    rec_archive = _resolve_app_path(rec_archive_str) if rec_archive_str else None
+    archive_dir = _resolve_app_path(paths.get("archive_dir", "archive"))
+    work_dir = _resolve_app_path(paths.get("work_dir", "work"))
 
     if course_name:
         m_course = re.match(r"^(\d{6,8})_(.+)$", course_name)
@@ -759,11 +980,9 @@ def get_archived_lectures() -> List[Dict[str, Any]]:
     global _lecture_cache
     cfg = get_current_config()
     paths = cfg.get("paths", {})
-    archive_dir = Path(paths.get("archive_dir", "archive"))
-    work_dir = Path(paths.get("work_dir", "work"))
-    export_dir = Path(cfg.get("export", {}).get("export_dir", "exports")).resolve()
-    rec_archive_str = paths.get("record_archive_dir")
-    rec_archive = Path(rec_archive_str) if rec_archive_str else None
+    work_dir = _resolve_app_path(paths.get("work_dir", "work"))
+    export_dir = _resolve_app_path(cfg.get("export", {}).get("export_dir", "exports"))
+    work_export_index = _index_work_runs_by_export_dir(work_dir)
 
     # 課堂與播放庫顯示的檔案是筆記匯出目錄，禁止顯示長期封存庫
     search_dirs = [export_dir]
@@ -842,6 +1061,7 @@ def get_archived_lectures() -> List[Dict[str, Any]]:
             date_str = ""
             channel_name = "C1 (Flash)"
             docs_url = None
+            drive_folder_url = None
             if run_json.is_file():
                 try:
                     with open(run_json, "r", encoding="utf-8") as rf:
@@ -850,7 +1070,9 @@ def get_archived_lectures() -> List[Dict[str, Any]]:
                         raw_date = str(rdata.get("date", ""))
                         if len(raw_date) == 8:
                             date_str = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
-                        docs_url = rdata.get("docs_url") or rdata.get("drive_link")
+                        if rdata.get("channel"):
+                            channel_name = str(rdata["channel"])
+                        docs_url, drive_folder_url = _extract_drive_links_from_run_dict(rdata)
                 except Exception:
                     pass
 
@@ -876,13 +1098,32 @@ def get_archived_lectures() -> List[Dict[str, Any]]:
                     date_str = time.strftime("%Y-%m-%d", time.localtime(item.stat().st_mtime))
 
             if not docs_url:
-                docs_url = _get_drive_link_from_logs(course_name)
+                work_run_json = _find_matching_work_run_json(
+                    item, course_name, date_str, work_dir, work_export_index
+                )
+                if work_run_json and work_run_json.is_file():
+                    try:
+                        wr_data = json.loads(work_run_json.read_text(encoding="utf-8"))
+                        docs_url, w_folder = _extract_drive_links_from_run_dict(wr_data)
+                        drive_folder_url = drive_folder_url or w_folder
+                        w_meta = wr_data.get("metadata") if isinstance(wr_data.get("metadata"), dict) else {}
+                        if w_meta.get("stt_channel"):
+                            channel_name = str(w_meta["stt_channel"])
+                    except Exception:
+                        pass
+
+            if not docs_url:
+                docs_url = _get_drive_link_from_logs(course_name, date_str)
+                if docs_url and not drive_folder_url and "/folders/" in docs_url:
+                    drive_folder_url = docs_url
 
             audio_path = resolve_lecture_audio_path(item, course_name, date_str)
 
             summary_text = summary_file.read_text(encoding="utf-8") if summary_file.is_file() else ""
             cleaned_text = cleaned_file.read_text(encoding="utf-8") if cleaned_file.is_file() else ""
             raw_text = raw_ts_file.read_text(encoding="utf-8") if raw_ts_file.is_file() else (raw_file.read_text(encoding="utf-8") if raw_file.is_file() else "")
+            cleaned_body = _strip_bundle_header(cleaned_text)
+            raw_body = _strip_bundle_header(raw_text)
 
             mtime_date = time.strftime("%Y-%m-%d", time.localtime(item.stat().st_mtime))
             is_today = (mtime_date == today_str) or (date_str == today_str) or (today_compact in item.name)
@@ -897,15 +1138,16 @@ def get_archived_lectures() -> List[Dict[str, Any]]:
                 "path": str(item.resolve()),
                 "has_summary": summary_file.is_file(),
                 "has_cleaned": cleaned_file.is_file(),
-                "has_raw": bool(raw_text),
+                "has_raw": bool(raw_body),
                 "has_audio": audio_path is not None,
                 "audio_filename": audio_path.name if audio_path else None,
                 "audio_path": str(audio_path.resolve()) if audio_path else None,
                 "audio_url": f"/api/audio/{lecture_id_clean}" if audio_path else None,
                 "summary_preview": summary_text[:200] if summary_text else "",
-                "char_count": len(cleaned_text) or len(raw_text),
+                "char_count": len(cleaned_body) or len(raw_body),
                 "channel": channel_name,
                 "docs_url": docs_url,
+                "drive_folder_url": drive_folder_url,
             })
 
     _lecture_cache = new_cache
@@ -923,9 +1165,12 @@ def get_lecture_content(lecture_id: str) -> Optional[Dict[str, Any]]:
         get_archived_lectures()
         target_dir = _lecture_cache.get(lecture_id)
 
+    cfg = get_current_config()
+    paths = cfg.get("paths", {})
+    work_dir = _resolve_app_path(paths.get("work_dir", "work"))
+    export_dir = _resolve_app_path(cfg.get("export", {}).get("export_dir", "exports"))
+
     if not target_dir or not target_dir.is_dir():
-        cfg = get_current_config()
-        export_dir = Path(cfg.get("export", {}).get("export_dir", "exports")).resolve()
         for p in export_dir.rglob(f"*{lecture_id}*"):
             if p.is_dir():
                 target_dir = p
@@ -959,17 +1204,20 @@ def get_lecture_content(lecture_id: str) -> Optional[Dict[str, Any]]:
     run_json = target_dir / "run.json"
     course_name = ""
     date_str = ""
+    docs_url = None
+    drive_folder_url = None
     if run_json.is_file():
         try:
             with open(run_json, "r", encoding="utf-8") as rf:
                 rdata = json.load(rf)
                 course_name = rdata.get("course", "")
                 date_str = str(rdata.get("date", ""))
+                docs_url, drive_folder_url = _extract_drive_links_from_run_dict(rdata)
         except Exception:
             pass
 
     if not course_name:
-        if target_dir.parent.name and target_dir.parent.name not in ["work", "archive", "exports", "Record"]:
+        if target_dir.parent.name and target_dir.parent.name not in ["work", "archive", "exports", "Record", export_dir.name]:
             course_name = target_dir.parent.name
         else:
             m = re.match(r"^(\d{6,8})_(.+)$", target_dir.name)
@@ -982,9 +1230,22 @@ def get_lecture_content(lecture_id: str) -> Optional[Dict[str, Any]]:
         date_match = re.search(r"(20\d{6}|\d{6})", target_dir.name)
         date_str = date_match.group(1) if date_match else ""
 
-    audio_file = resolve_lecture_audio_path(target_dir, course_name, date_str)
+    if not docs_url:
+        work_run_json = _find_matching_work_run_json(target_dir, course_name, date_str, work_dir)
+        if work_run_json and work_run_json.is_file():
+            try:
+                wr_data = json.loads(work_run_json.read_text(encoding="utf-8"))
+                docs_url, w_folder = _extract_drive_links_from_run_dict(wr_data)
+                drive_folder_url = drive_folder_url or w_folder
+            except Exception:
+                pass
 
-    docs_url = _get_drive_link_from_logs(course_name) or _get_drive_link_from_logs(target_dir.name)
+    if not docs_url:
+        docs_url = _get_drive_link_from_logs(course_name, date_str)
+        if docs_url and not drive_folder_url and "/folders/" in docs_url:
+            drive_folder_url = docs_url
+
+    audio_file = resolve_lecture_audio_path(target_dir, course_name, date_str)
 
     return {
         "id": lecture_id,
@@ -998,13 +1259,14 @@ def get_lecture_content(lecture_id: str) -> Optional[Dict[str, Any]]:
         "audio_url": f"/api/audio/{lecture_id}" if audio_file else None,
         "audio_path": str(audio_file.resolve()) if audio_file else None,
         "docs_url": docs_url,
+        "drive_folder_url": drive_folder_url,
     }
 
 
 def resolve_export_lecture_file(lecture_id: str, file_type: str = "summary") -> Optional[Path]:
     """Resolve target note file directed to the Exports directory (筆記與播放器匯出目錄)."""
     cfg = get_current_config()
-    export_dir = Path(cfg.get("export", {}).get("export_dir", "exports")).resolve()
+    export_dir = _resolve_app_path(cfg.get("export", {}).get("export_dir", "exports"))
     export_dir.mkdir(parents=True, exist_ok=True)
 
     detail = get_lecture_content(lecture_id)
@@ -1024,15 +1286,23 @@ def resolve_export_lecture_file(lecture_id: str, file_type: str = "summary") -> 
             else:
                 course = lecture_id
 
-    patterns = []
     if file_type == "summary":
-        patterns = ["*重點總結筆記.md", "*重點筆記*.md", "*筆記*.md", "*summary*.md", "01_*.md", "*.md"]
+        patterns = ["*重點總結筆記.md", "*重點筆記*.md", "*筆記*.md", "01_*.md", "03_summary.md", "*.md"]
     elif file_type == "cleaned":
-        patterns = ["*完整課堂整理文稿.md", "*整理文稿*.md", "02_*.md", "*.txt"]
+        patterns = ["*完整課堂整理文稿.md", "*整理文稿*.md", "02_*.md", "02_cleaned.txt", "*.txt"]
     elif file_type == "raw":
-        patterns = ["*原始時間戳對照.md", "*時間戳*.md", "03_*.md", "*.txt"]
+        patterns = ["*原始時間戳對照.md", "*時間戳*.md", "03_*.md", "01_raw_timestamped.txt", "01_raw.txt", "*.txt"]
     else:
         patterns = ["*.md", "*.txt"]
+
+    # 0. Exact directory already known from detail["path"] (prevents cross-date collision)
+    if detail and detail.get("path"):
+        d_path = Path(detail["path"])
+        if d_path.is_dir():
+            for pat in patterns:
+                for sf in d_path.glob(pat):
+                    if sf.is_file():
+                        return sf
 
     # 1. Look in export_dir / course / date_str
     if course and date_str:
@@ -1043,7 +1313,7 @@ def resolve_export_lecture_file(lecture_id: str, file_type: str = "summary") -> 
                     if f.is_file():
                         return f
 
-    # 2. Look in export_dir / course
+    # 2. Look in export_dir / course matching date_str when present
     if course:
         c_dir = export_dir / course
         if c_dir.is_dir():
@@ -1052,23 +1322,17 @@ def resolve_export_lecture_file(lecture_id: str, file_type: str = "summary") -> 
                     if f.is_file() and (not date_str or date_str in f.name or date_str in str(f.parent)):
                         return f
 
-    # 3. Look in export_dir for matching lecture_id or date
+    # 3. Look across export_dir requiring date_str match whenever date_str is known
     for pat in patterns:
         for f in export_dir.rglob(pat):
-            if f.is_file():
-                if course and course.lower() in str(f).lower():
-                    return f
-                if lecture_id and lecture_id.lower() in str(f).lower():
-                    return f
-
-    # 4. If detail is already an exported file, return it
-    if detail and detail.get("path"):
-        d_path = Path(detail["path"])
-        if str(export_dir).lower() in str(d_path).lower():
-            if file_type == "summary":
-                for sf in list(d_path.glob("*重點總結筆記.md")) + list(d_path.glob("*.md")):
-                    if sf.is_file():
-                        return sf
+            if not f.is_file():
+                continue
+            if date_str and date_str not in str(f):
+                continue
+            if course and course.lower() in str(f).lower():
+                return f
+            if lecture_id and lecture_id.lower() in str(f).lower():
+                return f
 
     # 5. Copy or create note in export_dir / course / date_str
     c_name = course or "Lecture"
@@ -1080,7 +1344,7 @@ def resolve_export_lecture_file(lecture_id: str, file_type: str = "summary") -> 
     summary_text = (detail.get("summary") if detail else "") or ""
     if not summary_text:
         paths = cfg.get("paths", {})
-        for base_dir in [Path(paths.get("work_dir", "work")), Path(paths.get("archive_dir", "archive"))]:
+        for base_dir in [_resolve_app_path(paths.get("work_dir", "work")), _resolve_app_path(paths.get("archive_dir", "archive"))]:
             if not base_dir.is_dir():
                 continue
             for p in base_dir.rglob(f"*{lecture_id}*"):
@@ -1105,20 +1369,33 @@ def resolve_export_lecture_file(lecture_id: str, file_type: str = "summary") -> 
 
 def open_folder_in_desktop(folder_path: Path | str) -> bool:
     """Open target folder in Windows File Explorer or create if not existing."""
-    p = Path(folder_path).resolve()
+    p = _resolve_app_path(folder_path)
     if not p.exists():
         p.mkdir(parents=True, exist_ok=True)
     if os.environ.get("LECTURE_PIPELINE_TEST_MODE") == "1":
         return True
     try:
         if sys.platform == "win32":
-            os.startfile(str(p))
-            return True
+            env = _clean_desktop_env()
+            cmd = ["explorer.exe", f"/select,{str(p)}"] if p.is_file() else ["explorer.exe", str(p)]
+            try:
+                subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                    env=env,
+                )
+                return True
+            except OSError:
+                os.startfile(str(p.parent if p.is_file() else p))
+                return True
         elif sys.platform == "darwin":
-            subprocess.run(["open", str(p)])
+            subprocess.Popen(["open", str(p)])
             return True
         else:
-            subprocess.run(["xdg-open", str(p)])
+            subprocess.Popen(["xdg-open", str(p)])
             return True
     except Exception as e:
         logging.getLogger("lecture_pipeline.gui").error(f"Failed to open folder {p}: {e}")
@@ -1127,30 +1404,45 @@ def open_folder_in_desktop(folder_path: Path | str) -> bool:
 
 def open_file_in_desktop(file_path: Path | str) -> bool:
     """Open target file using system default application, with Notepad fallback."""
-    p = Path(file_path).resolve()
+    p = _resolve_app_path(file_path)
     if not p.is_file():
         return False
     if os.environ.get("LECTURE_PIPELINE_TEST_MODE") == "1":
         return True
     try:
         if sys.platform == "win32":
+            env = _clean_desktop_env()
             try:
                 os.startfile(str(p))
                 return True
             except OSError:
-                subprocess.Popen(["notepad.exe", str(p)])
+                subprocess.Popen(
+                    ["notepad.exe", str(p)],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                    env=env,
+                )
                 return True
         elif sys.platform == "darwin":
-            subprocess.run(["open", str(p)])
+            subprocess.Popen(["open", str(p)])
             return True
         else:
-            subprocess.run(["xdg-open", str(p)])
+            subprocess.Popen(["xdg-open", str(p)])
             return True
     except Exception as e:
         logging.getLogger("lecture_pipeline.gui").error(f"Failed to open file {p}: {e}")
         try:
             if sys.platform == "win32":
-                subprocess.Popen(["notepad.exe", str(p)])
+                subprocess.Popen(
+                    ["notepad.exe", str(p)],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                    env=_clean_desktop_env(),
+                )
                 return True
         except Exception:
             pass
@@ -1158,62 +1450,60 @@ def open_file_in_desktop(file_path: Path | str) -> bool:
 
 
 def open_file_in_vscode_preview(file_path: Path | str) -> bool:
-    """Open a Markdown note file directly in VS Code's Markdown Preview mode."""
-    p = Path(file_path).resolve()
+    """Open a Markdown note file in VS Code (direct Code.exe binary), falling back to desktop open."""
+    p = _resolve_app_path(file_path)
     if not p.is_file():
         return False
     if os.environ.get("LECTURE_PIPELINE_TEST_MODE") == "1":
         return True
 
-    # 1. Resolve VS Code executable binary
-    code_bin = shutil.which("code") or shutil.which("code.cmd")
-    if not code_bin and sys.platform == "win32":
-        local_app_data = os.environ.get("LOCALAPPDATA", "")
-        if local_app_data:
-            candidate = Path(local_app_data) / "Programs" / "Microsoft VS Code" / "bin" / "code.cmd"
-            if candidate.is_file():
-                code_bin = str(candidate)
-        if not code_bin:
-            prog_files = os.environ.get("ProgramFiles", "C:\\Program Files")
-            candidate2 = Path(prog_files) / "Microsoft VS Code" / "bin" / "code.cmd"
-            if candidate2.is_file():
-                code_bin = str(candidate2)
-
-    if not code_bin:
-        # Fall back to default desktop open
+    code_exe = _resolve_vscode_executable()
+    if not code_exe:
         return open_file_in_desktop(p)
 
     try:
-        cmd = [code_bin, "-r", str(p)]
+        cmd = [code_exe, "-r", str(p)]
+        env = _clean_desktop_env()
         if sys.platform == "win32":
-            subprocess.Popen(cmd, shell=True)
-
-            def _trigger_preview():
-                time.sleep(0.7)
-                try:
-                    ps_cmd = 'Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait("^+v")'
-                    subprocess.run(
-                        ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_cmd],
-                        timeout=3,
-                        creationflags=0x08000000,
-                    )
-                except Exception:
-                    pass
-
-            threading.Thread(target=_trigger_preview, daemon=True).start()
+            flags = getattr(subprocess, "DETACHED_PROCESS", 0x00000008) | getattr(
+                subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200
+            )
+            subprocess.Popen(
+                cmd,
+                shell=False,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                creationflags=flags,
+                env=env,
+            )
         else:
-            subprocess.Popen(cmd)
+            subprocess.Popen(
+                cmd,
+                shell=False,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                env=env,
+            )
         return True
     except Exception as e:
         logging.getLogger("lecture_pipeline.gui").warning(f"Failed to open in VS Code: {e}")
         return open_file_in_desktop(p)
 
 
-
 def browse_folder_dialog(initial_dir: Optional[str] = None) -> Optional[str]:
     """Launch native Windows directory selection dialog."""
     if os.environ.get("LECTURE_PIPELINE_TEST_MODE") == "1":
-        return str(Path(initial_dir or os.getcwd()).resolve())
+        return str(_resolve_app_path(initial_dir or "."))
+    init_path: Optional[Path] = None
+    if initial_dir:
+        cand = _resolve_app_path(initial_dir)
+        if cand.is_dir():
+            init_path = cand
+
     try:
         import tkinter as tk
         from tkinter import filedialog
@@ -1221,7 +1511,7 @@ def browse_folder_dialog(initial_dir: Optional[str] = None) -> Optional[str]:
         root.withdraw()
         root.attributes("-topmost", True)
         selected = filedialog.askdirectory(
-            initialdir=initial_dir or os.getcwd(),
+            initialdir=str(init_path or _get_app_base_dir()),
             title="選擇資料夾路徑",
         )
         root.destroy()
@@ -1230,24 +1520,47 @@ def browse_folder_dialog(initial_dir: Optional[str] = None) -> Optional[str]:
         pass
 
     try:
+        env = _clean_desktop_env()
+        if init_path is not None:
+            env["LP_BROWSE_INIT_DIR"] = str(init_path)
         ps_cmd = (
-            "[System.Reflection.Assembly]::LoadWithPartialName('System.windows.forms') | Out-Null;"
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;"
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            "Add-Type -AssemblyName System.Drawing;"
+            "$owner = New-Object System.Windows.Forms.Form;"
+            "$owner.TopMost = $true; $owner.StartPosition = 'Manual';"
+            "$owner.Location = New-Object System.Drawing.Point(-32000,-32000);"
+            "$owner.Size = New-Object System.Drawing.Size(1,1); $owner.ShowInTaskbar = $false;"
             "$dlg = New-Object System.Windows.Forms.FolderBrowserDialog;"
             "$dlg.Description = '請選擇資料夾路徑';"
-            "if($dlg.ShowDialog() -eq 'OK'){$dlg.SelectedPath}"
+            "if($env:LP_BROWSE_INIT_DIR -and (Test-Path $env:LP_BROWSE_INIT_DIR)){$dlg.SelectedPath = $env:LP_BROWSE_INIT_DIR};"
+            "try { if($dlg.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK){[Console]::Out.Write($dlg.SelectedPath)} }"
+            "finally { $dlg.Dispose(); $owner.Dispose() }"
         )
-        res = silent_run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=20)
+        res = silent_run(
+            ["powershell", "-NoProfile", "-STA", "-Command", ps_cmd],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=env,
+        )
         if res.returncode == 0 and res.stdout.strip():
             return res.stdout.strip()
-    except Exception:
-        pass
+    except Exception as e:
+        logging.getLogger("lecture_pipeline.gui").warning(f"browse_folder_dialog failed: {e}")
     return None
 
 
 def browse_file_dialog(initial_dir: Optional[str] = None, file_types: Optional[List[tuple[str, str]]] = None) -> Optional[str]:
     """Launch native Windows file selection dialog."""
     if os.environ.get("LECTURE_PIPELINE_TEST_MODE") == "1":
-        return str(Path(initial_dir or os.getcwd()).resolve())
+        return str(_resolve_app_path(initial_dir or "."))
+    init_path: Optional[Path] = None
+    if initial_dir:
+        cand = _resolve_app_path(initial_dir)
+        if cand.is_dir():
+            init_path = cand
+
     try:
         import tkinter as tk
         from tkinter import filedialog
@@ -1260,7 +1573,7 @@ def browse_file_dialog(initial_dir: Optional[str] = None, file_types: Optional[L
             ("所有檔案 (*.*)", "*.*"),
         ]
         selected = filedialog.askopenfilename(
-            initialdir=initial_dir or os.getcwd(),
+            initialdir=str(init_path or _get_app_base_dir()),
             title="請選擇檔案",
             filetypes=types,
         )
@@ -1270,18 +1583,35 @@ def browse_file_dialog(initial_dir: Optional[str] = None, file_types: Optional[L
         pass
 
     try:
+        env = _clean_desktop_env()
+        if init_path is not None:
+            env["LP_BROWSE_INIT_DIR"] = str(init_path)
         ps_cmd = (
-            "[System.Reflection.Assembly]::LoadWithPartialName('System.windows.forms') | Out-Null;"
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;"
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            "Add-Type -AssemblyName System.Drawing;"
+            "$owner = New-Object System.Windows.Forms.Form;"
+            "$owner.TopMost = $true; $owner.StartPosition = 'Manual';"
+            "$owner.Location = New-Object System.Drawing.Point(-32000,-32000);"
+            "$owner.Size = New-Object System.Drawing.Size(1,1); $owner.ShowInTaskbar = $false;"
             "$dlg = New-Object System.Windows.Forms.OpenFileDialog;"
             "$dlg.Filter = '所有支援檔案 (*.pdf;*.txt;*.md;*.wav;*.mp3;*.m4a)|*.pdf;*.txt;*.md;*.wav;*.mp3;*.m4a|所有檔案 (*.*)|*.*';"
             "$dlg.Title = '請選擇檔案';"
-            "if($dlg.ShowDialog() -eq 'OK'){$dlg.FileName}"
+            "if($env:LP_BROWSE_INIT_DIR -and (Test-Path $env:LP_BROWSE_INIT_DIR)){$dlg.InitialDirectory = $env:LP_BROWSE_INIT_DIR};"
+            "try { if($dlg.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK){[Console]::Out.Write($dlg.FileName)} }"
+            "finally { $dlg.Dispose(); $owner.Dispose() }"
         )
-        res = silent_run(["powershell", "-NoProfile", "-Command", ps_cmd], capture_output=True, text=True, timeout=20)
+        res = silent_run(
+            ["powershell", "-NoProfile", "-STA", "-Command", ps_cmd],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=env,
+        )
         if res.returncode == 0 and res.stdout.strip():
             return res.stdout.strip()
-    except Exception:
-        pass
+    except Exception as e:
+        logging.getLogger("lecture_pipeline.gui").warning(f"browse_file_dialog failed: {e}")
     return None
 
 

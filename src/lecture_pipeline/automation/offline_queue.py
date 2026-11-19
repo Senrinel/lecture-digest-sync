@@ -144,10 +144,27 @@ class OfflineUploadQueue:
 
                 try:
                     pub_res = publisher.publish_lecture(w_dir)
-                    doc_link = getattr(pub_res, "doc_link", None) or getattr(
-                        pub_res, "course_folder_link", None
+                    docs_list = getattr(pub_res, "docs", None)
+                    first_doc_link = (
+                        docs_list[0].web_link
+                        if isinstance(docs_list, list) and docs_list and getattr(docs_list[0], "web_link", None)
+                        else None
                     )
+                    doc_link = (
+                        first_doc_link
+                        or getattr(pub_res, "doc_link", None)
+                        or getattr(pub_res, "course_folder_link", None)
+                    )
+                    folder_link = getattr(pub_res, "course_folder_link", None) or doc_link
                     console.print(f"[green][OK] 佇列項目上傳成功：{display_name}[/green]")
+                    try:
+                        from lecture_pipeline.automation.watcher import log_watcher_event
+                        log_watcher_event(
+                            f"已同步至 Google Drive [{item.get('course', '')} | {item.get('date', '')}]：{folder_link}"
+                            + (f" (文件：{doc_link})" if doc_link and doc_link != folder_link else "")
+                        )
+                    except Exception:
+                        pass
                     notify_upload_success(display_name, doc_url=doc_link)
                     uploaded_count += 1
                 except (GoogleAuthRequiredError, TimeoutError) as auth_err:

@@ -224,6 +224,12 @@ async def serve_icon():
     raise HTTPException(status_code=404, detail="icon.png not found")
 
 
+@app.get("/api/ping")
+async def api_ping():
+    """Fast lightweight health check for single-instance detection without hardware/network probing."""
+    return {"status": "ok", "pid": os.getpid()}
+
+
 @app.get("/api/status")
 @app.get("/api/system/status")
 async def api_status():
