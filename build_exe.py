@@ -169,6 +169,7 @@ def run_pyinstaller_packaging() -> Path:
         "--hidden-import=lecture_pipeline.utils",
         "--hidden-import=lecture_pipeline.utils.process",
         "--hidden-import=lecture_pipeline.utils.bootstrap",
+        "--hidden-import=lecture_pipeline.prompt_catalog",
         "--hidden-import=winreg",
         "--collect-all=jieba",
         "--collect-all=opencc",
@@ -213,8 +214,8 @@ def run_pyinstaller_packaging() -> Path:
         shutil.copytree(courses_src, courses_dst)
 
     prompts_dst = dist_dir / "prompts"
-    if (ROOT / "prompts").is_dir() and not prompts_dst.is_dir():
-        shutil.copytree(ROOT / "prompts", prompts_dst)
+    if (ROOT / "prompts").is_dir():
+        shutil.copytree(ROOT / "prompts", prompts_dst, dirs_exist_ok=True)
 
     # Copy .env.example template unconditionally so clean devices have an editable reference
     env_example = ROOT / ".env.example"

@@ -125,10 +125,29 @@ flowchart TD
 
 | 工作分頁 | 核心功能說明 |
 | :--- | :--- |
-| **即時處理台 (Workbench)** | 選擇或拖入音檔、課表自動對齊切換、多階段進度即時可視化（前處理 ➜ STT ➜ 整理 ➜ 總結 ➜ 上傳）、即時暫停任務、強制熔斷中止、今日完成紀錄。 |
+| **即時處理台 (Workbench)** | 選擇或拖入音檔、課表自動對齊切換、一鍵切換場景與提示詞模板、多階段進度即時可視化（前處理 ➜ STT ➜ 整理 ➜ 總結 ➜ 上傳）、即時暫停任務、強制熔斷中止、今日完成紀錄。 |
 | **課堂與播放庫 (Library)** | 關鍵字模糊搜尋、按科目過濾課堂、雙欄同步檢視器（重點筆記與逐字原文）、音訊播放器（1.0x~2.0x 倍速、時間戳跳轉）、一鍵複製筆記包、開啟 Google Docs、本機開啟 Exports、安全刪除歸檔。 |
 | **課堂詞庫與課表 (Glossary & Timetable)** | 純本機零 API 講義 PDF/TXT 專有名詞自動萃取、科目新增/刪除、名詞增刪修（即時同步寫入實體檔案）、互動式週課表對齊編輯網格。 |
-| **管線參數與目錄 (Settings & Diagnostics)** | 系統目錄變更與本機開啟、前處理音訊參數滑桿調整（高通、LUFS、降噪）、STT 通道切換、單項數值重設、一鍵全方位系統健檢中心（Doctor）。 |
+| **管線參數與目錄 (Settings & Diagnostics)** | 系統目錄變更與本機開啟、多場景 AI 整理與總結提示詞模板中心（支援線上編修與新增自訂模板）、前處理音訊參數滑桿、STT 通道切換、全方位系統健檢中心（Doctor）。 |
+
+---
+
+## 🧩 內建多場景 AI 整理與重點總結提示詞模板
+
+支援在 GUI（即時處理台或參數設定中心）隨時切換整理（Phase 3）與總結（Phase 4）提示詞模板，亦可直接編輯或建立自訂模板：
+
+| 場景 / 學科 | 一鍵預設組合 | 整理模板 (Phase 3) | 總結模板 (Phase 4) |
+| :--- | :--- | :--- | :--- |
+| **🎓 大學通用課程（預設）** | `course_general` | `videolingo_punct.md` | `fabric_summarize_lecture.md` |
+| **📐 理工電資與數學推導** | `course_stem` | `stem_formula_clean.md` | `stem_problem_solving.md` |
+| **📝 康乃爾筆記與課後複習** | `course_cornell` | `fabric_clean_text.md` | `cornell_notes.md` |
+| **🎯 考前衝刺與模擬題庫** | `course_exam` | `fabric_clean_text.md` | `exam_quiz_prep.md` |
+| **📚 人文社科與文獻思辨** | `course_humanities` | `fabric_clean_text.md` | `humanities_seminar.md` |
+| **💼 會議紀錄與待辦追蹤** | `meeting_standard` | `meeting_dialogue_clean.md` | `meeting_summary.md` |
+| **📊 工作匯報與專案決策** | `work_brief` | `meeting_dialogue_clean.md` | `work_project_brief.md` |
+| **🎤 專題演講與論壇講座** | `speech_keynote` | `speech_prose_clean.md` | `keynote_speech_digest.md` |
+| **💡 深度洞見與金句提煉** | `speech_wisdom` | `speech_prose_clean.md` | `extract_wisdom.md` |
+| **🎙️ 訪談對談與沙龍座談** | `talk_interview` | `meeting_dialogue_clean.md` | `dialogue_interview_notes.md` |
 
 ---
 

@@ -74,10 +74,27 @@ class GeminiTextCleanupEngine(BaseCleanupEngine):
                     p = Path("prompts/library") / prompt_template_path
                 elif (Path("prompts") / prompt_template_path).is_file():
                     p = Path("prompts") / prompt_template_path
+            if not p.is_file():
+                try:
+                    from lecture_pipeline.prompt_catalog import resolve_prompt_file
+                    resolved = resolve_prompt_file(prompt_template_path)
+                    if resolved.is_file():
+                        p = resolved
+                except Exception:
+                    pass
             self.prompt_template_path = p
         else:
             default_tpl = DEFAULT_PROMPT_TEMPLATES.get(self.mode, DEFAULT_PROMPT_TEMPLATES["text"])
-            self.prompt_template_path = Path(default_tpl)
+            p = Path(default_tpl)
+            if not p.is_file():
+                try:
+                    from lecture_pipeline.prompt_catalog import resolve_prompt_file
+                    resolved = resolve_prompt_file(default_tpl)
+                    if resolved.is_file():
+                        p = resolved
+                except Exception:
+                    pass
+            self.prompt_template_path = p
 
         self.temperature = temperature
         self.chunk_chars = chunk_chars

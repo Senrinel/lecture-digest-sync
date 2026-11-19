@@ -177,12 +177,14 @@ parsed = naming.parse_filename("離散數學_20261015_0900.m4a")
 assert parsed.course == "離散數學" and parsed.date == "20261015", "Naming parse failed"
 print("[2/3 驗證成功] Layer A (AST 變數混淆與 Docstring 抹除模組):", naming.__file__)
 
-# 3. Test GUI Bridge & Environment Bootstrap imports
+# 3. Test GUI Bridge & Environment Bootstrap & Prompt Catalog imports
 import lecture_pipeline.gui.bridge as bridge
 import lecture_pipeline.utils.bootstrap as bootstrap
+import lecture_pipeline.prompt_catalog as prompt_catalog
 assert hasattr(bridge, "get_courses_base_dir"), "Bridge missing functions"
 assert hasattr(bootstrap, "repair_and_init_environment"), "Bootstrap missing functions"
-print("[3/3 驗證成功] GUI 核心橋接與乾淨環境修復模組載入正常")
+assert len(prompt_catalog.BUILTIN_PROMPTS) >= 18, "Prompt catalog missing built-ins"
+print("[3/3 驗證成功] GUI 核心橋接、乾淨環境修復與多場景提示詞模組載入正常")
 
 print("\\n[SUCCESS] 雙層混淆 (AST Obfuscation + Cython Native Binary) 全數驗證通過！")
 """

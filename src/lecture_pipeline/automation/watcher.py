@@ -605,6 +605,32 @@ def run_pipeline_for_group(
 
         glossary = load_course_glossary(parsed.course) if parsed.course != "Unsorted" else []
 
+        b_cfg = _get_bridge()
+        try:
+            if b_cfg and hasattr(b_cfg, "get_current_config"):
+                pipeline_cfg = b_cfg.get_current_config()
+                prompt_base_dir = Path(b_cfg.CONFIG_FILE_PATH).resolve().parent
+            else:
+                pipeline_cfg = load_config(Path("config.yaml"))
+                prompt_base_dir = None
+        except Exception:
+            pipeline_cfg = {}
+            prompt_base_dir = None
+
+        cleanup_cfg = pipeline_cfg.get("cleanup", {}) if isinstance(pipeline_cfg, dict) else {}
+        sum_cfg = pipeline_cfg.get("summarize", {}) if isinstance(pipeline_cfg, dict) else {}
+        cleanup_tpl_setting = str(cleanup_cfg.get("prompt_template") or "videolingo_punct.md")
+        summary_tpl_setting = str(sum_cfg.get("template") or "fabric_summarize_lecture.md")
+        try:
+            from lecture_pipeline.prompt_catalog import resolve_prompt_file
+            _c_resolved = resolve_prompt_file(cleanup_tpl_setting, base_dir=prompt_base_dir)
+            cleanup_tpl_arg = str(_c_resolved) if _c_resolved.is_file() else cleanup_tpl_setting
+            _s_resolved = resolve_prompt_file(summary_tpl_setting, base_dir=prompt_base_dir)
+            summary_tpl_arg = str(_s_resolved) if _s_resolved.is_file() else summary_tpl_setting
+        except Exception:
+            cleanup_tpl_arg = cleanup_tpl_setting
+            summary_tpl_arg = summary_tpl_setting
+
         # 4. Cleanup (Stage Checkpoint: resume if cleaned text exists)
         check_aborted()
         clean_json_file = target_work_dir / "02_cleaned.json"
@@ -625,7 +651,7 @@ def run_pipeline_for_group(
                     cleaned_char_count=len(clean_txt_content),
                     retention_ratio=1.0,
                     model_used=cleanup_model,
-                    prompt_template="videolingo_punct.md",
+                    prompt_template=Path(cleanup_tpl_setting).name,
                     total_latency_sec=0.0,
                     validation_passed=True,
                     chunks=[],
@@ -638,7 +664,15 @@ def run_pipeline_for_group(
         else:
             report_progress("內文整理", 70, f"執行內文整理 ({cleanup_model})...")
             console.print(f"[dim]執行內文整理 ({cleanup_model})...[/dim]")
-            cleaner = GeminiTextCleanupEngine(primary_model=cleanup_model)
+            cleaner = GeminiTextCleanupEngine(
+                primary_model=cleanup_model,
+                prompt_template_path=cleanup_tpl_arg,
+                mode=str(cleanup_cfg.get("mode", "text")),
+                chunk_chars=int(cleanup_cfg.get("chunk_chars", 1500)),
+                overlap_chars=int(cleanup_cfg.get("overlap_chars", 300)),
+                min_ratio=float(cleanup_cfg.get("length_ratio_min", 0.80)),
+                max_ratio=float(cleanup_cfg.get("length_ratio_max", 1.20)),
+            )
 
             def do_clean():
                 return cleaner.clean(
@@ -672,8 +706,8 @@ def run_pipeline_for_group(
                     input_char_count=len(clean_result.full_cleaned_text) if clean_result else 0,
                     summary_char_count=len(summary_content),
                     model_used=summary_model,
-                    prompt_template="fabric_summarize_lecture.md",
-                    thinking_budget=1024,
+                    prompt_template=Path(summary_tpl_setting).name,
+                    thinking_budget=int(sum_cfg.get("thinking_budget", 1024)),
                     total_latency_sec=0.0,
                 )
 
@@ -686,7 +720,11 @@ def run_pipeline_for_group(
             console.print(f"[dim]產生重點筆記 ({summary_model})...[/dim]")
             time.sleep(3.0)  # Rate limit cooldown buffer before summary call
             check_aborted()
-            summarizer = GeminiLectureSummarizer(primary_model=summary_model)
+            summarizer = GeminiLectureSummarizer(
+                primary_model=summary_model,
+                template_path=summary_tpl_arg,
+                thinking_budget=int(sum_cfg.get("thinking_budget", 1024)),
+            )
 
             def do_summary():
                 return summarizer.summarize(

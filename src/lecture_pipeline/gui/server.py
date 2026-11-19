@@ -28,6 +28,7 @@ from lecture_pipeline.gui.bridge import (
     delete_course,
     delete_glossary_term,
     delete_lecture,
+    delete_prompt_template_action,
     edit_glossary_term,
     extract_terms_from_uploaded_file,
     get_archived_lectures,
@@ -36,6 +37,7 @@ from lecture_pipeline.gui.bridge import (
     get_current_config,
     get_full_system_status,
     get_lecture_content,
+    get_prompt_templates_payload,
     get_remembered_gui_mode,
     get_timetable_rules,
     install_ffmpeg_action,
@@ -47,9 +49,12 @@ from lecture_pipeline.gui.bridge import (
     pause_processing_task,
     rename_lecture,
     repair_environment_action,
+    reset_prompt_template_action,
     resolve_export_lecture_file,
+    save_prompt_template_action,
     save_remembered_gui_mode,
     save_timetable_rules,
+    select_prompt_templates_action,
     set_watcher_paused,
     setup_credentials_action,
     setup_gemini_api_key_action,
@@ -175,6 +180,26 @@ class TermEditRequest(BaseModel):
 class TermDeleteRequest(BaseModel):
     course: str
     term: str
+
+
+class PromptSelectRequest(BaseModel):
+    cleanup_template: Optional[str] = None
+    summary_template: Optional[str] = None
+    preset_id: Optional[str] = None
+
+
+class PromptSaveRequest(BaseModel):
+    template_id: str
+    stage: str = "summary"
+    name: str = ""
+    category: str = "custom"
+    description: str = ""
+    content: str
+    set_active: bool = True
+
+
+class PromptResetRequest(BaseModel):
+    template_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +339,60 @@ async def api_update_config(req: ConfigUpdateRequest):
     """Update pipeline configuration."""
     updated = update_pipeline_config(req.params)
     return {"status": "ok", "config": updated}
+
+
+@app.get("/api/prompts")
+async def api_get_prompts():
+    """Retrieve built-in and custom cleanup/summary prompt templates and scenario presets."""
+    return get_prompt_templates_payload()
+
+
+@app.post("/api/prompts/select")
+async def api_select_prompts(req: PromptSelectRequest):
+    """Select active cleanup/summary templates or apply a scenario preset."""
+    res = select_prompt_templates_action(
+        cleanup_template=req.cleanup_template,
+        summary_template=req.summary_template,
+        preset_id=req.preset_id,
+    )
+    if res.get("status") == "error":
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
+
+
+@app.post("/api/prompts/save")
+async def api_save_prompt(req: PromptSaveRequest):
+    """Save a custom prompt template or override a built-in prompt template."""
+    res = save_prompt_template_action(
+        template_id=req.template_id,
+        stage=req.stage,
+        name=req.name,
+        category=req.category,
+        description=req.description,
+        content=req.content,
+        set_active=req.set_active,
+    )
+    if res.get("status") == "error":
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
+
+
+@app.post("/api/prompts/reset")
+async def api_reset_prompt(req: PromptResetRequest):
+    """Restore a modified built-in prompt template back to factory default."""
+    res = reset_prompt_template_action(req.template_id)
+    if res.get("status") == "error":
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
+
+
+@app.delete("/api/prompts/{template_id}")
+async def api_delete_prompt(template_id: str):
+    """Delete a user-created custom prompt template."""
+    res = delete_prompt_template_action(template_id)
+    if res.get("status") == "error":
+        raise HTTPException(status_code=400, detail=res.get("message"))
+    return res
 
 
 @app.get("/api/timetable")

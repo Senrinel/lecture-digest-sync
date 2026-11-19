@@ -1902,3 +1902,178 @@ def delete_glossary_term(course: str, term: str) -> Dict[str, Any]:
         "terms": get_course_glossary_terms(course),
         "message": f"已刪除專有名詞：{term}",
     }
+
+
+# ---------------------------------------------------------------------------
+# Prompt Template Catalog & Scenario Management
+# ---------------------------------------------------------------------------
+
+def get_prompt_templates_payload() -> Dict[str, Any]:
+    """Return all cleanup/summary prompt templates, presets, and active selections."""
+    from lecture_pipeline.prompt_catalog import list_prompt_templates
+
+    base_dir = CONFIG_FILE_PATH.resolve().parent
+    catalog = list_prompt_templates(base_dir=base_dir)
+    cfg = get_current_config()
+
+    cleanup_raw = str(cfg.get("cleanup", {}).get("prompt_template") or "videolingo_punct.md")
+    summary_raw = str(cfg.get("summarize", {}).get("template") or "fabric_summarize_lecture.md")
+    active_cleanup = Path(cleanup_raw).name
+    active_summary = Path(summary_raw).name
+
+    active_preset = "custom"
+    for preset in catalog["presets"]:
+        if preset["cleanup_template"] == active_cleanup and preset["summary_template"] == active_summary:
+            active_preset = preset["id"]
+            break
+
+    return {
+        "status": "ok",
+        "active_cleanup": active_cleanup,
+        "active_summary": active_summary,
+        "active_preset": active_preset,
+        "cleanup_templates": catalog["cleanup_templates"],
+        "summary_templates": catalog["summary_templates"],
+        "presets": catalog["presets"],
+        "category_labels": catalog["category_labels"],
+    }
+
+
+def select_prompt_templates_action(
+    cleanup_template: Optional[str] = None,
+    summary_template: Optional[str] = None,
+    preset_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Switch active cleanup/summary templates or apply a multi-scene preset in config.yaml."""
+    from lecture_pipeline.prompt_catalog import (
+        SCENARIO_PRESETS,
+        _sanitize_template_id,
+        resolve_prompt_file,
+    )
+
+    base_dir = CONFIG_FILE_PATH.resolve().parent
+    preset_label = None
+    if preset_id and preset_id != "custom":
+        matched = next((p for p in SCENARIO_PRESETS if p["id"] == preset_id), None)
+        if not matched:
+            return {"status": "error", "message": f"找不到場景預設：{preset_id}"}
+        cleanup_template = matched["cleanup_template"]
+        summary_template = matched["summary_template"]
+        preset_label = matched["name"]
+
+    updates: Dict[str, Any] = {}
+    if cleanup_template:
+        try:
+            c_id = _sanitize_template_id(cleanup_template)
+        except ValueError as ve:
+            return {"status": "error", "message": str(ve)}
+        if not resolve_prompt_file(c_id, base_dir=base_dir).is_file():
+            return {"status": "error", "message": f"找不到整理提示詞模板：{c_id}"}
+        updates["cleanup"] = {"prompt_template": c_id}
+
+    if summary_template:
+        try:
+            s_id = _sanitize_template_id(summary_template)
+        except ValueError as ve:
+            return {"status": "error", "message": str(ve)}
+        if not resolve_prompt_file(s_id, base_dir=base_dir).is_file():
+            return {"status": "error", "message": f"找不到總結提示詞模板：{s_id}"}
+        updates["summarize"] = {"template": s_id}
+
+    if updates:
+        update_pipeline_config(updates)
+
+    payload = get_prompt_templates_payload()
+    if preset_label:
+        payload["message"] = f"已套用場景預設：{preset_label}"
+    else:
+        payload["message"] = "已更新 AI 整理 / 總結提示詞模板設定"
+    return payload
+
+
+def save_prompt_template_action(
+    template_id: str,
+    stage: str,
+    name: str,
+    category: str,
+    description: str,
+    content: str,
+    set_active: bool = True,
+) -> Dict[str, Any]:
+    """Save custom or overridden prompt template and optionally set it active."""
+    from lecture_pipeline.prompt_catalog import save_prompt_template
+
+    base_dir = CONFIG_FILE_PATH.resolve().parent
+    try:
+        res = save_prompt_template(
+            template_id=template_id,
+            stage=stage,
+            name=name,
+            category=category,
+            description=description,
+            content=content,
+            base_dir=base_dir,
+        )
+    except ValueError as ve:
+        return {"status": "error", "message": str(ve)}
+
+    if res.get("status") != "ok":
+        return res
+
+    if set_active:
+        saved_id = res["template_id"]
+        if res["stage"] == "cleanup":
+            update_pipeline_config({"cleanup": {"prompt_template": saved_id}})
+        else:
+            update_pipeline_config({"summarize": {"template": saved_id}})
+
+    payload = get_prompt_templates_payload()
+    payload["saved_id"] = res["template_id"]
+    payload["message"] = res["message"]
+    return payload
+
+
+def reset_prompt_template_action(template_id: str) -> Dict[str, Any]:
+    """Reset a modified built-in prompt template back to factory default."""
+    from lecture_pipeline.prompt_catalog import reset_prompt_template
+
+    base_dir = CONFIG_FILE_PATH.resolve().parent
+    try:
+        res = reset_prompt_template(template_id=template_id, base_dir=base_dir)
+    except ValueError as ve:
+        return {"status": "error", "message": str(ve)}
+
+    if res.get("status") != "ok":
+        return res
+
+    payload = get_prompt_templates_payload()
+    payload["message"] = res["message"]
+    return payload
+
+
+def delete_prompt_template_action(template_id: str) -> Dict[str, Any]:
+    """Delete a user-created custom prompt template, resetting active selection if needed."""
+    from lecture_pipeline.prompt_catalog import _sanitize_template_id, delete_custom_prompt_template
+
+    base_dir = CONFIG_FILE_PATH.resolve().parent
+    try:
+        clean_id = _sanitize_template_id(template_id)
+        res = delete_custom_prompt_template(clean_id, base_dir=base_dir)
+    except ValueError as ve:
+        return {"status": "error", "message": str(ve)}
+
+    if res.get("status") != "ok":
+        return res
+
+    cfg = get_current_config()
+    fallback_updates: Dict[str, Any] = {}
+    if Path(str(cfg.get("cleanup", {}).get("prompt_template") or "")).name == clean_id:
+        fallback_updates["cleanup"] = {"prompt_template": "videolingo_punct.md"}
+    if Path(str(cfg.get("summarize", {}).get("template") or "")).name == clean_id:
+        fallback_updates["summarize"] = {"template": "fabric_summarize_lecture.md"}
+    if fallback_updates:
+        update_pipeline_config(fallback_updates)
+
+    payload = get_prompt_templates_payload()
+    payload["message"] = res["message"]
+    return payload

@@ -376,6 +376,34 @@
           </div>
         </div>
 
+        <!-- 處理場景與 AI 提示詞模板快速切換列 -->
+        <div id="studio-prompt-bar" class="glass-surface rounded-3xl p-4 md:px-5 md:py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div class="flex flex-col sm:flex-row sm:items-center gap-3 flex-1 min-w-0">
+            <div class="flex items-center gap-2 shrink-0">
+              <i data-lucide="sparkles" class="w-4 h-4 text-indigo-400"></i>
+              <span class="text-xs font-bold">處理場景與提示詞模板：</span>
+            </div>
+            <select id="studio-preset-select" onchange="applyScenarioPreset(this.value)" class="bg-black/30 border border-white/15 rounded-xl px-3 py-1.5 text-xs font-medium min-w-[210px]">
+              <option value="course_general">載入模板中...</option>
+            </select>
+            <div class="flex flex-wrap items-center gap-1.5 text-[11px] min-w-0">
+              <span id="studio-cleanup-tpl-badge" class="px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-300 border border-cyan-500/25 truncate max-w-[230px]">整理：預設</span>
+              <span id="studio-summary-tpl-badge" class="px-2.5 py-1 rounded-lg bg-indigo-500/10 text-indigo-300 border border-indigo-500/25 truncate max-w-[230px]">總結：預設</span>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 shrink-0">
+            <button onclick="openPromptEditor('cleanup')" class="bio-btn px-3 py-1.5 rounded-xl glass-card text-[11px] flex items-center gap-1">
+              <i data-lucide="file-edit" class="w-3.5 h-3.5 text-cyan-400"></i> 調整整理提示詞
+            </button>
+            <button onclick="openPromptEditor('summary')" class="bio-btn px-3 py-1.5 rounded-xl glass-card text-[11px] flex items-center gap-1">
+              <i data-lucide="file-text" class="w-3.5 h-3.5 text-indigo-400"></i> 調整總結提示詞
+            </button>
+            <button onclick="switchTab('settings')" class="bio-btn px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-[11px]">
+              更多模板
+            </button>
+          </div>
+        </div>
+
         <!-- 即時任務卡片 -->
         <div id="workbench-task-card" class="glass-surface rounded-3xl p-5 md:p-6 space-y-5 shadow-2xl relative overflow-hidden transition-all duration-300">
           
@@ -840,6 +868,77 @@
               <button onclick="installFfmpegAction()" class="bio-btn w-full py-1.5 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/30 text-[11px]">
                 下載 / 修復本機 FFmpeg
               </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI 整理與重點總結提示詞模板中心 -->
+        <div id="settings-prompts-card" class="glass-surface rounded-3xl p-5 md:p-6 space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 class="font-bold text-sm flex items-center gap-2">
+                <i data-lucide="sparkles" class="w-4 h-4 text-indigo-400"></i> AI 整理與重點總結提示詞模板中心
+              </h3>
+              <p class="text-[11px] text-slate-400 mt-0.5">內建大學各學科、會議紀錄、工作匯報、演講講座與訪談對談等多場景實戰模板，亦可微調內容或建立專屬模板。</p>
+            </div>
+            <button onclick="openNewPromptEditor()" class="bio-btn px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white flex items-center gap-1.5 shrink-0 shadow-md">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i> 新增自訂模板
+            </button>
+          </div>
+
+          <!-- 場景快速套用預設組 -->
+          <div class="space-y-2.5">
+            <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span class="font-semibold text-slate-300">場景一鍵套用組合：</span>
+              <div id="prompt-preset-filters" class="flex flex-wrap gap-1.5 text-[11px]">
+                <button onclick="filterPromptPresets('all')" data-cat="all" class="preset-filter-btn px-2.5 py-1 rounded-lg bg-indigo-600/30 text-indigo-200 border border-indigo-500/40">全部場景</button>
+                <button onclick="filterPromptPresets('course')" data-cat="course" class="preset-filter-btn px-2.5 py-1 rounded-lg glass-card text-slate-300">大學課程</button>
+                <button onclick="filterPromptPresets('meeting')" data-cat="meeting" class="preset-filter-btn px-2.5 py-1 rounded-lg glass-card text-slate-300">會議・工作</button>
+                <button onclick="filterPromptPresets('speech')" data-cat="speech" class="preset-filter-btn px-2.5 py-1 rounded-lg glass-card text-slate-300">演講・講座</button>
+                <button onclick="filterPromptPresets('talk')" data-cat="talk" class="preset-filter-btn px-2.5 py-1 rounded-lg glass-card text-slate-300">訪談・對談</button>
+              </div>
+            </div>
+            <div id="prompt-presets-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 text-xs">
+              <div class="glass-card rounded-2xl p-3 text-slate-400">載入場景組合中...</div>
+            </div>
+          </div>
+
+          <!-- 階段三整理 & 階段四總結 單獨選擇與編輯 -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs pt-1">
+            <!-- 階段三：內文整理模板 -->
+            <div class="glass-card rounded-2xl p-4 space-y-2.5 border border-cyan-500/20">
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-bold text-sm flex items-center gap-1.5 text-cyan-300">
+                  <i data-lucide="file-edit" class="w-4 h-4"></i> 階段三：內文整理提示詞 (Cleanup)
+                </span>
+                <span id="settings-cleanup-tpl-meta" class="px-2 py-0.5 rounded-full text-[10px] bg-white/10 text-slate-300">載入中</span>
+              </div>
+              <select id="settings-cleanup-tpl-select" onchange="selectStagePrompt('cleanup', this.value)" class="w-full bg-black/30 border border-white/15 rounded-xl px-3 py-2 text-xs">
+                <option value="videolingo_punct.md">載入中...</option>
+              </select>
+              <p id="settings-cleanup-tpl-desc" class="text-[11px] text-slate-400 leading-relaxed min-h-[2.2rem]"></p>
+              <div class="flex flex-wrap gap-2">
+                <button onclick="openPromptEditor('cleanup')" class="bio-btn flex-1 py-1.5 rounded-xl bg-cyan-600/25 hover:bg-cyan-600/40 text-cyan-200 border border-cyan-500/35 text-[11px]">檢視 / 編輯此整理提示詞</button>
+                <button id="btn-reset-cleanup-tpl" onclick="resetCurrentPrompt('cleanup')" class="hidden bio-btn px-3 py-1.5 rounded-xl glass-card text-[11px] text-amber-300">還原預設</button>
+              </div>
+            </div>
+
+            <!-- 階段四：重點總結模板 -->
+            <div class="glass-card rounded-2xl p-4 space-y-2.5 border border-indigo-500/20">
+              <div class="flex items-center justify-between gap-2">
+                <span class="font-bold text-sm flex items-center gap-1.5 text-indigo-300">
+                  <i data-lucide="file-text" class="w-4 h-4"></i> 階段四：重點總結提示詞 (Summary)
+                </span>
+                <span id="settings-summary-tpl-meta" class="px-2 py-0.5 rounded-full text-[10px] bg-white/10 text-slate-300">載入中</span>
+              </div>
+              <select id="settings-summary-tpl-select" onchange="selectStagePrompt('summary', this.value)" class="w-full bg-black/30 border border-white/15 rounded-xl px-3 py-2 text-xs">
+                <option value="fabric_summarize_lecture.md">載入中...</option>
+              </select>
+              <p id="settings-summary-tpl-desc" class="text-[11px] text-slate-400 leading-relaxed min-h-[2.2rem]"></p>
+              <div class="flex flex-wrap gap-2">
+                <button onclick="openPromptEditor('summary')" class="bio-btn flex-1 py-1.5 rounded-xl bg-indigo-600/25 hover:bg-indigo-600/40 text-indigo-200 border border-indigo-500/35 text-[11px]">檢視 / 編輯此總結提示詞</button>
+                <button id="btn-reset-summary-tpl" onclick="resetCurrentPrompt('summary')" class="hidden bio-btn px-3 py-1.5 rounded-xl glass-card text-[11px] text-amber-300">還原預設</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1442,6 +1541,75 @@
       <div class="flex justify-between items-center pt-3 border-t border-white/10">
         <button onclick="closeSetupWizard(); switchTab('settings');" class="bio-btn px-3.5 py-2 rounded-xl glass-card text-xs">前往目錄與詳細設定</button>
         <button onclick="closeSetupWizard()" class="bio-btn px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white shadow-md">完成並關閉</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- ================= 提示詞模板檢視與編輯 MODAL ================= -->
+  <dialog id="prompt-editor-modal" class="glass-surface border border-white/15 rounded-3xl p-6 text-slate-100 max-w-3xl w-full shadow-2xl">
+    <div class="space-y-4">
+      <div class="flex items-center justify-between border-b border-white/10 pb-3">
+        <div>
+          <h3 id="prompt-editor-title" class="font-bold text-base flex items-center gap-2">
+            <i data-lucide="file-edit" class="w-4 h-4 text-indigo-400"></i> 編輯提示詞模板
+          </h3>
+          <p id="prompt-editor-subtitle" class="text-[11px] text-slate-400 mt-0.5"></p>
+        </div>
+        <button onclick="closePromptEditor()" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+        <div>
+          <label class="block font-semibold mb-1 text-slate-300">適用階段</label>
+          <select id="prompt-editor-stage" class="w-full bg-black/30 border border-white/15 rounded-xl px-3 py-2 text-xs">
+            <option value="cleanup">階段三：內文整理 (Cleanup)</option>
+            <option value="summary">階段四：重點總結 (Summary)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block font-semibold mb-1 text-slate-300">適用場景分類</label>
+          <select id="prompt-editor-category" class="w-full bg-black/30 border border-white/15 rounded-xl px-3 py-2 text-xs">
+            <option value="course">大學課程</option>
+            <option value="meeting">會議・工作</option>
+            <option value="speech">演講・講座</option>
+            <option value="talk">訪談・對談</option>
+            <option value="custom">自訂模板</option>
+          </select>
+        </div>
+        <div>
+          <label class="block font-semibold mb-1 text-slate-300">模板檔名 (ID)</label>
+          <input type="text" id="prompt-editor-id" placeholder="例如：my_seminar.md" class="w-full bg-black/30 border border-white/15 rounded-xl px-3 py-2 text-xs font-mono">
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+        <div>
+          <label class="block font-semibold mb-1 text-slate-300">模板顯示名稱</label>
+          <input type="text" id="prompt-editor-name" placeholder="例如：研究所論文討論筆記" class="w-full bg-black/30 border border-white/15 rounded-xl px-3 py-2 text-xs">
+        </div>
+        <div>
+          <label class="block font-semibold mb-1 text-slate-300">簡介說明</label>
+          <input type="text" id="prompt-editor-desc" placeholder="簡述適用場景與產出結構" class="w-full bg-black/30 border border-white/15 rounded-xl px-3 py-2 text-xs">
+        </div>
+      </div>
+
+      <div class="text-xs space-y-1">
+        <div class="flex justify-between items-center">
+          <label class="font-semibold text-slate-300">提示詞內容 (Markdown Prompt)</label>
+          <span class="text-[10px] text-slate-400">整理階段建議要求保留原意與字數守恆；總結階段可自訂 Markdown 輸出章節。</span>
+        </div>
+        <textarea id="prompt-editor-content" rows="13" class="w-full bg-black/35 border border-white/15 rounded-2xl p-3 text-xs font-mono leading-relaxed"></textarea>
+      </div>
+
+      <div class="flex flex-wrap justify-between items-center gap-2 pt-3 border-t border-white/10">
+        <div class="flex gap-2">
+          <button id="btn-prompt-modal-reset" onclick="resetEditingPrompt()" class="hidden bio-btn px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs">還原出廠預設</button>
+          <button id="btn-prompt-modal-delete" onclick="deleteEditingPrompt()" class="hidden bio-btn px-3 py-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs">刪除此自訂模板</button>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="closePromptEditor()" class="bio-btn px-4 py-2 rounded-xl glass-card text-xs">取消</button>
+          <button onclick="submitPromptEditor()" class="bio-btn px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white shadow-md">儲存並套用</button>
+        </div>
       </div>
     </div>
   </dialog>
@@ -4157,6 +4325,365 @@
       }
     }
 
+    // =========================================================================
+    // 整理 / 總結提示詞模板與多場景預設管理
+    // =========================================================================
+    window._promptCatalog = null;
+    window._promptPresetFilter = 'all';
+    window._editingPromptMeta = { isNew: false, isBuiltin: true, id: '' };
+
+    function _escapeHtmlPrompt(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    async function loadPromptsFromServer() {
+      try {
+        const res = await fetch('/api/prompts');
+        if (res.ok) {
+          window._promptCatalog = await res.json();
+          renderPromptUI();
+        }
+      } catch (e) {}
+    }
+
+    function _buildGroupedOptionsHtml(templates, selectedId) {
+      const groupOrder = ['course', 'meeting', 'speech', 'talk', 'advanced', 'custom'];
+      const groups = {};
+      (templates || []).forEach(t => {
+        const cat = t.category || 'custom';
+        if (!groups[cat]) groups[cat] = [];
+        groups[cat].push(t);
+      });
+      let html = '';
+      groupOrder.forEach(cat => {
+        const items = groups[cat];
+        if (!items || !items.length) return;
+        const label = items[0].category_label || cat;
+        html += `<optgroup label="${_escapeHtmlPrompt(label)}">`;
+        items.forEach(t => {
+          const sel = t.id === selectedId ? ' selected' : '';
+          const modTag = t.is_modified ? ' [已修改]' : (t.is_builtin ? '' : ' [自訂]');
+          html += `<option value="${_escapeHtmlPrompt(t.id)}"${sel}>${_escapeHtmlPrompt(t.name)}${modTag}</option>`;
+        });
+        html += '</optgroup>';
+      });
+      return html;
+    }
+
+    function renderPromptUI() {
+      const cat = window._promptCatalog;
+      if (!cat) return;
+
+      const cleanupList = cat.cleanup_templates || [];
+      const summaryList = cat.summary_templates || [];
+      const presets = cat.presets || [];
+      const activeCleanup = cat.active_cleanup;
+      const activeSummary = cat.active_summary;
+      const activePreset = cat.active_preset || 'custom';
+
+      const cleanupObj = cleanupList.find(t => t.id === activeCleanup) || cleanupList[0];
+      const summaryObj = summaryList.find(t => t.id === activeSummary) || summaryList[0];
+
+      // 1. Studio preset dropdown & badges
+      const studioSel = document.getElementById('studio-preset-select');
+      if (studioSel) {
+        let opts = presets.map(p => {
+          const sel = p.id === activePreset ? ' selected' : '';
+          return `<option value="${_escapeHtmlPrompt(p.id)}"${sel}>${_escapeHtmlPrompt(p.name)}</option>`;
+        }).join('');
+        opts += `<option value="custom"${activePreset === 'custom' ? ' selected' : ''}>⚙️ 自訂整理 + 總結組合</option>`;
+        studioSel.innerHTML = opts;
+      }
+
+      const cBadge = document.getElementById('studio-cleanup-tpl-badge');
+      if (cBadge && cleanupObj) {
+        cBadge.innerText = `整理：${cleanupObj.name}`;
+        cBadge.title = `${cleanupObj.id}\n${cleanupObj.description || ''}`;
+      }
+      const sBadge = document.getElementById('studio-summary-tpl-badge');
+      if (sBadge && summaryObj) {
+        sBadge.innerText = `總結：${summaryObj.name}`;
+        sBadge.title = `${summaryObj.id}\n${summaryObj.description || ''}`;
+      }
+
+      // 2. Settings stage selects & metadata
+      const cSel = document.getElementById('settings-cleanup-tpl-select');
+      if (cSel) cSel.innerHTML = _buildGroupedOptionsHtml(cleanupList, activeCleanup);
+      const sSel = document.getElementById('settings-summary-tpl-select');
+      if (sSel) sSel.innerHTML = _buildGroupedOptionsHtml(summaryList, activeSummary);
+
+      const cMeta = document.getElementById('settings-cleanup-tpl-meta');
+      const cDesc = document.getElementById('settings-cleanup-tpl-desc');
+      const cReset = document.getElementById('btn-reset-cleanup-tpl');
+      if (cleanupObj) {
+        if (cMeta) cMeta.innerText = cleanupObj.is_modified ? `${cleanupObj.source} · 已自訂修改` : cleanupObj.source;
+        if (cDesc) cDesc.innerText = cleanupObj.description || '';
+        if (cReset) cReset.classList.toggle('hidden', !(cleanupObj.is_builtin && cleanupObj.is_modified));
+      }
+
+      const sMeta = document.getElementById('settings-summary-tpl-meta');
+      const sDesc = document.getElementById('settings-summary-tpl-desc');
+      const sReset = document.getElementById('btn-reset-summary-tpl');
+      if (summaryObj) {
+        if (sMeta) sMeta.innerText = summaryObj.is_modified ? `${summaryObj.source} · 已自訂修改` : summaryObj.source;
+        if (sDesc) sDesc.innerText = summaryObj.description || '';
+        if (sReset) sReset.classList.toggle('hidden', !(summaryObj.is_builtin && summaryObj.is_modified));
+      }
+
+      // 3. Settings scenario preset cards
+      renderPromptPresetCards();
+    }
+
+    function renderPromptPresetCards() {
+      const cat = window._promptCatalog;
+      const grid = document.getElementById('prompt-presets-grid');
+      if (!cat || !grid) return;
+
+      const filter = window._promptPresetFilter || 'all';
+      const activePreset = cat.active_preset || 'custom';
+      const filtered = (cat.presets || []).filter(p => filter === 'all' || p.category === filter);
+
+      grid.innerHTML = filtered.map(p => {
+        const isActive = p.id === activePreset;
+        const cardCls = isActive
+          ? 'border-indigo-400/70 bg-indigo-600/20 shadow-md'
+          : 'border-white/10 hover:border-indigo-400/40 hover:bg-white/5';
+        return `
+          <button type="button" onclick="applyScenarioPreset('${_escapeHtmlPrompt(p.id)}')" class="bio-btn text-left p-3 rounded-2xl glass-card border ${cardCls} transition space-y-1 flex flex-col justify-between">
+            <div class="font-bold text-slate-100 leading-snug">${_escapeHtmlPrompt(p.name)}</div>
+            <p class="text-[11px] text-slate-400 leading-relaxed line-clamp-2">${_escapeHtmlPrompt(p.description)}</p>
+          </button>
+        `;
+      }).join('');
+    }
+
+    function filterPromptPresets(category) {
+      window._promptPresetFilter = category || 'all';
+      document.querySelectorAll('#prompt-preset-filters .preset-filter-btn').forEach(btn => {
+        const matched = btn.getAttribute('data-cat') === window._promptPresetFilter;
+        btn.className = matched
+          ? 'preset-filter-btn px-2.5 py-1 rounded-lg bg-indigo-600/30 text-indigo-200 border border-indigo-500/40'
+          : 'preset-filter-btn px-2.5 py-1 rounded-lg glass-card text-slate-300';
+      });
+      renderPromptPresetCards();
+    }
+
+    async function applyScenarioPreset(presetId) {
+      if (!presetId || presetId === 'custom') return;
+      try {
+        const res = await fetch('/api/prompts/select', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ preset_id: presetId }),
+        });
+        const d = await res.json();
+        if (res.ok) {
+          window._promptCatalog = d;
+          renderPromptUI();
+          showToast(d.message || '已套用場景預設組合');
+        } else {
+          showToast(d.detail || '套用場景失敗');
+        }
+      } catch (e) {
+        showToast('無法連線至提示詞管理服務');
+      }
+    }
+
+    async function selectStagePrompt(stage, templateId) {
+      if (!templateId) return;
+      const body = stage === 'cleanup'
+        ? { cleanup_template: templateId }
+        : { summary_template: templateId };
+      try {
+        const res = await fetch('/api/prompts/select', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const d = await res.json();
+        if (res.ok) {
+          window._promptCatalog = d;
+          renderPromptUI();
+          showToast(d.message || '已更新提示詞模板');
+        } else {
+          showToast(d.detail || '切換提示詞模板失敗');
+        }
+      } catch (e) {
+        showToast('無法更新提示詞模板');
+      }
+    }
+
+    function openPromptEditor(stage) {
+      const cat = window._promptCatalog;
+      if (!cat) {
+        showToast('提示詞清單尚未載入完成');
+        return;
+      }
+      const list = stage === 'cleanup' ? (cat.cleanup_templates || []) : (cat.summary_templates || []);
+      const targetId = stage === 'cleanup' ? cat.active_cleanup : cat.active_summary;
+      const tpl = list.find(t => t.id === targetId) || list[0];
+      if (!tpl) return;
+
+      window._editingPromptMeta = { isNew: false, isBuiltin: !!tpl.is_builtin, id: tpl.id };
+      document.getElementById('prompt-editor-title').innerText = `編輯提示詞模板：${tpl.name}`;
+      document.getElementById('prompt-editor-subtitle').innerText = `檔案：prompts/library/${tpl.id} · 來源：${tpl.source}`;
+
+      const stageEl = document.getElementById('prompt-editor-stage');
+      const catEl = document.getElementById('prompt-editor-category');
+      const idEl = document.getElementById('prompt-editor-id');
+      const nameEl = document.getElementById('prompt-editor-name');
+      const descEl = document.getElementById('prompt-editor-desc');
+      const contentEl = document.getElementById('prompt-editor-content');
+
+      stageEl.value = tpl.stage;
+      stageEl.disabled = true;
+      catEl.value = tpl.category || 'custom';
+      catEl.disabled = !!tpl.is_builtin;
+      idEl.value = tpl.id;
+      idEl.readOnly = true;
+      nameEl.value = tpl.name || '';
+      nameEl.readOnly = !!tpl.is_builtin;
+      descEl.value = tpl.description || '';
+      descEl.readOnly = !!tpl.is_builtin;
+      contentEl.value = tpl.content || '';
+
+      document.getElementById('btn-prompt-modal-reset').classList.toggle('hidden', !tpl.is_builtin);
+      document.getElementById('btn-prompt-modal-delete').classList.toggle('hidden', !!tpl.is_builtin);
+
+      const dlg = document.getElementById('prompt-editor-modal');
+      if (dlg && !dlg.open) dlg.showModal();
+    }
+
+    function openNewPromptEditor() {
+      window._editingPromptMeta = { isNew: true, isBuiltin: false, id: '' };
+      document.getElementById('prompt-editor-title').innerText = '新增自訂提示詞模板';
+      document.getElementById('prompt-editor-subtitle').innerText = '建立個人專屬的整理或重點總結提示詞，儲存後將立即套用至對應階段。';
+
+      const stageEl = document.getElementById('prompt-editor-stage');
+      const catEl = document.getElementById('prompt-editor-category');
+      const idEl = document.getElementById('prompt-editor-id');
+      const nameEl = document.getElementById('prompt-editor-name');
+      const descEl = document.getElementById('prompt-editor-desc');
+      const contentEl = document.getElementById('prompt-editor-content');
+
+      stageEl.value = 'summary';
+      stageEl.disabled = false;
+      catEl.value = 'custom';
+      catEl.disabled = false;
+      idEl.value = `custom_prompt_${Date.now().toString().slice(-4)}.md`;
+      idEl.readOnly = false;
+      nameEl.value = '';
+      nameEl.readOnly = false;
+      descEl.value = '';
+      descEl.readOnly = false;
+      contentEl.value = '# 角色與目標\n請依據輸入文稿產出結構清晰、重點明確的台灣繁體中文筆記。\n\n# 輸出格式\n# 【核心摘要】\n# 【關鍵重點整理】\n# 【後續行動建議】\n';
+
+      document.getElementById('btn-prompt-modal-reset').classList.add('hidden');
+      document.getElementById('btn-prompt-modal-delete').classList.add('hidden');
+
+      const dlg = document.getElementById('prompt-editor-modal');
+      if (dlg && !dlg.open) dlg.showModal();
+    }
+
+    function closePromptEditor() {
+      const dlg = document.getElementById('prompt-editor-modal');
+      if (dlg && dlg.open) dlg.close();
+    }
+
+    async function submitPromptEditor() {
+      const payload = {
+        template_id: document.getElementById('prompt-editor-id').value.trim(),
+        stage: document.getElementById('prompt-editor-stage').value,
+        category: document.getElementById('prompt-editor-category').value,
+        name: document.getElementById('prompt-editor-name').value.trim(),
+        description: document.getElementById('prompt-editor-desc').value.trim(),
+        content: document.getElementById('prompt-editor-content').value,
+        set_active: true,
+      };
+      try {
+        const res = await fetch('/api/prompts/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const d = await res.json();
+        if (res.ok) {
+          window._promptCatalog = d;
+          renderPromptUI();
+          closePromptEditor();
+          showToast(d.message || '提示詞模板已儲存並套用');
+        } else {
+          showToast(d.detail || '儲存提示詞模板失敗');
+        }
+      } catch (e) {
+        showToast('儲存提示詞失敗');
+      }
+    }
+
+    async function resetCurrentPrompt(stage) {
+      const cat = window._promptCatalog;
+      if (!cat) return;
+      const tid = stage === 'cleanup' ? cat.active_cleanup : cat.active_summary;
+      await _resetPromptById(tid);
+    }
+
+    async function resetEditingPrompt() {
+      const tid = document.getElementById('prompt-editor-id').value.trim();
+      await _resetPromptById(tid, true);
+    }
+
+    async function _resetPromptById(tid, reloadEditor) {
+      if (!tid) return;
+      try {
+        const res = await fetch('/api/prompts/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ template_id: tid }),
+        });
+        const d = await res.json();
+        if (res.ok) {
+          window._promptCatalog = d;
+          renderPromptUI();
+          if (reloadEditor) {
+            const stage = document.getElementById('prompt-editor-stage').value;
+            const list = stage === 'cleanup' ? d.cleanup_templates : d.summary_templates;
+            const restored = (list || []).find(t => t.id === tid);
+            if (restored) {
+              document.getElementById('prompt-editor-content').value = restored.content || '';
+            }
+          }
+          showToast(d.message || '已還原預設提示詞');
+        } else {
+          showToast(d.detail || '還原預設失敗');
+        }
+      } catch (e) {
+        showToast('還原預設失敗');
+      }
+    }
+
+    async function deleteEditingPrompt() {
+      const tid = document.getElementById('prompt-editor-id').value.trim();
+      if (!tid) return;
+      try {
+        const res = await fetch(`/api/prompts/${encodeURIComponent(tid)}`, { method: 'DELETE' });
+        const d = await res.json();
+        if (res.ok) {
+          window._promptCatalog = d;
+          renderPromptUI();
+          closePromptEditor();
+          showToast(d.message || '已刪除自訂模板');
+        } else {
+          showToast(d.detail || '刪除失敗');
+        }
+      } catch (e) {
+        showToast('刪除自訂模板失敗');
+      }
+    }
+
     // 供 Python 宿主程序 (PyWebView) 在視窗隱藏與顯示時直接調用
     window.onHostWindowHidden = function() {
       stopFluidAnimation();
@@ -4177,6 +4704,7 @@
     window.addEventListener('DOMContentLoaded', () => {
       loadState();
       loadStatusFromServer();
+      loadPromptsFromServer();
       loadTimetableFromServer();
       loadGlossaryFromServer();
       loadHistoryFromServer();

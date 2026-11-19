@@ -13,7 +13,6 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-AppMutex=LecturePipelineSingleInstanceMutex
 CloseApplications=yes
 CloseApplicationsFilter=*.exe,*.dll
 RestartApplications=yes

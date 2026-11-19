@@ -51,6 +51,14 @@ class GeminiLectureSummarizer(BaseSummarizer):
                 p = Path("prompts/library") / template_path
             elif (Path("prompts") / template_path).is_file():
                 p = Path("prompts") / template_path
+        if not p.is_file():
+            try:
+                from lecture_pipeline.prompt_catalog import resolve_prompt_file
+                resolved = resolve_prompt_file(template_path)
+                if resolved.is_file():
+                    p = resolved
+            except Exception:
+                pass
         self.template_path = p
         self.thinking_budget = thinking_budget
         self.temperature = temperature
@@ -69,6 +77,14 @@ class GeminiLectureSummarizer(BaseSummarizer):
             )
             if is_meeting and self.template_path.name == "fabric_summarize_lecture.md":
                 meeting_t = Path("prompts/library/meeting_summary.md")
+                if not meeting_t.is_file():
+                    try:
+                        from lecture_pipeline.prompt_catalog import resolve_prompt_file
+                        resolved_m = resolve_prompt_file("meeting_summary.md")
+                        if resolved_m.is_file():
+                            meeting_t = resolved_m
+                    except Exception:
+                        pass
                 if meeting_t.is_file():
                     actual_template = meeting_t
 
